@@ -1,11 +1,13 @@
 # Схема базы данных
 
+
+
 Основная БД — PostgreSQL с расширением `pgvector`.
 
 - Реляционные таблицы используются для основных сущностей и связей.
 - `JSONB` используется для изменяемых и вложенных данных.
 - `vector` используется для семантического поиска по фрагментам документов.
-- Оригинальные PDF и HTML хранятся вне БД; в БД сохраняются URI и извлеченный текст.
+- Оригинальные PDF и HTML хранятся в приватном S3-совместимом object storage; в БД сохраняются ключ объекта, версия, хеш и извлеченный текст.
 
 ## 1. Таблицы
 
@@ -49,6 +51,8 @@
 
 Связи компаний и физических лиц.
 
+Связь оставляем many-to-many: один человек может быть владельцем, директором или представителем нескольких юридических лиц, а у одной компании может быть несколько связанных лиц. Если исходный набор гарантирует уникальность `person → company`, это ограничение можно добавить отдельно, но схема не должна предполагать его без подтверждения.
+
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `company_id` | UUID | PK, FK → `companies.id` |
@@ -88,7 +92,7 @@
 
 ### 1.6. `documents`
 
-Новости и аналитические материалы.
+Стабильная запись документа независимо от изменений его содержимого.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
@@ -96,24 +100,53 @@
 | `source_id` | UUID | FK → `sources.id` |
 | `external_id` | TEXT | UNIQUE внутри источника |
 | `canonical_url` | TEXT | UNIQUE |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+
+Уникальность: `(source_id, external_id)` и `canonical_url`.
+
+### 1.7. `document_versions`
+
+Версии содержимого документа. При изменении текста создается новая строка; предыдущая версия не перезаписывается.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `document_id` | UUID | FK → `documents.id` |
+| `version_no` | INTEGER | NOT NULL |
 | `title` | TEXT | NOT NULL |
 | `published_at` | TIMESTAMPTZ | |
 | `retrieved_at` | TIMESTAMPTZ | NOT NULL |
 | `document_type` | TEXT | NOT NULL |
-| `storage_uri` | TEXT | |
-| `content_hash` | TEXT | UNIQUE, NOT NULL |
+| `s3_bucket` | TEXT | NOT NULL для сохраненного оригинала |
+| `s3_object_key` | TEXT | NOT NULL для сохраненного оригинала |
+| `s3_version_id` | TEXT | Версия объекта в S3, nullable |
+| `mime_type` | TEXT | Например `text/html`, `application/pdf` |
+| `size_bytes` | BIGINT | Размер оригинала |
+| `checksum_sha256` | TEXT | Хеш оригинального файла |
+| `content_hash` | TEXT | Хеш нормализованного текста |
 | `normalized_text` | TEXT | NOT NULL |
 | `metadata` | JSONB | NOT NULL, DEFAULT `{}` |
 | `processing_status` | TEXT | `new`, `parsed`, `embedded`, `analyzed`, `failed` |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
 
-### 1.7. `document_chunks`
+Уникальность: `(document_id, version_no)` и `(document_id, content_hash)`.
+
+Алгоритм обновления:
+
+1. Повторно получить материал из источника.
+2. Вычислить `content_hash` нормализованного текста.
+3. Если хеш не изменился — обновление не создавать.
+4. Если хеш изменился — загрузить новый оригинал в S3 и создать следующую `document_version`.
+5. Создать новые чанки и embeddings только для новой версии.
+
+### 1.8. `document_chunks`
 
 Фрагменты документов для поиска и RAG.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `document_id` | UUID | FK → `documents.id` |
+| `document_version_id` | UUID | FK → `document_versions.id` |
 | `chunk_no` | INTEGER | NOT NULL |
 | `chunk_text` | TEXT | NOT NULL |
 | `char_start` | INTEGER | |
@@ -123,9 +156,9 @@
 | `embedding_model` | TEXT | |
 | `embedding_version` | TEXT | |
 
-Уникальность: `(document_id, chunk_no)`.
+Уникальность: `(document_version_id, chunk_no)`.
 
-### 1.8. `events`
+### 1.9. `events`
 
 Дедуплицированные события.
 
@@ -141,18 +174,18 @@
 | `confidence` | NUMERIC | `0..1` |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 
-### 1.9. `event_documents`
+### 1.10. `event_documents`
 
 Связь событий с документами.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `event_id` | UUID | PK, FK → `events.id` |
-| `document_id` | UUID | PK, FK → `documents.id` |
+| `document_version_id` | UUID | PK, FK → `document_versions.id` |
 | `evidence_role` | TEXT | `support`, `contradict`, `context` |
 | `is_primary` | BOOLEAN | DEFAULT `false` |
 
-### 1.10. `event_facts`
+### 1.11. `event_facts`
 
 Факты, выделенные из события.
 
@@ -166,7 +199,7 @@
 | `verification_status` | TEXT | `candidate`, `confirmed`, `disputed`, `rejected` |
 | `confidence` | NUMERIC | `0..1` |
 
-### 1.11. `fact_evidence`
+### 1.12. `fact_evidence`
 
 Фрагменты, подтверждающие факт.
 
@@ -177,7 +210,7 @@
 | `quote_text` | TEXT | NOT NULL |
 | `evidence_role` | TEXT | `support`, `contradict`, `context` |
 
-### 1.12. `company_event_assessments`
+### 1.13. `company_event_assessments`
 
 Оценка влияния события на компанию.
 
@@ -200,12 +233,12 @@
 | `recommended_actions` | JSONB | NOT NULL, DEFAULT `[]` |
 | `score_components` | JSONB | NOT NULL, DEFAULT `{}` |
 | `bank_view` | TEXT | |
-| `bank_view_document_id` | UUID | FK → `documents.id` |
+| `bank_view_document_version_id` | UUID | FK → `document_versions.id` |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 
 Уникальность: `(company_id, event_id, version)`.
 
-### 1.13. `assessment_evidence`
+### 1.14. `assessment_evidence`
 
 Доказательства выводов оценки.
 
@@ -219,7 +252,7 @@
 
 Должно быть заполнено хотя бы одно из полей: `fact_id`, `chunk_id`.
 
-### 1.14. `analysis_runs`
+### 1.15. `analysis_runs`
 
 Версии и статусы запусков AI-анализа.
 
@@ -235,7 +268,7 @@
 | `finished_at` | TIMESTAMPTZ | |
 | `error_message` | TEXT | |
 
-### 1.15. `analysis_steps`
+### 1.16. `analysis_steps`
 
 Шаги внутри запуска AI-анализа.
 
@@ -260,8 +293,9 @@
 | `companies` | 1 → N | `payment_edges` как плательщик |
 | `companies` | 1 → N | `payment_edges` как получатель |
 | `sources` | 1 → N | `documents` |
-| `documents` | 1 → N | `document_chunks` |
-| `documents` | N ↔ M | `events` через `event_documents` |
+| `documents` | 1 → N | `document_versions` |
+| `document_versions` | 1 → N | `document_chunks` |
+| `document_versions` | N ↔ M | `events` через `event_documents` |
 | `events` | 1 → N | `event_facts` |
 | `event_facts` | 1 → N | `fact_evidence` |
 | `document_chunks` | 1 → N | `fact_evidence` |
@@ -278,7 +312,7 @@
 | Таблица | Поле | Содержимое |
 |---|---|---|
 | `companies` | `raw_profile` | Дополнительные исходные признаки компании |
-| `documents` | `metadata` | Теги и дополнительные метаданные документа |
+| `document_versions` | `metadata` | Теги и дополнительные метаданные конкретной версии документа |
 | `events` | `geography` | Список стран и регионов |
 | `company_event_assessments` | `consequences` | Список последствий |
 | `company_event_assessments` | `recommended_actions` | Список действий |
@@ -304,7 +338,7 @@
 
 Если какое-либо значение начинает регулярно использоваться в фильтрах или расчетах, оно переносится из `raw_profile` в отдельную колонку `companies`.
 
-#### `documents.metadata`
+#### `document_versions.metadata`
 
 Хранит необязательные данные, зависящие от конкретного источника.
 
@@ -391,14 +425,14 @@
 
 ```json
 {
-  "document_ids": ["uuid-1", "uuid-2"],
+  "document_version_ids": ["uuid-1", "uuid-2"],
   "candidate_count": 12
 }
 ```
 
 ```json
 {
-  "selected_document_ids": ["uuid-1"],
+  "selected_document_version_ids": ["uuid-1"],
   "event_id": "uuid-3",
   "confidence": 0.84
 }
@@ -487,7 +521,7 @@ embedding vector(1024)
 ```sql
 SELECT
     id,
-    document_id,
+    document_version_id,
     chunk_text,
     1 - (embedding <=> :query_embedding) AS similarity
 FROM document_chunks
@@ -503,10 +537,11 @@ LIMIT 20;
 ```sql
 SELECT dc.id, dc.chunk_text
 FROM document_chunks dc
-JOIN documents d ON d.id = dc.document_id
+JOIN document_versions dv ON dv.id = dc.document_version_id
+JOIN documents d ON d.id = dv.document_id
 WHERE dc.embedding IS NOT NULL
-  AND d.published_at >= now() - interval '30 days'
-  AND d.processing_status = 'analyzed'
+  AND dv.published_at >= now() - interval '30 days'
+  AND dv.processing_status = 'analyzed'
 ORDER BY dc.embedding <=> :query_embedding
 LIMIT 20;
 ```
@@ -550,7 +585,60 @@ chunk_embeddings
 
 Для текущего MVP отдельная таблица не требуется: одна колонка в `document_chunks` проще и не добавляет лишний `JOIN`.
 
-## 5. Индексы
+## 5. Хранение оригиналов в S3
+
+Для MVP используется один приватный S3-совместимый bucket. Подойдет облачное Object Storage с S3 API или локальный MinIO, если проект запускается полностью в Docker.
+
+Рекомендуемое имя bucket:
+
+```text
+news-analytics-raw-{environment}
+```
+
+Пример ключа объекта:
+
+```text
+raw/{source_id}/{document_id}/{version_no}/{checksum_sha256}.{extension}
+```
+
+Пример:
+
+```text
+raw/cbr/9a2f.../3/a84c....html
+```
+
+В PostgreSQL сохраняются:
+
+| Поле | Назначение |
+|---|---|
+| `s3_bucket` | Имя bucket |
+| `s3_object_key` | Неизменяемый ключ объекта |
+| `s3_version_id` | Версия объекта S3, если включено bucket versioning |
+| `mime_type` | Тип файла |
+| `size_bytes` | Размер файла |
+| `checksum_sha256` | Проверка целостности оригинала |
+
+Полный публичный URL в БД не хранится. Bucket остается закрытым, а backend при необходимости создает временный pre-signed URL на скачивание.
+
+```text
+Загрузчик
+  → получает HTML/PDF
+  → вычисляет SHA-256
+  → загружает оригинал в S3
+  → получает object key и version ID
+  → создает document_version в PostgreSQL
+```
+
+Правила:
+
+- S3-объекты не перезаписываются; новая версия документа получает новый object key.
+- Версионирование в `document_versions` является основным прикладным механизмом. S3 versioning включается дополнительно как защита от случайного перезаписывания или удаления.
+- Доступ к bucket разрешен только backend и загрузчику.
+- Access key и secret key хранятся в переменных окружения или secret manager, но не в PostgreSQL.
+- Для MVP lifecycle-удаление оригиналов не настраивается, чтобы не потерять материалы, на которых основаны выводы.
+- Временные и неуспешные multipart-загрузки можно удалять lifecycle-правилом.
+
+## 6. Индексы
 
 | Таблица | Индекс |
 |---|---|
@@ -558,9 +646,11 @@ chunk_embeddings
 | `companies` | B-tree: `(main_okved_code, region)` |
 | `documents` | UNIQUE: `(source_id, external_id)` |
 | `documents` | UNIQUE: `canonical_url` |
-| `documents` | UNIQUE: `content_hash` |
-| `documents` | B-tree: `published_at DESC` |
-| `document_chunks` | UNIQUE: `(document_id, chunk_no)` |
+| `document_versions` | UNIQUE: `(document_id, version_no)` |
+| `document_versions` | UNIQUE: `(document_id, content_hash)` |
+| `document_versions` | B-tree: `content_hash` |
+| `document_versions` | B-tree: `published_at DESC` |
+| `document_chunks` | UNIQUE: `(document_version_id, chunk_no)` |
 | `document_chunks` | GIN: `search_vector` |
 | `document_chunks` | HNSW: `embedding vector_cosine_ops` |
 | `events` | B-tree: `occurred_at DESC` |
@@ -569,7 +659,7 @@ chunk_embeddings
 | `company_event_assessments` | B-tree: `(company_id, created_at DESC)` |
 | `analysis_steps` | UNIQUE: `(run_id, step_no)` |
 
-## 6. Что входит в MVP
+## 7. Что входит в MVP
 
 Обязательные таблицы:
 
@@ -577,6 +667,7 @@ chunk_embeddings
 companies
 sources
 documents
+document_versions
 document_chunks
 events
 event_documents
