@@ -653,6 +653,8 @@ components:
           - PROFILE_NOT_READY
           - UNSUPPORTED_ADAPTER
           - INTERNAL_ERROR
+          - UNAUTHENTICATED
+          - FORBIDDEN
         message:
           type: string
         trace_id:
@@ -1154,9 +1156,10 @@ components:
       - context
       - role_id
       - profile
-      description: Внутренний контекст, сформированный сервером после проверки пользователя,
-        роли и доступа. Не заменяет авторизацию и не разрешает доверять аналогичным
-        полям публичного запроса.
+      description: Контекст, сформированный Go из проверенной серверной сессии и разрешений
+        в БД. ML принимает его только после проверки Bearer SERVICE_TOKEN и проверяет
+        соответствие профиля контексту, разбора и диалога. Служебный токен подтверждает
+        Go, а не корректность произвольного JSON.
     EvidencePackage:
       type: object
       properties:
@@ -1253,6 +1256,10 @@ components:
       - raw_ref
       - content_hash
       - metadata
+      description: Материал, загруженный, сохранённый, нормализованный и технически
+        дедуплицированный Go-воркером. ML выполняет смысловую обработку. raw_ref обозначает
+        сохранённую версию, а не произвольный адрес для сетевой загрузки; учётные
+        данные источника в metadata не передаются.
     AnalysisOperation:
       type: object
       properties:
@@ -1470,3 +1477,46 @@ components:
       description: Курсор связан с зафиксированной выдачей, параметрами запроса и
         версиями профиля и конфигурации. Изменение контекста или фильтров начинает
         новый проход; срок действия контролируется сервером.
+    ArticleProcessingOperation:
+      type: object
+      properties:
+        processing_id:
+          type: string
+          minLength: 1
+        article_version_id:
+          type: string
+          minLength: 1
+        state:
+          type: string
+          enum:
+          - QUEUED
+          - RUNNING
+          - SUCCEEDED
+          - FAILED
+        trace_id:
+          type: string
+          minLength: 1
+        created_at:
+          type: string
+          format: date-time
+        document_version_id:
+          type: string
+          minLength: 1
+        event_ids:
+          type: array
+          items:
+            type: string
+            minLength: 1
+        error:
+          "$ref": "#/components/schemas/Error"
+      additionalProperties: false
+      required:
+      - processing_id
+      - article_version_id
+      - state
+      - trace_id
+      - created_at
+      description: Вычислительная обработка материала от Go; не синхронизация источника.
+        SUCCEEDED содержит document_version_id и event_ids, включая пустой список,
+        если событие не выделено. FAILED содержит безопасную ошибку. Повтор с тем
+        же ключом возвращает ту же операцию.

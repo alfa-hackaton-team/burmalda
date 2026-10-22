@@ -3,10 +3,10 @@ openapi: 3.1.0
 info:
   title: 'Burmalda: внутренний API ML-сервиса'
   version: 0.1.0
-  description: API персонализированной новостной аналитики. Внешние операции проверяют
-    пользователя и доступ к ресурсу; внутренние получают доверенный контекст сервера.
-    Генерация описывает готовый ответ и отслеживаемую операцию для длительного выполнения.
-    Правила контекстов, доказательств и ошибок приведены в README.md.
+  description: Внутренний API ML-сервиса для Go-бэкенда и его воркера. Все операции
+    требуют Bearer SERVICE_TOKEN по защищённому соединению. ML не доступен напрямую
+    интерфейсу или из интернета. Go владеет реестром, расписанием и загрузкой, ML
+    принимает нормализованные материалы и выполняет вычислительную обработку.
 paths:
   "/internal/v0.1/profiles/{profile_id}":
     get:
@@ -14,9 +14,8 @@ paths:
       tags:
       - Profiles
       summary: Получить точную сохранённую версию профиля
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных.
       responses:
         '200':
           description: Структурированный ответ
@@ -35,8 +34,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       parameters:
       - name: profile_id
         in: path
@@ -56,9 +68,8 @@ paths:
       tags:
       - Profiles
       summary: Управляемое перестроение профиля, без периодического опроса CSV
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных.
       responses:
         '202':
           description: Структурированный ответ
@@ -77,8 +88,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       requestBody:
         required: true
         content:
@@ -119,9 +143,8 @@ paths:
       tags:
       - Profiles
       summary: Состояние перестроения и ссылка на новую версию профиля
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных.
       responses:
         '200':
           description: Структурированный ответ
@@ -140,8 +163,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       parameters:
       - name: rebuild_id
         in: path
@@ -155,9 +191,8 @@ paths:
       tags:
       - Retrieval
       summary: Ранжировать краткие карточки событий для доверенного контекста
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных.
       responses:
         '200':
           description: Структурированный ответ
@@ -176,8 +211,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       requestBody:
         required: true
         content:
@@ -203,9 +251,8 @@ paths:
       tags:
       - Retrieval
       summary: Вернуть структурированный пакет доказательств EvidencePackage
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных.
       responses:
         '200':
           description: Структурированный ответ
@@ -224,8 +271,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       requestBody:
         required: true
         content:
@@ -255,7 +315,10 @@ paths:
       description: Агент может выполнить дополнительный поиск. EvidencePackage необязателен
         и не ограничивает допустимые этапы поиска. При передаче пакета проверяется
         совпадение контекста, профиля и трассировки; все новые доказательства сохраняют
-        происхождение.
+        происхождение. Повтор не создаёт новое выполнение. Контекст, профиль, конфигурация
+        и история диалога фиксируются при первом запуске; изменение прав проверяется
+        повторно. Неизвестный исход вызова провайдера не допускает слепого повторного
+        платного вызова.
       responses:
         '200':
           description: Готовый результат при синхронном выполнении
@@ -280,8 +343,33 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '400':
+          description: Отсутствует обязательный Idempotency-Key или некорректны параметры
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '409':
+          description: Idempotency-Key уже связан с другим запросом
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       requestBody:
         required: true
         content:
@@ -305,13 +393,17 @@ paths:
       parameters:
       - name: Idempotency-Key
         in: header
-        required: false
+        required: true
         schema:
           type: string
           minLength: 1
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
+        description: Стабильный идентификатор операции Go. ML сохраняет его и отпечаток
+          вычислительных параметров до платного вызова, возвращает прежнее выполнение
+          на повтор и 409 при других параметрах. Технические trace_id и request_id
+          не меняют идентичность операции.
   "/internal/v0.1/analyses/{analysis_id}":
     get:
       operationId: mlGetAnalysis
@@ -339,8 +431,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       parameters:
       - name: analysis_id
         in: path
@@ -354,9 +459,11 @@ paths:
       tags:
       - Agent
       summary: Ответить в контексте существующего разбора Insight
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных. Повтор не создаёт новое выполнение.
+        Контекст, профиль, конфигурация и история диалога фиксируются при первом запуске;
+        изменение прав проверяется повторно. Неизвестный исход вызова провайдера не
+        допускает слепого повторного платного вызова.
       responses:
         '200':
           description: Синхронный вариант
@@ -381,8 +488,33 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '400':
+          description: Отсутствует обязательный Idempotency-Key или некорректны параметры
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '409':
+          description: Idempotency-Key уже связан с другим запросом
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       requestBody:
         required: true
         content:
@@ -416,267 +548,25 @@ paths:
       parameters:
       - name: Idempotency-Key
         in: header
-        required: false
+        required: true
         schema:
           type: string
           minLength: 1
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
-  "/internal/v0.1/sources":
-    get:
-      operationId: mlListSources
-      tags:
-      - SourceRegistry
-      summary: Список реестра для серверной части
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
-      responses:
-        '200':
-          description: Структурированный ответ
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/SourcePage"
-        default:
-          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
-            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
-            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
-            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
-            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
-            стеки и недоступные пользователю ресурсы.'
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
-      parameters:
-      - name: cursor
-        in: query
-        required: false
-        schema:
-          type: string
-          minLength: 1
-      - name: limit
-        in: query
-        required: false
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 100
-          description: Ограничение числа элементов страницы; применяется вместе с
-            курсором для устойчивой постраничной выдачи.
-    post:
-      operationId: mlCreateSource
-      tags:
-      - SourceRegistry
-      summary: Сохранить проверенную конфигурацию поддерживаемого источника
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
-      responses:
-        '201':
-          description: Структурированный ответ
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Source"
-        default:
-          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
-            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
-            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
-            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
-            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
-            стеки и недоступные пользователю ресурсы.'
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              "$ref": "./schemas.yaml#/components/schemas/SourceConfigInput"
-  "/internal/v0.1/sources/{source_id}":
-    get:
-      operationId: mlGetSource
-      tags:
-      - SourceRegistry
-      summary: Карточка реестра
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
-      responses:
-        '200':
-          description: Структурированный ответ
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Source"
-        default:
-          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
-            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
-            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
-            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
-            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
-            стеки и недоступные пользователю ресурсы.'
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
-      parameters:
-      - name: source_id
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
-    patch:
-      operationId: mlUpdateSource
-      tags:
-      - SourceRegistry
-      summary: Обновить конфигурацию или признак включения
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
-      responses:
-        '200':
-          description: Структурированный ответ
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Source"
-        default:
-          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
-            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
-            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
-            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
-            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
-            стеки и недоступные пользователю ресурсы.'
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              "$ref": "./schemas.yaml#/components/schemas/SourceUpdate"
-      parameters:
-      - name: source_id
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
-  "/internal/v0.1/sources/{source_id}/syncs":
-    post:
-      operationId: mlSyncSource
-      tags:
-      - Ingestion
-      summary: Создать операцию синхронизации источника
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
-      responses:
-        '202':
-          description: Структурированный ответ
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
-        default:
-          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
-            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
-            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
-            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
-            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
-            стеки и недоступные пользователю ресурсы.'
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              properties: {}
-              additionalProperties: false
-      parameters:
-      - name: source_id
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
-      - name: Idempotency-Key
-        in: header
-        required: false
-        schema:
-          type: string
-          minLength: 1
-          description: Ключ связывает повтор с исходной операцией в пределах пользователя
-            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
-            финальный персональный ответ между пользователями.
-  "/internal/v0.1/source-syncs/{sync_id}":
-    get:
-      operationId: mlGetSourceSync
-      tags:
-      - Ingestion
-      summary: Состояние синхронизации
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
-      responses:
-        '200':
-          description: Структурированный ответ
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
-        default:
-          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
-            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
-            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
-            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
-            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
-            стеки и недоступные пользователю ресурсы.'
-          content:
-            application/json:
-              schema:
-                "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
-      parameters:
-      - name: sync_id
-        in: path
-        required: true
-        schema:
-          type: string
-          minLength: 1
+        description: Стабильный идентификатор операции Go. ML сохраняет его и отпечаток
+          вычислительных параметров до платного вызова, возвращает прежнее выполнение
+          на повтор и 409 при других параметрах. Технические trace_id и request_id
+          не меняют идентичность операции.
   "/internal/v0.1/traces/{trace_id}":
     get:
       operationId: mlGetTrace
       tags:
       - Trace
       summary: Этапы трассировки ML без чувствительных данных
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных.
       responses:
         '200':
           description: Структурированный ответ
@@ -695,8 +585,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       parameters:
       - name: trace_id
         in: path
@@ -710,9 +613,8 @@ paths:
       tags:
       - Quality
       summary: Метрики ML и платформы с версиями
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных.
       responses:
         '200':
           description: Структурированный ответ
@@ -731,8 +633,21 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
       parameters:
       - name: from
         in: query
@@ -746,3 +661,173 @@ paths:
         schema:
           type: string
           format: date-time
+  "/internal/v0.1/article-processings":
+    post:
+      operationId: mlProcessArticle
+      tags:
+      - Processing
+      summary: Принять сохранённый материал от Go на ML-обработку
+      description: Go-воркер передаёт NormalizedArticle и безопасные метаданные источника.
+        ML выполняет смысловую дедупликацию, извлечение событий и индексирование.
+        Перед запуском сохраняет ключ и отпечаток параметров; повтор не создаёт вторую
+        обработку. trace_id — корреляция, а не основание для нового выполнения.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                article:
+                  "$ref": "./schemas.yaml#/components/schemas/NormalizedArticle"
+                source:
+                  type: object
+                  properties:
+                    source_id:
+                      type: string
+                      minLength: 1
+                    name:
+                      type: string
+                    source_role:
+                      type: string
+                      enum:
+                      - external
+                      - bank
+                      - expert
+                    source_type:
+                      type: string
+                    trust_level:
+                      type: string
+                    config_version:
+                      type: string
+                  additionalProperties: false
+                  required:
+                  - source_id
+                  - name
+                  - source_role
+                  - source_type
+                  - trust_level
+                  - config_version
+                  description: Безопасная версия метаданных реестра Go для классификации
+                    материала; без endpoint, credential_ref и конфигурации доступа
+                    к издателю.
+                trace_id:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
+              required:
+              - article
+              - source
+              - trace_id
+              description: article.source_id должен совпадать с source.source_id.
+                Go передаёт сохранённую версию материала; ML проверяет ссылки и метаданные,
+                не загружает произвольные URL из запроса.
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+        description: Стабильный ключ Go-воркера, связанный с версией материала и конфигурацией
+          обработки. Повтор с другими параметрами возвращает 409; техническая смена
+          trace_id не создаёт новое выполнение.
+      responses:
+        '202':
+          description: Операция ML-обработки материала
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/ArticleProcessingOperation"
+        '400':
+          description: Некорректный материал или несовпадение source_id
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '409':
+          description: Ключ уже использован с другими параметрами
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        default:
+          description: Контролируемая ошибка обработки
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
+  "/internal/v0.1/article-processings/{processing_id}":
+    get:
+      operationId: mlGetArticleProcessing
+      tags:
+      - Processing
+      summary: Получить состояние обработки материала
+      description: Go-воркер связывает состояние ML с исходной задачей загрузки. Успешная
+        загрузка файла и успешная ML-обработка — отдельные результаты.
+      parameters:
+      - name: processing_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      responses:
+        '200':
+          description: Состояние и результат обработки
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/ArticleProcessingOperation"
+        '404':
+          description: Операция не найдена
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        default:
+          description: Контролируемая ошибка чтения операции
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: SERVICE_TOKEN отсутствует или неверен; контекст не обрабатывается
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Внутреннее обращение не разрешено или ссылки выходят за допустимый
+            контекст
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'ML: обязательный Bearer SERVICE_TOKEN от Go, проверка структуры
+        и согласованности контекста'
+components:
+  securitySchemes:
+    serviceAuth:
+      type: http
+      scheme: bearer
+      description: Служебный SERVICE_TOKEN из environment/secrets; не JWT. ML проверяет
+        его на каждом запросе по защищённому внутреннему соединению. Токен не передаётся
+        браузеру и не сохраняется в Git, логах или ответах.
+security:
+- serviceAuth: []

@@ -6,7 +6,9 @@ info:
   description: API персонализированной новостной аналитики. Внешние операции проверяют
     пользователя и доступ к ресурсу; внутренние получают доверенный контекст сервера.
     Генерация описывает готовый ответ и отслеживаемую операцию для длительного выполнения.
-    Правила контекстов, доказательств и ошибок приведены в README.md.
+    Правила контекстов, доказательств и ошибок приведены в README.md. Go проверяет
+    server-side session по cookie session_id; изменяющие запросы требуют X-CSRF-Token
+    и проверки Origin. Реестр источников, планировщик и воркер принадлежат Go.
 paths:
   "/v0.1/me":
     get:
@@ -14,9 +16,8 @@ paths:
       tags:
       - Context
       summary: Текущий пользователь, определённый доверенным способом
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '200':
           description: Структурированный ответ
@@ -35,17 +36,28 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
   "/v0.1/contexts":
     get:
       operationId: listContexts
       tags:
       - Context
       summary: Доступные бизнес-контексты и доверенные роли
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '200':
           description: Структурированный ответ
@@ -64,8 +76,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: cursor
         in: query
@@ -109,8 +133,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: context_id
         in: query
@@ -145,9 +181,8 @@ paths:
       tags:
       - Feed
       summary: События с высоким потенциальным влиянием для контекста
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '200':
           description: Структурированный ответ
@@ -166,8 +201,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: context_id
         in: query
@@ -199,7 +246,10 @@ paths:
       description: 'Роль, профиль и пользователь не принимаются от клиента: сервер
         определяет их и проверяет доступ. HTTP 200 возвращает готовый разбор; HTTP
         202 — операцию для отслеживания длительного выполнения. Повтор запроса учитывает
-        ключ идемпотентности и исходный контекст.'
+        ключ идемпотентности и исходный контекст. Повтор не создаёт новое выполнение.
+        Контекст, профиль, конфигурация и история диалога фиксируются при первом запуске;
+        изменение прав проверяется повторно. Неизвестный исход вызова провайдера не
+        допускает слепого повторного платного вызова.'
       responses:
         '200':
           description: Готовый структурированный разбор Insight при синхронном выполнении
@@ -225,8 +275,32 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '400':
+          description: Отсутствует обязательный Idempotency-Key или некорректны параметры
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '409':
+          description: Idempotency-Key уже связан с другим запросом
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -251,22 +325,27 @@ paths:
       parameters:
       - name: Idempotency-Key
         in: header
-        required: false
+        required: true
         schema:
           type: string
           minLength: 1
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
+        description: Обязательный ключ пользовательского действия. Повтор использует
+          тот же ключ. Go сохраняет операцию и отпечаток параметров в PostgreSQL до
+          ML; область ключа — пользователь и тип операции. Тот же ключ и параметры
+          возвращают прежнее выполнение или результат, другие параметры дают 409.
+          Доступ проверяется повторно.
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/insights/{insight_id}":
     get:
       operationId: getInsight
       tags:
       - Insight
       summary: Получить сохранённую версию разбора Insight
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '200':
           description: Структурированный ответ
@@ -285,8 +364,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: insight_id
         in: path
@@ -321,8 +412,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: generation_id
         in: path
@@ -336,9 +439,8 @@ paths:
       tags:
       - Conversation
       summary: История диалогов по своему разбору Insight
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '200':
           description: Структурированный ответ
@@ -357,8 +459,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: insight_id
         in: path
@@ -386,9 +500,8 @@ paths:
       tags:
       - Conversation
       summary: Создать диалог в фиксированном контексте разбора Insight
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '201':
           description: Структурированный ответ
@@ -407,8 +520,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -433,15 +558,15 @@ paths:
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/conversations/{conversation_id}/messages":
     get:
       operationId: listMessages
       tags:
       - Conversation
       summary: Получить сохранённую упорядоченную историю
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '200':
           description: Структурированный ответ
@@ -460,8 +585,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: conversation_id
         in: path
@@ -491,7 +628,10 @@ paths:
       summary: Отправить связанный уточняющий вопрос
       description: Тело сообщения не меняет контекст, роль и исходный разбор. История
         упорядочена; параллельные вопросы и повторы сохраняют однозначную связь вопроса,
-        выполнения и ответа.
+        выполнения и ответа. Повтор не создаёт новое выполнение. Контекст, профиль,
+        конфигурация и история диалога фиксируются при первом запуске; изменение прав
+        проверяется повторно. Неизвестный исход вызова провайдера не допускает слепого
+        повторного платного вызова.
       responses:
         '200':
           description: Готовый результат при синхронном выполнении
@@ -517,8 +657,32 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '400':
+          description: Отсутствует обязательный Idempotency-Key или некорректны параметры
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '409':
+          description: Idempotency-Key уже связан с другим запросом
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -541,22 +705,27 @@ paths:
           minLength: 1
       - name: Idempotency-Key
         in: header
-        required: false
+        required: true
         schema:
           type: string
           minLength: 1
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
+        description: Обязательный ключ пользовательского действия. Повтор использует
+          тот же ключ. Go сохраняет операцию и отпечаток параметров в PostgreSQL до
+          ML; область ключа — пользователь и тип операции. Тот же ключ и параметры
+          возвращают прежнее выполнение или результат, другие параметры дают 409.
+          Доступ проверяется повторно.
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/insights/{insight_id}/feedback":
     post:
       operationId: submitFeedback
       tags:
       - Feedback
       summary: Оценить полезность версии разбора Insight
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '201':
           description: Структурированный ответ
@@ -575,8 +744,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -599,6 +780,7 @@ paths:
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/traces/{trace_id}":
     get:
       operationId: getTraceProjection
@@ -626,8 +808,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: trace_id
         in: path
@@ -641,9 +835,8 @@ paths:
       tags:
       - Analytics
       summary: Принять минимальные продуктовые события интерфейса
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
       responses:
         '202':
           description: Принято; дубли устраняются по analytics_event_id, пользователя
@@ -659,8 +852,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -675,15 +880,17 @@ paths:
               additionalProperties: false
               required:
               - events
+      parameters:
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/sources":
     get:
       operationId: listSources
       tags:
       - AdminSources
       summary: Список реестра источников
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
       responses:
         '200':
           description: Структурированный ответ
@@ -702,8 +909,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: cursor
         in: query
@@ -725,9 +944,9 @@ paths:
       tags:
       - AdminSources
       summary: Создать конфигурацию поддерживаемого адаптера
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
       responses:
         '201':
           description: Структурированный ответ
@@ -746,8 +965,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -764,15 +995,16 @@ paths:
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/sources/{source_id}":
     get:
       operationId: getSource
       tags:
       - AdminSources
       summary: Конфигурация и состояние источника без секретов
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
       responses:
         '200':
           description: Структурированный ответ
@@ -791,8 +1023,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: source_id
         in: path
@@ -805,9 +1049,9 @@ paths:
       tags:
       - AdminSources
       summary: Изменить поддерживаемую конфигурацию, включить или отключить источник
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
       responses:
         '200':
           description: Структурированный ответ
@@ -826,8 +1070,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -848,6 +1104,7 @@ paths:
           type: string
           description: 'Версия конфигурации для защиты от одновременного изменения:
             сервер проверяет, что запрос относится к актуальной версии.'
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/sources/{source_id}/syncs":
     post:
       operationId: syncSourceNow
@@ -857,6 +1114,8 @@ paths:
       description: Синхронизация источника выполняется как фоновая операция и отслеживается
         отдельно от генерации разбора. Ошибки неподдерживаемого адаптера и конфигурации
         различимы. Ручной запуск проходит проверку прав и правил включения источника.
+        Реестр и выполнение синхронизации принадлежат Go; операция не проксируется
+        в ML как управление источником.
       responses:
         '202':
           description: Структурированный ответ
@@ -875,8 +1134,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       requestBody:
         required: true
         content:
@@ -901,15 +1172,16 @@ paths:
           description: Ключ связывает повтор с исходной операцией в пределах пользователя
             и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
             финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/source-syncs/{sync_id}":
     get:
       operationId: getSourceSync
       tags:
       - AdminSources
       summary: Состояние синхронизации и ошибка без чувствительных данных
-      description: Операция выполняется после проверки доверенного пользователя, контекста
-        и разрешений. Внутренние обращения доступны через серверную границу, административные
-        полномочия проверяются отдельно.
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
       responses:
         '200':
           description: Структурированный ответ
@@ -928,8 +1200,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: sync_id
         in: path
@@ -964,8 +1248,20 @@ paths:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
-      x-auth-policy: Доверенный пользователь и проверка доступа к ресурсу; анонимный
-        доступ не разрешён
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
       parameters:
       - name: from
         in: query
@@ -979,3 +1275,25 @@ paths:
         schema:
           type: string
           format: date-time
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+      description: Непрозрачный идентификатор серверной сессии Go. Cookie выдаётся
+        с HttpOnly, Secure и SameSite. user_id определяется только по проверенной
+        сессии; права на контекст и роль проверяются в БД.
+  parameters:
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Токен защиты от CSRF, выданный механизмом доступа и связанный с
+        серверной сессией. Go проверяет токен и разрешённый Origin на каждом изменяющем
+        запросе; одного SameSite недостаточно.
+security:
+- sessionAuth: []
