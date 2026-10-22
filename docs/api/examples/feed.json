@@ -31,7 +31,7 @@
       ],
       "impact": {
         "label": "requires-review",
-        "explanation": "Синтетическая шкала для mock; production threshold не выбран.",
+        "explanation": "Синтетическая шкала для проверки интерфейса; уровень демонстрационный, а не вероятность влияния.",
         "policy_version": "fixture-only"
       }
     }
