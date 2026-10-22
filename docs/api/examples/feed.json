@@ -1,0 +1,40 @@
+{
+  "items": [
+    {
+      "preview_id": "preview-demo-1",
+      "event": {
+        "event_id": "event-demo-1",
+        "title": "Синтетическое изменение кредитных условий",
+        "summary": "Фиктивное событие для проверки DTO, не актуальная новость."
+      },
+      "published_at": "2026-10-22T00:00:00Z",
+      "topic": "synthetic-financing",
+      "why_relevant": "Есть признак кредитного продукта; потребность в новом финансировании требует уточнения.",
+      "feature_refs": [
+        {
+          "profile": {
+            "profile_id": "profile-demo-a",
+            "version": "fixture-v1"
+          },
+          "feature_id": "has-loan",
+          "contributing_company_ids": [
+            "company-demo-a"
+          ]
+        }
+      ],
+      "sources": [
+        {
+          "source_id": "source-fixture",
+          "name": "Synthetic fixture",
+          "source_role": "external"
+        }
+      ],
+      "impact": {
+        "label": "requires-review",
+        "explanation": "Синтетическая шкала для mock; production threshold не выбран.",
+        "policy_version": "fixture-only"
+      }
+    }
+  ],
+  "next_cursor": null
+}

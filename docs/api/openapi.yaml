@@ -1,0 +1,906 @@
+---
+openapi: 3.1.0
+info:
+  title: Burmalda Backend API
+  version: 0.1.0-draft
+  description: 'DRAFT initial design. Paths/DTO are ASSUMPTION proposals. No authorization
+    scheme is selected: Q01 blocks protected implementation/exposure. Sync/async alternatives
+    Q07 are not a selected hybrid. See README.md and decision-register.md.'
+paths:
+  "/v0.1/me":
+    get:
+      operationId: getMe
+      tags:
+      - Context
+      summary: Текущий доверенный пользователь
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Me"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+  "/v0.1/contexts":
+    get:
+      operationId: listContexts
+      tags:
+      - Context
+      summary: Доступные business contexts и доверенные роли
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/ContextPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: ASSUMPTION proposed bound; review.
+  "/v0.1/feed":
+    get:
+      operationId: getFeed
+      tags:
+      - Feed
+      summary: Персональная лента event previews
+      description: Backend resolves trusted role/profile/access. Cursor сохраняет
+        ranking snapshot; sort по personalized relevance, arbitrary scoring/filter
+        API не вводится.
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/FeedPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: context_id
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: ASSUMPTION proposed bound; review.
+      - name: topic
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/alerts":
+    get:
+      operationId: listAlerts
+      tags:
+      - Feed
+      summary: High-impact states для контекста
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/AlertPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: context_id
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: ASSUMPTION proposed bound; review.
+  "/v0.1/insights":
+    post:
+      operationId: createInsight
+      tags:
+      - Insight
+      summary: Запросить full analysis по открытию preview
+      description: Не принимает role/profile/user от клиента. Backend resolve/authorize.
+        200 vs 202 — альтернативы до benchmark Q07, не выбранный hybrid; согласовать
+        до contract freeze.
+      responses:
+        '200':
+          description: 'Sync candidate Q07: готовый structured Insight'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Insight"
+        '202':
+          description: 'Async/hybrid candidate Q07: generation status resource; Location
+            при принятии async'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Generation"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                context_id:
+                  type: string
+                  minLength: 1
+                  description: Opaque domain ID; не raw dataset key и не обещание
+                    UUID в БД.
+                event_id:
+                  type: string
+                  minLength: 1
+                  description: Opaque domain ID; не raw dataset key и не обещание
+                    UUID в БД.
+              additionalProperties: false
+              required:
+              - context_id
+              - event_id
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Draft retry boundary; retention/scoping review, не cache final
+            answers.
+  "/v0.1/insights/{insight_id}":
+    get:
+      operationId: getInsight
+      tags:
+      - Insight
+      summary: Получить сохранённую версию Insight
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Insight"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/generations/{generation_id}":
+    get:
+      operationId: getGeneration
+      tags:
+      - Insight
+      summary: 'Candidate: проверить async generation'
+      description: TBD Q07; endpoint активируется только если принят async/hybrid.
+        Для SUCCEEDED проверить ownership result refs.
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Generation"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: generation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/insights/{insight_id}/conversations":
+    get:
+      operationId: listConversations
+      tags:
+      - Conversation
+      summary: История диалогов своего Insight
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/ConversationPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: ASSUMPTION proposed bound; review.
+    post:
+      operationId: createConversation
+      tags:
+      - Conversation
+      summary: Создать диалог в фиксированном Insight scope
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '201':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Conversation"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Draft retry boundary; retention/scoping review, не cache final
+            answers.
+  "/v0.1/conversations/{conversation_id}/messages":
+    get:
+      operationId: listMessages
+      tags:
+      - Conversation
+      summary: Получить сохранённую ordered историю
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/MessagePage"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: ASSUMPTION proposed bound; review.
+    post:
+      operationId: askFollowUp
+      tags:
+      - Conversation
+      summary: Отправить связанный уточняющий вопрос
+      description: Context/role/Insight не изменяются body. Concurrent turns, ordered
+        history и idempotency должны быть согласованы; lifecycle Q07.
+      responses:
+        '200':
+          description: Sync candidate Q07
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/FollowUpResult"
+        '202':
+          description: Async candidate Q07; result message refs after completion
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Generation"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
+              required:
+              - text
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Draft retry boundary; retention/scoping review, не cache final
+            answers.
+  "/v0.1/insights/{insight_id}/feedback":
+    post:
+      operationId: submitFeedback
+      tags:
+      - Feedback
+      summary: Оценить полезность версии Insight
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '201':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Feedback"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "./schemas.yaml#/components/schemas/FeedbackInput"
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Draft retry boundary; retention/scoping review, не cache final
+            answers.
+  "/v0.1/traces/{trace_id}":
+    get:
+      operationId: getTraceProjection
+      tags:
+      - Trace
+      summary: Разрешённая проекция trace
+      description: 'Access policy Q01: клиент не получает internal trace/hidden reasoning.
+        Проверка принадлежности context/Insight обязательна.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Trace"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: trace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/analytics/events":
+    post:
+      operationId: ingestClientAnalytics
+      tags:
+      - Analytics
+      summary: Принять минимальные client product events
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '202':
+          description: Принято; дедупликация по analytics_event_id, identity определяет
+            Backend.
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items:
+                    "$ref": "./schemas.yaml#/components/schemas/ClientAnalyticsEvent"
+              additionalProperties: false
+              required:
+              - events
+  "/v0.1/admin/sources":
+    get:
+      operationId: listSources
+      tags:
+      - AdminSources
+      summary: Список Source Registry
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/SourcePage"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: ASSUMPTION proposed bound; review.
+    post:
+      operationId: createSource
+      tags:
+      - AdminSources
+      summary: Создать config поддержанного adapter
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '201':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Source"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "./schemas.yaml#/components/schemas/SourceConfigInput"
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Draft retry boundary; retention/scoping review, не cache final
+            answers.
+  "/v0.1/admin/sources/{source_id}":
+    get:
+      operationId: getSource
+      tags:
+      - AdminSources
+      summary: Source config/status без secrets
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Source"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    patch:
+      operationId: updateSource
+      tags:
+      - AdminSources
+      summary: Изменить supported config / enable-disable
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Source"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "./schemas.yaml#/components/schemas/SourceUpdate"
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: If-Match
+        in: header
+        required: false
+        schema:
+          type: string
+          description: Draft config_version concurrency token; exact semantics review.
+  "/v0.1/admin/sources/{source_id}/syncs":
+    post:
+      operationId: syncSourceNow
+      tags:
+      - AdminSources
+      summary: Запустить manual sync
+      description: Source sync — background operation ASSUMPTION, не решение Q07 для
+        Insight. Unsupported adapter/config errors явные; disabled sync policy TBD.
+      responses:
+        '202':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Draft retry boundary; retention/scoping review, не cache final
+            answers.
+  "/v0.1/admin/source-syncs/{sync_id}":
+    get:
+      operationId: getSourceSync
+      tags:
+      - AdminSources
+      summary: Состояние/санитизированная ошибка sync
+      description: 'ASSUMPTION: draft operation, requires contract review. Protected
+        boundary; auth Q01 unresolved.'
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: sync_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/admin/quality":
+    get:
+      operationId: getQuality
+      tags:
+      - AdminQuality
+      summary: Quality/usage/health отчёт
+      description: Нет labels/measurements → NO_DATA, не ноль. Internal access Q01;
+        detailed dashboard grouping review.
+      responses:
+        '200':
+          description: Structured response
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/QualityReport"
+        default:
+          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
+            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
+            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
+            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-decision-status: ASSUMPTION
+      x-auth-policy: TBD Q01; not anonymous access
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+x-auth-contract-status: TBD
+x-contract-status: DRAFT / REVIEW REQUIRED
