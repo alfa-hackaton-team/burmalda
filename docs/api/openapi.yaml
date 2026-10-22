@@ -1,0 +1,1299 @@
+---
+openapi: 3.1.0
+info:
+  title: 'Burmalda: внешний API серверной части'
+  version: 0.1.0
+  description: API персонализированной новостной аналитики. Внешние операции проверяют
+    пользователя и доступ к ресурсу; внутренние получают доверенный контекст сервера.
+    Генерация описывает готовый ответ и отслеживаемую операцию для длительного выполнения.
+    Правила контекстов, доказательств и ошибок приведены в README.md. Go проверяет
+    server-side session по cookie session_id; изменяющие запросы требуют X-CSRF-Token
+    и проверки Origin. Реестр источников, планировщик и воркер принадлежат Go.
+paths:
+  "/v0.1/me":
+    get:
+      operationId: getMe
+      tags:
+      - Context
+      summary: Текущий пользователь, определённый доверенным способом
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Me"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+  "/v0.1/contexts":
+    get:
+      operationId: listContexts
+      tags:
+      - Context
+      summary: Доступные бизнес-контексты и доверенные роли
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/ContextPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Ограничение числа элементов страницы; применяется вместе с
+            курсором для устойчивой постраничной выдачи.
+  "/v0.1/feed":
+    get:
+      operationId: getFeed
+      tags:
+      - Feed
+      summary: Персональная лента кратких карточек событий
+      description: Сервер определяет доверенные роль, профиль и права доступа. Курсор
+        сохраняет зафиксированное ранжирование; порядок — по персональной релевантности.
+        Произвольный API оценки и фильтрации не вводится.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/FeedPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: context_id
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Ограничение числа элементов страницы; применяется вместе с
+            курсором для устойчивой постраничной выдачи.
+      - name: topic
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/alerts":
+    get:
+      operationId: listAlerts
+      tags:
+      - Feed
+      summary: События с высоким потенциальным влиянием для контекста
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/AlertPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: context_id
+        in: query
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Ограничение числа элементов страницы; применяется вместе с
+            курсором для устойчивой постраничной выдачи.
+  "/v0.1/insights":
+    post:
+      operationId: createInsight
+      tags:
+      - Insight
+      summary: Запросить полный анализ при открытии карточки
+      description: 'Роль, профиль и пользователь не принимаются от клиента: сервер
+        определяет их и проверяет доступ. HTTP 200 возвращает готовый разбор; HTTP
+        202 — операцию для отслеживания длительного выполнения. Повтор запроса учитывает
+        ключ идемпотентности и исходный контекст. Повтор не создаёт новое выполнение.
+        Контекст, профиль, конфигурация и история диалога фиксируются при первом запуске;
+        изменение прав проверяется повторно. Неизвестный исход вызова провайдера не
+        допускает слепого повторного платного вызова.'
+      responses:
+        '200':
+          description: Готовый структурированный разбор Insight при синхронном выполнении
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Insight"
+        '202':
+          description: Состояние генерации при асинхронном выполнении; Location указывает
+            на операцию
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Generation"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '400':
+          description: Отсутствует обязательный Idempotency-Key или некорректны параметры
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '409':
+          description: Idempotency-Key уже связан с другим запросом
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                context_id:
+                  type: string
+                  minLength: 1
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
+                event_id:
+                  type: string
+                  minLength: 1
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
+              additionalProperties: false
+              required:
+              - context_id
+              - event_id
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          description: Ключ связывает повтор с исходной операцией в пределах пользователя
+            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
+            финальный персональный ответ между пользователями.
+        description: Обязательный ключ пользовательского действия. Повтор использует
+          тот же ключ. Go сохраняет операцию и отпечаток параметров в PostgreSQL до
+          ML; область ключа — пользователь и тип операции. Тот же ключ и параметры
+          возвращают прежнее выполнение или результат, другие параметры дают 409.
+          Доступ проверяется повторно.
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/insights/{insight_id}":
+    get:
+      operationId: getInsight
+      tags:
+      - Insight
+      summary: Получить сохранённую версию разбора Insight
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Insight"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/generations/{generation_id}":
+    get:
+      operationId: getGeneration
+      tags:
+      - Insight
+      summary: Получить состояние асинхронной генерации
+      description: Операция состояния используется при асинхронном или гибридном выполнении.
+        Для SUCCEEDED проверяется наличие сохранённого результата и право пользователя
+        на его чтение.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Generation"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: generation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/insights/{insight_id}/conversations":
+    get:
+      operationId: listConversations
+      tags:
+      - Conversation
+      summary: История диалогов по своему разбору Insight
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/ConversationPage"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Ограничение числа элементов страницы; применяется вместе с
+            курсором для устойчивой постраничной выдачи.
+    post:
+      operationId: createConversation
+      tags:
+      - Conversation
+      summary: Создать диалог в фиксированном контексте разбора Insight
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '201':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Conversation"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Ключ связывает повтор с исходной операцией в пределах пользователя
+            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
+            финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/conversations/{conversation_id}/messages":
+    get:
+      operationId: listMessages
+      tags:
+      - Conversation
+      summary: Получить сохранённую упорядоченную историю
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/MessagePage"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Ограничение числа элементов страницы; применяется вместе с
+            курсором для устойчивой постраничной выдачи.
+    post:
+      operationId: askFollowUp
+      tags:
+      - Conversation
+      summary: Отправить связанный уточняющий вопрос
+      description: Тело сообщения не меняет контекст, роль и исходный разбор. История
+        упорядочена; параллельные вопросы и повторы сохраняют однозначную связь вопроса,
+        выполнения и ответа. Повтор не создаёт новое выполнение. Контекст, профиль,
+        конфигурация и история диалога фиксируются при первом запуске; изменение прав
+        проверяется повторно. Неизвестный исход вызова провайдера не допускает слепого
+        повторного платного вызова.
+      responses:
+        '200':
+          description: Готовый результат при синхронном выполнении
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/FollowUpResult"
+        '202':
+          description: Принятие в асинхронную обработку; ссылки на сообщения результата
+            доступны после завершения
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Generation"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '400':
+          description: Отсутствует обязательный Idempotency-Key или некорректны параметры
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '409':
+          description: Idempotency-Key уже связан с другим запросом
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
+              required:
+              - text
+      parameters:
+      - name: conversation_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: true
+        schema:
+          type: string
+          minLength: 1
+          description: Ключ связывает повтор с исходной операцией в пределах пользователя
+            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
+            финальный персональный ответ между пользователями.
+        description: Обязательный ключ пользовательского действия. Повтор использует
+          тот же ключ. Go сохраняет операцию и отпечаток параметров в PostgreSQL до
+          ML; область ключа — пользователь и тип операции. Тот же ключ и параметры
+          возвращают прежнее выполнение или результат, другие параметры дают 409.
+          Доступ проверяется повторно.
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/insights/{insight_id}/feedback":
+    post:
+      operationId: submitFeedback
+      tags:
+      - Feedback
+      summary: Оценить полезность версии разбора Insight
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '201':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Feedback"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "./schemas.yaml#/components/schemas/FeedbackInput"
+      parameters:
+      - name: insight_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Ключ связывает повтор с исходной операцией в пределах пользователя
+            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
+            финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/traces/{trace_id}":
+    get:
+      operationId: getTraceProjection
+      tags:
+      - Trace
+      summary: Разрешённое представление трассировки
+      description: Клиент получает только разрешённые сведения об источниках, признаках
+        и этапах проверки. Проверяется принадлежность контексту и разбору; внутренняя
+        трассировка и скрытые рассуждения модели не раскрываются.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Trace"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: trace_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/analytics/events":
+    post:
+      operationId: ingestClientAnalytics
+      tags:
+      - Analytics
+      summary: Принять минимальные продуктовые события интерфейса
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно.
+      responses:
+        '202':
+          description: Принято; дубли устраняются по analytics_event_id, пользователя
+            определяет сервер.
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                events:
+                  type: array
+                  items:
+                    "$ref": "./schemas.yaml#/components/schemas/ClientAnalyticsEvent"
+              additionalProperties: false
+              required:
+              - events
+      parameters:
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/admin/sources":
+    get:
+      operationId: listSources
+      tags:
+      - AdminSources
+      summary: Список реестра источников
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/SourcePage"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+          minLength: 1
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          description: Ограничение числа элементов страницы; применяется вместе с
+            курсором для устойчивой постраничной выдачи.
+    post:
+      operationId: createSource
+      tags:
+      - AdminSources
+      summary: Создать конфигурацию поддерживаемого адаптера
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
+      responses:
+        '201':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Source"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "./schemas.yaml#/components/schemas/SourceConfigInput"
+      parameters:
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Ключ связывает повтор с исходной операцией в пределах пользователя
+            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
+            финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/admin/sources/{source_id}":
+    get:
+      operationId: getSource
+      tags:
+      - AdminSources
+      summary: Конфигурация и состояние источника без секретов
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Source"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+    patch:
+      operationId: updateSource
+      tags:
+      - AdminSources
+      summary: Изменить поддерживаемую конфигурацию, включить или отключить источник
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Source"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              "$ref": "./schemas.yaml#/components/schemas/SourceUpdate"
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: If-Match
+        in: header
+        required: false
+        schema:
+          type: string
+          description: 'Версия конфигурации для защиты от одновременного изменения:
+            сервер проверяет, что запрос относится к актуальной версии.'
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/admin/sources/{source_id}/syncs":
+    post:
+      operationId: syncSourceNow
+      tags:
+      - AdminSources
+      summary: Запустить ручную синхронизацию
+      description: Синхронизация источника выполняется как фоновая операция и отслеживается
+        отдельно от генерации разбора. Ошибки неподдерживаемого адаптера и конфигурации
+        различимы. Ручной запуск проходит проверку прав и правил включения источника.
+        Реестр и выполнение синхронизации принадлежат Go; операция не проксируется
+        в ML как управление источником.
+      responses:
+        '202':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: {}
+              additionalProperties: false
+      parameters:
+      - name: source_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+      - name: Idempotency-Key
+        in: header
+        required: false
+        schema:
+          type: string
+          minLength: 1
+          description: Ключ связывает повтор с исходной операцией в пределах пользователя
+            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
+            финальный персональный ответ между пользователями.
+      - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/admin/source-syncs/{sync_id}":
+    get:
+      operationId: getSourceSync
+      tags:
+      - AdminSources
+      summary: Состояние синхронизации и ошибка без чувствительных данных
+      description: Go проверяет серверную сессию и доступ к ресурсу; административные
+        полномочия отдельно. Реестр и выполнение синхронизации принадлежат Go; операция
+        не проксируется в ML как управление источником.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: sync_id
+        in: path
+        required: true
+        schema:
+          type: string
+          minLength: 1
+  "/v0.1/admin/quality":
+    get:
+      operationId: getQuality
+      tags:
+      - AdminQuality
+      summary: Отчёт о качестве, использовании и состоянии сервиса
+      description: Отсутствие разметки или измерений отображается как NO_DATA, а не
+        ноль. Отчёт доступен внутренним пользователям с соответствующими полномочиями;
+        показатели сопровождаются периодом, выборкой и версиями.
+      responses:
+        '200':
+          description: Структурированный ответ
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/QualityReport"
+        default:
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Ответ не раскрывает секреты, внутренние
+            стеки и недоступные пользователю ресурсы.'
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '403':
+          description: Недостаточно прав на контекст, роль или операцию; для изменяющего
+            запроса также ошибка CSRF/Origin
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия, права в БД, CSRF и Origin для изменения'
+      parameters:
+      - name: from
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+      - name: to
+        in: query
+        required: true
+        schema:
+          type: string
+          format: date-time
+components:
+  securitySchemes:
+    sessionAuth:
+      type: apiKey
+      in: cookie
+      name: session_id
+      description: Непрозрачный идентификатор серверной сессии Go. Cookie выдаётся
+        с HttpOnly, Secure и SameSite. user_id определяется только по проверенной
+        сессии; права на контекст и роль проверяются в БД.
+  parameters:
+    CsrfToken:
+      name: X-CSRF-Token
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 1
+      description: Токен защиты от CSRF, выданный механизмом доступа и связанный с
+        серверной сессией. Go проверяет токен и разрешённый Origin на каждом изменяющем
+        запросе; одного SameSite недостаточно.
+security:
+- sessionAuth: []
