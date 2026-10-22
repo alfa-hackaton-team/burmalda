@@ -1,60 +1,60 @@
-# Analytics, trace и observability
+# Аналитика, трассировка и наблюдаемость
 
-Status: DRAFT. TEAM DECISION D05/D07/D09: три уровня наблюдаемости, trace_id, feedback и внутренний Quality UI. В v0.1 operational/analytics data могут храниться в PostgreSQL; отдельная analytics DB не выбрана.
+Статус: DRAFT. TEAM DECISION D05/D07/D09: три уровня наблюдаемости, `trace_id`, обратная связь и внутренняя панель качества. В v0.1 операционные и аналитические данные могут храниться в PostgreSQL; отдельная аналитическая БД не выбрана.
 
-## Semantic event contract
+## Контракт аналитического события
 
-ASSUMPTION AnalyticsEvent: analytics_event_id, event_type, occurred_at, pseudonymous user_id при наличии, context_id при наличии, insight_id/revision при наличии, trace_id при наличии, schema_version и валидируемая metadata. Не использовать event_id (новости) как primary ID telemetry. Backend выводит user/context из trusted request, не доверяет присланной identity. Client timestamps не являются серверным временем; записывать received_at на backend.
+ASSUMPTION: `AnalyticsEvent` включает `analytics_event_id`, `event_type`, `occurred_at`, псевдонимный `user_id` при наличии, `context_id` при наличии, `insight_id` и редакцию при наличии, `trace_id` при наличии, `schema_version` и проверяемые метаданные. Идентификатор новостного события `event_id` не используется как основной ID телеметрии. Сервер определяет пользователя и контекст из доверенного запроса, не доверяя присланной идентичности. Время клиента не равно серверному; сервер записывает `received_at`.
 
-| Level / Event type | Producer | Минимальный payload / смысл |
+| Уровень / тип события | Кто создаёт | Минимальные данные / смысл |
 |---|---|---|
-| Product: feed_opened | FE→Backend | context, feed snapshot ref при наличии |
-| Product: insight_opened | FE→Backend | insight/event preview ref, context |
-| Product: source_clicked | FE→Backend | insight/message, source/evidence ref |
-| Product: follow_up_asked | Backend | conversation/message ref, без текста question |
-| Product: feedback_submitted | Backend | feedback_id, insight revision, rating/reason |
-| Product: alert_opened | FE→Backend | alert_id, context |
-| Quality: retrieval_completed | ML1/ML3 | config version, candidate/top-K counts, rank refs, latency |
-| Quality: claims_verified | ML2/ML3 | counts по type/status, evidence gaps, verifier version |
-| Technical: generation_completed/failed | ML3 | status/error code, duration, model/config refs, tokens/cost если есть |
-| Technical: ingestion_completed/failed | ML3 | source/sync/stage refs, counts, error category |
+| Продукт: `feed_opened` | Интерфейс → сервер | Контекст, ссылка на зафиксированную выдачу при наличии |
+| Продукт: `insight_opened` | Интерфейс → сервер | Ссылка на разбор или краткую карточку события, контекст |
+| Продукт: `source_clicked` | Интерфейс → сервер | Разбор или сообщение, ссылка на источник или доказательство |
+| Продукт: `follow_up_asked` | Сервер | Ссылка на диалог и сообщение, без текста вопроса |
+| Продукт: `feedback_submitted` | Сервер | `feedback_id`, редакция разбора, оценка и причина |
+| Продукт: `alert_opened` | Интерфейс → сервер | `alert_id`, контекст |
+| Качество: `retrieval_completed` | ML1/ML3 | Версия конфигурации, число кандидатов и отобранных top-K, ссылки на ранжирование, задержка |
+| Качество: `claims_verified` | ML2/ML3 | Число утверждений по типам и статусам, пробелы доказательств, версия проверяющего компонента |
+| Техника: `generation_completed/failed` | ML3 | Состояние и код ошибки, длительность, модель и конфигурация, токены и стоимость при наличии |
+| Техника: `ingestion_completed/failed` | ML3 | Источник, операция синхронизации и этап, количества, категория ошибки |
 
-ASSUMPTION: duplicate analytics_event_id дедуплицируется; event version и metadata schema согласованы. Public batch endpoint принимает только client product events; ML quality/system events — internal producers. Feedback хранится отдельно и порождает telemetry сервером, чтобы FE retry не удваивал бизнес-сигнал.
+ASSUMPTION: повторы устраняются по `analytics_event_id`; согласуются версия события и схема метаданных. Внешняя операция пакетного приёма принимает только клиентские продуктовые события; сведения о качестве ML и системные события создают внутренние компоненты. Обратная связь хранится отдельно и порождает телеметрию сервером, чтобы повтор интерфейсного запроса не удваивал продуктовый сигнал.
 
-## Trace
+## Трассировка
 
-TEAM DECISION: trace_id объединяет Backend request, profile loading, retrieval, tools, LLM calls, verification, итоговый response. Предложенный TraceStage DTO: stage_id, parent_stage_id optional, stage_type, start/end, status, sanitized input/output refs, profile/evidence refs, model/config, metrics, error category. Это структурированные наблюдаемые результаты, не hidden chain-of-thought и не полный reasoning transcript.
+TEAM DECISION: `trace_id` связывает серверный запрос, загрузку профиля, поиск, инструменты, вызовы LLM, проверку и итоговый ответ. Предложенный DTO `TraceStage` содержит `stage_id`, необязательный `parent_stage_id`, тип этапа, начало и конец, состояние, безопасные ссылки на вход и выход, профиль и доказательства, модель, конфигурацию, метрики и категорию ошибки. Это структурированные наблюдаемые результаты, без скрытой цепочки рассуждений и полного внутреннего монолога модели.
 
-Один generation/follow-up request имеет собственный trace; связь с предыдущим Insight/trace сохраняется correlation refs. trace_id распространяется через Backend↔ML; exact header/log propagation implementation review ML3. Ingestion может иметь отдельный trace/sync ref, связанный через article/evidence provenance с пользовательским анализом.
+Каждый запрос генерации или уточняющего ответа имеет свою трассировку; связи с предыдущим разбором и трассировкой сохраняются. `trace_id` передаётся между сервером и ML; конкретные заголовки и формат журналов согласуются с ML3. Загрузка источников может иметь отдельную трассировку или ссылку на синхронизацию, связанную с пользовательским анализом через происхождение публикаций и доказательств.
 
-ASSUMPTION projections: client trace показывает разрешённые sources/features/этапы проверки; internal trace содержит operational metadata по отдельной capability. Access policy Q01; public API не возвращает всю raw trace. Secrets, full payloads, raw Person data, model private reasoning и arbitrary user prompts не копируются в logs/analytics по умолчанию.
+ASSUMPTION: клиентское представление показывает разрешённые источники, признаки и этапы проверки; внутреннее содержит операционные метаданные по отдельному разрешению. Политика доступа — Q01; внешний API не возвращает всю исходную трассировку. Секреты, полные входные данные, исходные данные физлиц, скрытые рассуждения модели и произвольные пользовательские запросы по умолчанию не копируются в журналы и аналитику.
 
 ## Метрики и определения
 
-| Metric | Расчёт / ограничение |
+| Метрика | Расчёт / ограничение |
 |---|---|
-| NDCG@K, Recall@K, MRR | На labeled query/context/role corpus, с dataset/config versions; primary и K TBD |
-| Expert usefulness / personalization | Рубрика глубины, правильности связи с profile, non-generic interpretation; отдельно от кликов |
-| Positive feedback rate | positive / все валидные оценки; рядом количество/период, не доля всех пользователей |
-| Grounding coverage | Существенные опубликованные claims с валидными evidence links / все существенные опубликованные claims; наличие link не доказывает support |
-| Unsupported assertion rate | Экспертно неподдержанные утверждения / проверенные опубликованные claims; reported verifier status отдельно |
-| Bank attribution correctness | Правильно приписанные банку claims / проверенные bank claims; пустая выборка = нет данных |
-| Alert quality | Expert precision/recall по high-impact labels; threshold/policy version и sample size |
-| Latency | p50/p95 по feed/full generation/follow-up/source processing; успешные/failed requests отдельно |
-| Source health / freshness | Последний fetch success, lag publication→index readiness, parse/index failures, coverage |
-| Model cost / usage | Provider tokens/cost при наличии, local estimate с маркировкой estimate, общий бюджет и неполнота shared usage |
-| Cache | Hits/misses по типу промежуточного результата и версии; не смешивать с качеством ответа |
+| NDCG@K, Recall@K, MRR | По размеченным запросам, контекстам и ролям с версиями данных и конфигурации; основная метрика и K — TBD |
+| Экспертная полезность и персонализация | Критерии глубины, правильности связи с профилем и конкретности интерпретации; оцениваются отдельно от кликов |
+| Доля положительных оценок | Положительные / все валидные оценки; рядом число оценок и период, это не доля всех пользователей |
+| Покрытие доказательствами | Существенные опубликованные утверждения с корректными ссылками / все существенные опубликованные утверждения; ссылка сама по себе не доказывает подтверждённость |
+| Доля неподтверждённых утверждений | Неподдержанные по экспертной проверке / все проверенные опубликованные утверждения; статус автоматического проверяющего компонента учитывается отдельно |
+| Правильность приписывания банку | Корректно приписанные банку / проверенные утверждения о позиции банка; пустая выборка означает отсутствие данных |
+| Качество предупреждений | Экспертные точность и полнота по разметке высокого влияния; указываются порог, версия правил и размер выборки |
+| Задержки | p50/p95 для ленты, полного анализа, уточняющего ответа и обработки источников; успешные и ошибочные запросы отдельно |
+| Состояние и актуальность источников | Последняя успешная загрузка, время от публикации до готовности индекса, ошибки разбора и индекса, покрытие |
+| Стоимость и использование моделей | Токены и стоимость провайдера при наличии, локальная оценка с пометкой расчётного значения, общий бюджет и неполнота общей статистики |
+| Кэш | Попадания и промахи по типу промежуточного результата и версии; не смешиваются с качеством ответа |
 
-TEAM DECISION: random percentage confidence не показывается пользователю. Primary metric и target SLO/thresholds TBD Q11, измерения с sample size. CTR/follow-up/source clicks — secondary diagnostics, не ground truth relevance.
+TEAM DECISION: необоснованные проценты уверенности не показываются пользователю. Основная метрика, целевые показатели обслуживания (SLO) и пороги — TBD Q11; измерения сопровождаются размером выборки. Доля кликов, уточнений и переходов к источникам — вспомогательные сигналы, а не достоверная разметка релевантности.
 
-## Quality UI и процесс
+## Интерфейс качества и процесс контроля
 
-TEAM DECISION: Source Management и Quality могут быть разделами одного internal control plane. Показывать source/index/model health, usage, feedback/reasons, latency/errors, tokens/cost, alert stats. Offline ranking/verification evaluation показывать с датой, model/config/corpus version; если labels/usage недоступны — «нет данных», не ноль и не выдуманная оценка.
+TEAM DECISION: управление источниками и качество могут быть разделами одной внутренней панели. Она показывает состояние источников, индекса и моделей, использование сервиса, оценки и причины, задержки и ошибки, токены и стоимость, статистику предупреждений. Оценка ранжирования и проверки на подготовленных выборках показывается с датой и версиями модели, конфигурации и материалов. Если разметка или статистика использования недоступны, отображается «нет данных», а не ноль или выдуманная оценка.
 
-ASSUMPTION monitoring workflow: ML1 reviews retrieval/source coverage; ML2 reviews unsupported/attribution failures и negative feedback; ML3 monitors availability/cost/latency; BE/FE owners проверяют user flow/access. Cadence и alert notification channel TBD. Изменение модели/ranking проходит held-out regression перед новым config version.
+ASSUMPTION: ML1 проверяет поиск и покрытие источников; ML2 — неподтверждённые утверждения, ошибки приписывания и отрицательную обратную связь; ML3 — доступность, стоимость и задержки; разработчики сервера и интерфейса — пользовательский сценарий и доступ. Частота проверок и канал уведомлений — TBD. Смена модели или ранжирования проходит регрессионную оценку на отложенных данных до новой версии конфигурации.
 
-## Storage и retention
+## Хранение и сроки
 
-TEAM DECISION: минимальный telemetry payload, exact retention TBD Q13. Raw evidence, profile snapshots, conversations, trace и aggregate analytics имеют разные цели/сроки. Удаление raw evidence не должно оставлять якобы проверяемый Insight с битой ссылкой; нужны archive/tombstone policy и review. Политика хранения/доступа не считается утверждённой.
+TEAM DECISION: состав телеметрии минимален, точные сроки хранения — TBD Q13. Исходные доказательства, версии профилей, диалоги, трассировка и агрегированная аналитика имеют разные цели и сроки. Удаление оригинала не должно оставлять якобы проверяемый разбор с неработающей ссылкой; нужны согласованные правила архивирования и отметок об удалении. Политика хранения и доступа пока не утверждена.
 
-FUTURE: ClickHouse/другая analytics sink только если измерены рост объёма/retention, contention OLTP, стоимость аналитических запросов и нарушение согласованных SLO. Сначала benchmark partition/index/aggregation в выбранной архитектуре; затем RFC с migration/backfill/idempotency/consistency plan. Нет автоматического dual-write v0.1, который создаёт неподтверждённые гарантии доставки.
+FUTURE: ClickHouse или другое аналитическое хранилище рассматривается только при измеренном росте объёма и сроков хранения, конкуренции с транзакционной нагрузкой, высокой стоимости аналитических запросов и нарушении согласованных SLO. Сначала измеряются разделение таблиц, индексы и агрегирование в выбранной архитектуре; затем готовится RFC с планом миграции, переноса накопленных данных, идемпотентности и согласованности. Автоматическая двойная запись в v0.1 не вводится: она потребовала бы отдельно обоснованных гарантий доставки.

@@ -1,96 +1,98 @@
-# Semantic data model
+# Предметная модель данных
 
-Status: DRAFT. TEAM DECISION D02–D05 задают concepts; детали полей/идентификаторов ниже ASSUMPTION D16/D17, требуют review. Это не замена `feature/db-rfc` и не DDL.
+Статус: DRAFT. TEAM DECISION D02–D05 задают основные сущности; детали полей и идентификаторов ниже — ASSUMPTION D16/D17 и требуют согласования. Документ не заменяет `feature/db-rfc` и не является SQL-описанием схемы (DDL).
 
 ## Три слоя
 
-Domain model определяет смысл и invariants. API DTO определяет переносимую JSON-проекцию в [общих схемах](../api/schemas.yaml). Physical model определяет таблицы, индексы, FK/JSONB и migrations после согласования DB RFC. Одна domain entity не обязательно равна одной таблице; API ID не диктует UUID/BIGINT в PostgreSQL.
+Предметная модель определяет смысл сущностей и обязательные правила. Форматы обмена API (DTO) задают JSON-представление в [общих схемах](../api/schemas.yaml). Физическая модель определяет таблицы, индексы, внешние ключи, JSONB и миграции после согласования RFC базы данных. Одной сущности не обязательно соответствует одна таблица; идентификатор API не диктует использование UUID или BIGINT в PostgreSQL.
 
-## Словарь, идентичность и ownership
+## Словарь, идентификаторы и ответственность
 
-| Concept | Ответственность / связи | Identity / версия | Предлагаемый owner |
+Технические имена сохранены для однозначной связи с API; пояснения определяют их смысл.
+
+| Сущность | Ответственность / связи | Идентификатор / версия | Предлагаемый владелец |
 |---|---|---|---|
-| User | Пользователь сервиса; может сопоставляться synthetic Person; не сама Person | user_id opaque; auth policy Q01 | Backend |
-| Role | Доверенный бизнес-ракурс в выбранном context; не permission | role_id opaque, source trusted | Backend; Q01 |
-| Person | Обезличенное лицо исходного dataset | person_id + SYNTHETIC_F | ML1 import |
-| Company | Исходное юрлицо и исходные признаки | company_id + SYNTHETIC_U | ML1 import |
-| CompanyGroup | Группа с явным membership; не персональная ACL | group_id + исходный GROUP_ID | ML1 import |
-| PaymentRelation | Направление payer→beneficiary, сумма/количество; period/currency только если есть | payment relation ref + dataset snapshot | ML1 import |
-| BusinessContext | Ровно один scope Company XOR Group | context_id + kind + subject_id | Backend coordinates; ML1 resolves |
-| CompanyProfile | Производный snapshot для BusinessContext, переиспользуется между запросами | profile_id + version + dataset/config refs | ML1 |
-| ProfileFeature | Значение/единицы/missingness + derivation + contribution компаний | feature_id в immutable profile snapshot | ML1 |
-| Source | Registry config, trust class, health; source_role не trust score | source_id | ML3; admin через Backend |
-| RawArticle | Сохранённая загрузка original bytes + retrieval metadata | raw ref + checksum | ML3 |
-| Article | Конкретная публикация источника; NormalizedArticle её унифицированное представление | article_id; article_version_id для content version | ML3 ingestion + ML1 processing |
-| Document / Chunk | Обобщение publication/аналитического файла и его цитируемых фрагментов | document_version_id / chunk_id; raw hashes | ML1/ML3 |
-| Event | Реальное событие, несколько Article могут описывать одно | event_id; event revision для изменений | ML1 |
-| Evidence | Адресуемое основание утверждения: news/bank/company | evidence_id + точный reference | ML1 supplies; ML2 consumes |
-| EvidencePackage | Контекст, snapshot, ranking/retrieval output, доступные evidence и gaps | package_id + trace_id | ML1 |
-| Insight | Персональная интерпретация одного primary Event; дополнительные supporting events допустимы | insight_id + revision, context/role/profile pinned | Backend resource / ML2 content |
-| Claim | Отдельное существенное утверждение в Insight/agent message | claim_id; owner response revision | ML2 |
-| Conversation / Message | Dialogue конкретного User/Insight/context/role; ordered messages, история между сессиями | conversation_id / message_id + sequence | Backend; agent content ML2 |
-| Feedback | Оценка полезности конкретного Insight revision, опциональный reason/comment | feedback_id, user/context refs | Backend |
-| Alert | Explainable high-impact state для Event/context/role | alert_id + policy version | ML1 policy; Backend resource |
-| Trace | Корреляция существенных стадий, не hidden reasoning | trace_id + stage/span refs | ML3, Backend propagation |
-| AnalyticsEvent | Product/quality/technical telemetry с минимальным payload | analytics_event_id (не event_id новости) | ML3/Backend ingestion |
-| Story | Развивающаяся связь нескольких Events во времени | FUTURE; API/resource не требуется v0.1 | FUTURE ML1 |
+| Пользователь — `User` | Пользователь сервиса; может сопоставляться синтетическому физлицу, но не равен ему | `user_id` со скрытой внутренней структурой; авторизация Q01 | Сервер |
+| Роль — `Role` | Доверенный бизнес-ракурс в выбранном контексте; не право доступа | `role_id`, доверенный источник | Сервер; Q01 |
+| Физическое лицо — `Person` | Обезличенное лицо исходного набора | `person_id` + `SYNTHETIC_F` | Импорт ML1 |
+| Компания — `Company` | Исходное юрлицо и его признаки | `company_id` + `SYNTHETIC_U` | Импорт ML1 |
+| Группа компаний — `CompanyGroup` | Группа с явным составом участников; не список прав пользователя | `group_id` + исходный `GROUP_ID` | Импорт ML1 |
+| Платёжная связь — `PaymentRelation` | Направление плательщик → получатель, сумма и количество; период и валюта только при наличии | Ссылка на связь + версия исходного набора | Импорт ML1 |
+| Бизнес-контекст — `BusinessContext` | Ровно один объект анализа: компания либо группа | `context_id` + `kind` + `subject_id` | Сервер координирует, ML1 определяет данные |
+| Бизнес-профиль — `CompanyProfile` | Производная версия данных для контекста, переиспользуемая между запросами | `profile_id` + `version` + версии данных и конфигурации | ML1 |
+| Признак профиля — `ProfileFeature` | Значение, единицы, сведения о пропусках, способ расчёта и вклад компаний | `feature_id` внутри неизменяемой версии профиля | ML1 |
+| Источник — `Source` | Конфигурация реестра, класс доверия, состояние; роль источника не равна численной надёжности | `source_id` | ML3; администрирование через сервер |
+| Оригинал — `RawArticle` | Сохранённые исходные байты и метаданные загрузки | Ссылка на оригинал + контрольная сумма | ML3 |
+| Публикация — `Article` | Материал конкретного источника; `NormalizedArticle` — его унифицированное представление | `article_id`; `article_version_id` для версии содержимого | Загрузка ML3, обработка ML1 |
+| Документ / фрагмент — `Document` / `Chunk` | Общее представление публикации или аналитического файла и цитируемых фрагментов | `document_version_id` / `chunk_id`; хеши оригиналов | ML1/ML3 |
+| Событие — `Event` | Реальное событие, которое могут описывать несколько публикаций | `event_id`; редакция события при изменениях | ML1 |
+| Доказательство — `Evidence` | Адресуемое основание утверждения: новость, материал банка или данные компании | `evidence_id` + точная ссылка | ML1 формирует, ML2 использует |
+| Пакет доказательств — `EvidencePackage` | Контекст, версии, результаты поиска и ранжирования, доказательства и пробелы | `package_id` + `trace_id` | ML1 |
+| Персональный разбор — `Insight` | Интерпретация одного основного события; допускаются дополнительные связанные события | `insight_id` + редакция; фиксированные контекст, роль и профиль | Сервер — ресурс, ML2 — содержимое |
+| Утверждение — `Claim` | Отдельное существенное утверждение в разборе или ответе агента | `claim_id`; принадлежность редакции ответа | ML2 |
+| Диалог / сообщение — `Conversation` / `Message` | Диалог пользователя по конкретному разбору, контексту и роли; упорядоченная история между сессиями | `conversation_id` / `message_id` + номер в последовательности | Сервер; текст агента — ML2 |
+| Обратная связь — `Feedback` | Оценка конкретной редакции разбора, необязательные причина и комментарий | `feedback_id`, ссылки на пользователя и контекст | Сервер |
+| Предупреждение — `Alert` | Объяснимое высокое влияние события для контекста и роли | `alert_id` + версия правил | Правила ML1; ресурс — сервер |
+| Трассировка — `Trace` | Связь существенных этапов, без скрытых рассуждений модели | `trace_id` + ссылки на этапы и вложенные операции | ML3; сервер передаёт идентификатор |
+| Аналитическое событие — `AnalyticsEvent` | Продуктовая, качественная или техническая телеметрия с минимальным составом данных | `analytics_event_id`, не идентификатор новостного события | ML3 / серверный приём событий |
+| Сюжет — `Story` | Связь нескольких событий, развивающаяся во времени | FUTURE; отдельный API и ресурс в v0.1 не требуются | FUTURE ML1 |
 
 ## Основные связи
 
 ```mermaid
 erDiagram
-  PERSON }o--o{ COMPANY : linked
-  COMPANY }o--o{ COMPANY_GROUP : membership
-  COMPANY ||--o{ PAYMENT_RELATION : pays
-  COMPANY ||--o{ PAYMENT_RELATION : receives
-  BUSINESS_CONTEXT ||--o{ COMPANY_PROFILE : snapshots
-  COMPANY_PROFILE ||--o{ PROFILE_FEATURE : contains
-  ARTICLE }o--o{ EVENT : describes
-  EVENT ||--o{ INSIGHT : primary_event
-  BUSINESS_CONTEXT ||--o{ INSIGHT : scope
-  ROLE ||--o{ INSIGHT : perspective
-  COMPANY_PROFILE ||--o{ INSIGHT : grounded_context
-  INSIGHT ||--o{ CLAIM : contains
-  CLAIM }o--o{ EVIDENCE : grounded_by
-  INSIGHT ||--o{ CONVERSATION : discussed
-  CONVERSATION ||--o{ MESSAGE : history
-  INSIGHT ||--o{ FEEDBACK : evaluated
+  PERSON }o--o{ COMPANY : "связаны"
+  COMPANY }o--o{ COMPANY_GROUP : "участие"
+  COMPANY ||--o{ PAYMENT_RELATION : "платит"
+  COMPANY ||--o{ PAYMENT_RELATION : "получает"
+  BUSINESS_CONTEXT ||--o{ COMPANY_PROFILE : "версии"
+  COMPANY_PROFILE ||--o{ PROFILE_FEATURE : "содержит"
+  ARTICLE }o--o{ EVENT : "описывает"
+  EVENT ||--o{ INSIGHT : "основное_событие"
+  BUSINESS_CONTEXT ||--o{ INSIGHT : "контекст"
+  ROLE ||--o{ INSIGHT : "ракурс"
+  COMPANY_PROFILE ||--o{ INSIGHT : "профиль"
+  INSIGHT ||--o{ CLAIM : "содержит"
+  CLAIM }o--o{ EVIDENCE : "подтверждается"
+  INSIGHT ||--o{ CONVERSATION : "обсуждается"
+  CONVERSATION ||--o{ MESSAGE : "история"
+  INSIGHT ||--o{ FEEDBACK : "оценивается"
 ```
 
-ASSUMPTION: Person-company links сохраняются M:N без вывода должности/ownership; group membership cardinality/temporal semantics проверяются EDA, не объявляются на основании рисунка. BusinessContext хранит kind/subject, не два произвольно nullable scope. Company и Group с одинаковым raw external key не одно и то же.
+ASSUMPTION: связи физлиц и компаний сохраняются как многие-ко-многим без вывода о должности или собственности. Количество возможных групп для компании и изменение состава во времени проверяются EDA, а не устанавливаются рисунком. Бизнес-контекст имеет тип и объект анализа, а не два произвольно пустых поля. Компания и группа с одинаковым исходным ключом не считаются одной сущностью.
 
-## CompanyProfile и raw data
+## Бизнес-профиль и исходные данные
 
-TEAM DECISION: CompanyProfile заранее строится и переиспользуется. ASSUMPTION: raw business snapshot role-neutral, role-aware view используется при ranking/generation. Это позволяет CEO/CFO ссылаться на одну фактическую базу, но получать разные объяснения; если потребуется role-derived feature, его derivation/config явно отмечается, не меняя исходные данные.
+TEAM DECISION: `CompanyProfile` строится заранее и переиспользуется. ASSUMPTION: сохранённая фактическая основа профиля не зависит от роли; роль учитывается при ранжировании и генерации. CEO и CFO могут ссылаться на одну базу фактов, получая разные объяснения. Если нужен производный признак для конкретной роли, способ расчёта и конфигурация явно отмечаются, не изменяя исходные данные.
 
-Каждый значимый feature ссылается на raw dataset snapshot/records, calculation version и конкретные компании для group aggregation. Missing ≠ false ≠ zero. Градация работников сохраняется как градация; точный workers_count без данных не выводится. Валюта/период PAY_AMT и семантика NEGATIVEMARK/REVENUE_COMPANY проверяются до вычислений. Платёжная связь сама по себе не доказывает договор, долг, поставку сырья или зависимость бизнеса; indirect exposure — только валидированная гипотеза.
+Каждый значимый признак ссылается на версию исходного набора, записи, версию расчёта и конкретные компании при объединении группы. Отсутствие данных не равно `false` или нулю. Градация численности сотрудников сохраняется как градация; точный `workers_count` без данных не выводится. Валюта и период `PAY_AMT`, смысл `NEGATIVEMARK` и `REVENUE_COMPANY` проверяются до вычислений. Платёжная связь сама по себе не доказывает договор, задолженность, поставку сырья или зависимость бизнеса; косвенное влияние — только проверенная гипотеза.
 
-Версия профиля фиксирует membership snapshot. Aggregated group revenue нельзя считать консолидированной выручкой без методики исключения внутригрупповых оборотов. CompanyGroup access и агрегирование restricted компаний требуют Q01. Не строить «всю группу» из доступной пользователю части, скрывая неполноту.
+Версия профиля фиксирует состав группы. Суммарная выручка компаний группы не считается консолидированной без методики исключения внутригрупповых оборотов. Доступ к группе и объединение данных компаний с ограниченным доступом требуют Q01. Нельзя строить «всю группу» из доступной пользователю части, скрывая неполноту.
 
-## Evidence и Claim
+## Доказательства и утверждения
 
-TEAM DECISION: Evidence types `EXTERNAL_NEWS`, `ALFA_ANALYTICS`, `COMPANY_DATA`; Claim types `FACT`, `ALFA_ANALYTICS`, `AI_INFERENCE`, `FORECAST`. Verification: `SUPPORTED`, `PARTIALLY_SUPPORTED`, `UNSUPPORTED`.
+TEAM DECISION: типы доказательств — `EXTERNAL_NEWS` (внешние новости), `ALFA_ANALYTICS` (аналитика банка), `COMPANY_DATA` (данные компании). Типы утверждений — `FACT` (факт), `ALFA_ANALYTICS` (позиция банка), `AI_INFERENCE` (вывод модели), `FORECAST` (прогноз). Результаты проверки: `SUPPORTED`, `PARTIALLY_SUPPORTED`, `UNSUPPORTED` — подтверждено, подтверждено частично, не подтверждено.
 
-ASSUMPTION: Evidence имеет typed reference:
+ASSUMPTION: доказательство содержит ссылку соответствующего типа:
 
-- material evidence → source_id, document_version_id, chunk_id и excerpt; publication timestamp nullable, если источник его не даёт;
-- company evidence → profile_id/version, feature_id и contributing_company_ids, provenance исходных records;
-- ClaimEvidence link → evidence_id + relation `SUPPORT | CONTRADICT | CONTEXT`. Наличие цитаты не равно entailment; статус verification оценивает её применимость к конкретному claim.
+- материал → `source_id`, `document_version_id`, `chunk_id` и выдержка; дата публикации может отсутствовать, если её не даёт источник;
+- данные компании → `profile_id`/версия, `feature_id`, `contributing_company_ids` и происхождение исходных записей;
+- связь утверждения с доказательством → `evidence_id` и отношение `SUPPORT`, `CONTRADICT` или `CONTEXT`: поддержка, противоречие либо контекст. Наличие цитаты не доказывает утверждение; проверяется применимость основания именно к нему.
 
-У FACT подтверждаются значения, участники и даты. У ALFA_ANALYTICS требуется соответствующий Alfa material, а не внешняя статья с приписыванием банку. У AI_INFERENCE связываются premises (news/company/bank) и раскрываются допущения. У FORECAST дополнительно указываются условность и горизонт, если известен. `SUPPORTED` для прогноза означает поддержанные основания, не гарантию будущего события.
+У факта проверяются значения, участники и даты. Для позиции Альфы требуется соответствующий материал банка, а не внешняя статья с приписыванием банку. Вывод модели связывает предпосылки из новостей, данных компании и аналитики, раскрывая допущения. Прогноз дополнительно обозначает условность и горизонт, если он известен. Статус `SUPPORTED` у прогноза означает подтверждённость оснований, а не гарантию будущего события.
 
-UNSUPPORTED не публикуется как подтверждённый факт; может быть записан во внутренней проверке, а client получает limitation. Для PARTIALLY_SUPPORTED нужны явная оговорка/допущение или дополнительный retrieval. У существенного публикуемого claim не может быть пустого grounding; «мы не нашли данных» оформляется limitation, а не выдуманным factual claim.
+`UNSUPPORTED` не публикуется как подтверждённый факт; он может сохраняться во внутренней проверке, а клиент получает ограничение. Для `PARTIALLY_SUPPORTED` нужны явная оговорка, допущение или дополнительный поиск. У существенного опубликованного утверждения не может быть пустого набора оснований; отсутствие найденных данных оформляется как ограничение, без выдуманного факта.
 
-## Версии, lifecycle и freshness
+## Версии, жизненный цикл и актуальность
 
-ASSUMPTION: Article identity стабильна при обновлении содержимого; новая content version сохраняет hash и timestamp. Evidence из старого Insight не перепривязывается автоматически на последний документ. Точный raw storage Q10, схема версий Q14. Слияние Events сохраняет aliases/provenance и не ломает старые Insight refs; механизм merge/revision предстоит согласовать в physical model.
+ASSUMPTION: идентификатор публикации стабилен при обновлении содержимого; новая версия сохраняет хеш и время. Доказательство старого разбора не перепривязывается автоматически к последнему документу. Хранение оригиналов — Q10, схема версий — Q14. Объединение событий сохраняет прежние идентификаторы и происхождение данных, не ломая ссылки старых разборов; механизм объединения и редакций согласуется в физической модели.
 
-Insight фиксирует primary_event_id, context, trusted role, profile snapshot, evidence refs, model/config и trace. Новый анализ с изменённым context/profile/role — новая revision/resource согласно итоговому lifecycle; не молчаливая перезапись истории. Preview отдельно от full Insight, поэтому preview ID не требует заранее сгенерированного персонального текста.
+Разбор фиксирует `primary_event_id`, контекст, доверенную роль, версию профиля, ссылки на доказательства, модель, конфигурацию и трассировку. Новый анализ при изменении контекста, профиля или роли создаёт новую редакцию либо ресурс по итоговому согласованному порядку, без незаметной перезаписи истории. Краткая карточка существует отдельно от полного разбора: её идентификатор не требует заранее сгенерированного персонального текста.
 
-Conversation всегда принадлежит конкретному Insight revision и User. Follow-up может добавлять новые material versions; response отмечает использованную актуальность, не переписывая основания старых ответов. Message сохраняет user/assistant status и response claims/evidence; context change — новый scoped flow, не arbitrary body override.
+Диалог всегда принадлежит конкретной редакции разбора и пользователю. Уточняющий ответ может добавлять новые версии материалов и указывает использованную актуальность, не переписывая основания старых ответов. Сообщение сохраняет автора, состояние и утверждения с доказательствами ответа; смена контекста запускает новый сценарий, а не произвольную подмену через тело сообщения.
 
-Feedback ссылается на Insight revision. Product feedback и AnalyticsEvent разные записи: feedback является бизнес-данными, telemetry может доставляться повторно и дедуплицируется по analytics_event_id. Поведенческое использование feedback для ranking — FUTURE, не автоматическое online learning.
+Обратная связь ссылается на редакцию разбора. `Feedback` и `AnalyticsEvent` — разные записи: оценка является данными продукта, телеметрия может доставляться повторно и устраняет дубли по `analytics_event_id`. Поведенческое использование оценок в ранжировании — FUTURE, не автоматическое обучение на лету.
 
 ## Сверка с будущей БД
 
-Перед принятием final schema сверить User/Person separation, CompanyGroup/membership, snapshot profiles/features, role/context dimensions Insight, claim-level evidence, conversations/messages, Feedback, trace linkage и event/document versions. Не выводить обязательный DDL из DTO. Индексы, FK, precision, retention и JSONB boundaries согласуются в schema review; `assessment` из RFC можно сопоставить Insight только после проверки перечисленных измерений.
+Перед принятием окончательной схемы сверить разделение пользователя и физлица, группы и их участников, версии профилей и признаков, роль и контекст разбора, доказательства отдельных утверждений, диалоги и сообщения, обратную связь, связи трассировки и версии событий и документов. DTO не задают обязательную SQL-схему. Индексы, внешние ключи, точность чисел, сроки хранения и границы JSONB согласуются при рассмотрении схемы. `assessment` из RFC можно сопоставить `Insight` только после проверки всех перечисленных измерений.

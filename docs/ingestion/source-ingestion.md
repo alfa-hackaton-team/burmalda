@@ -1,47 +1,47 @@
-# Source ingestion
+# Загрузка материалов из источников
 
-Status: DRAFT. TEAM DECISION D08/D09: registry, adapters и configurable scheduled polling; ordinary news около 15 минут, конкретный интервал на Source. Publishers/endpoints ещё не проверены и не перечисляются как действующие интеграции.
+Статус: DRAFT. TEAM DECISION D08/D09: реестр, адаптеры и настраиваемый опрос по расписанию; для обычных новостей — около 15 минут, точный интервал задаётся для источника. Издатели и адреса подключения ещё не проверены и не обозначаются как действующие интеграции.
 
-## Pipeline и ownership
+## Цепочка обработки и ответственность
 
-`SourceRegistry → Scheduler → Adapter → RawArticle → Normalizer → NormalizedArticle → TechnicalDedup → Persistent corpus → ML1 event processing/index`
+Реестр источников → планировщик → адаптер → оригинал (`RawArticle`) → нормализация → унифицированная публикация (`NormalizedArticle`) → техническая дедупликация → сохранённые материалы → обработка событий и индекс ML1.
 
-ML3 owns scheduling/adapter infrastructure, retries/raw/health. ML1 owns downstream semantic dedup, Event extraction/classification, index content. Contract input/output source-independent. Backend exposes admin contract after permission checks; source management не agent tool.
+ML3 отвечает за планировщик и инфраструктуру адаптеров, повторы, оригиналы и состояние загрузки. ML1 — за последующие смысловую дедупликацию, извлечение и классификацию событий, содержимое индекса. Входной и выходной контракты не зависят от способа доставки конкретного источника. Сервер предоставляет административный API после проверки прав; управление источниками не является инструментом агента.
 
-TEAM DECISION: preferred access — publisher API/feed → RSS → Atom → другой официальный structured feed → допустимый HTML fallback. Generic RSS adapter обслуживает несколько конфигураций. Нет обещания распарсить любой URL; неподдержанный adapter требует разработки и review.
+TEAM DECISION: порядок предпочтения — официальный API или канал издателя → RSS → Atom → другой официальный структурированный канал → допустимый разбор HTML как запасной вариант. Общий RSS-адаптер обслуживает несколько конфигураций. Поддержка любого URL не обещается; неподдерживаемый адаптер требует разработки и согласования.
 
-## Source Registry semantic fields
+## Состав реестра источников
 
-ASSUMPTION DTO: source_id, name, source_role (external/bank/expert), source_type, trust_level, adapter_type, endpoint/config (без secrets в API), enabled, polling_interval_seconds, last_sync_at, last_success_at, optional cursor, health, sanitized last_error, config_version. Enum trust_level и дополнительные adapters TBD; API использует string с документированными классами без выдуманной калибровки. Credentials — secret reference, не строка секрета в editable config.
+ASSUMPTION: формат обмена включает `source_id`, `name`, `source_role` (`external`/`bank`/`expert`), `source_type`, `trust_level`, `adapter_type`, адрес и конфигурацию без секретов в API, `enabled`, `polling_interval_seconds`, `last_sync_at`, `last_success_at`, необязательный курсор, `health`, очищенный от чувствительных данных `last_error`, `config_version`. Перечень уровней доверия и дополнительные адаптеры — TBD; API использует строку с документированными классами, без выдуманной численной калибровки. Учётные данные представлены ссылкой на секрет, не его значением в редактируемой конфигурации.
 
-TEAM DECISION: различать Alfa/internal, trusted external и другие валидированные классы. Trust source и relevance material — разные вещи; bank source не делает любой прогноз актуальным навсегда. Новый source не становится trusted автоматически только потому, что его добавили.
+TEAM DECISION: различать внутренние материалы Альфы, доверенные внешние источники и другие проверенные классы. Доверие к источнику и релевантность материала — разные свойства; источник банка не делает прогноз бессрочно актуальным. Добавление источника само по себе не присваивает ему доверенный статус.
 
-## Raw / normalized / versions
+## Оригиналы, нормализация и версии
 
-TEAM DECISION: raw сохраняется для replay без повторной внешней загрузки. ASSUMPTION raw provenance: source_id, fetched_at, request cursor, content checksum, media type и raw storage ref. Storage Q10 TBD; S3 из DB RFC пока только вариант.
+TEAM DECISION: оригиналы сохраняются для повторной обработки без внешней загрузки. ASSUMPTION: происхождение оригинала включает `source_id`, `fetched_at`, курсор запроса, контрольную сумму, тип содержимого и ссылку на хранилище. Хранение Q10 — TBD; S3 из RFC базы данных остаётся вариантом.
 
-NormalizedArticle содержит article/version ID, source_id, external_id при наличии, canonical_url при наличии, title, body, published_at при наличии, fetched_at, language/author при наличии, metadata, raw reference. Publication date не заменяется fetched_at незаметно. Документ Альфы может быть аналитическим PDF, а не новостной Article: общий document/evidence boundary сохраняет его тип.
+`NormalizedArticle` содержит идентификаторы публикации и версии, `source_id`, `external_id` и `canonical_url` при наличии, заголовок, текст, дату публикации при наличии, время загрузки, язык и автора при наличии, метаданные и ссылку на оригинал. Дата публикации не заменяется временем загрузки незаметно. Материал Альфы может быть аналитическим PDF, а не новостной публикацией: общая модель документов и доказательств сохраняет этот тип.
 
-Technical identity: source + external ID; canonical URL; stable fingerprint fallback. Метод fallback и normalization config version review после corpus EDA. Смена текста известной публикации создаёт content version, а не новый независимый Event. Идентичный материал не должен повторно оплачивать embedding/extraction; семантические дубликаты между publishers решает ML1 отдельно.
+Для технической идентификации используются источник и внешний ID, канонический URL, а при их отсутствии — устойчивый отпечаток. Запасной метод и версионирование конфигурации нормализации согласуются после исследования материалов. Изменение текста известной публикации создаёт версию содержимого, а не новое независимое событие. Идентичный материал не должен повторно расходовать средства на векторизацию и извлечение фактов; смысловые дубли между издателями обрабатывает ML1 отдельно.
 
-ASSUMPTION: stages имеют идемпотентный ключ и persisted outcome; два overlapping polls не публикуют дубли. Scheduling lock/cursor transaction/reconciliation technology TBD по выбранному lifecycle/storage. Сохранять cursor только после подтверждённого persist соответствующей порции, иначе возможен пропуск материала.
+ASSUMPTION: этапы имеют ключ идемпотентности и сохранённый результат; два пересекающихся опроса не публикуют дубли. Блокировки планировщика, транзакция обновления курсора и технология сверки остаются TBD в зависимости от порядка выполнения и хранилища. Курсор сохраняется только после подтверждённой записи соответствующей порции данных, иначе материал можно пропустить.
 
-## Polling, errors и health
+## Опрос, ошибки и состояние
 
-TEAM DECISION: intervals per Source; news polling не применяется к client datasets. FUTURE: webhook. Нет обязательного broker.
+TEAM DECISION: интервал задаётся для каждого источника; опрос новостей не применяется к клиентским наборам данных. FUTURE: уведомления от источника (webhook). Обязательного брокера сообщений нет.
 
-ASSUMPTION health: `UNKNOWN`, `HEALTHY`, `DEGRADED`, `UNAVAILABLE`; enabled отдельно от health. Disable останавливает новые автоматические sync, не удаляет старый corpus. Manual sync отключённого source — правило TBD admin UX; предлагается отклонять до enable, явно описано API как draft.
+ASSUMPTION: состояния — `UNKNOWN`, `HEALTHY`, `DEGRADED`, `UNAVAILABLE`; признак включения `enabled` учитывается отдельно. Отключение останавливает новые автоматические синхронизации, не удаляя накопленные материалы. Ручная синхронизация отключённого источника — TBD административного интерфейса; предлагается отклонять её до включения, в API это проектное предложение.
 
-Bounded retries/backoff с учётом provider rate limits; thresholds/concurrency TBD измерениями. Permanent unsupported/config errors не нужно бесконечно повторять. Rate-limit, fetch, parse, persistence и downstream-processing errors учитываются отдельно. Fetch success не означает index readiness; Source.last_success и processing health не смешивать.
+Повторы ограничены и увеличивают интервал с учётом лимитов провайдера; пороги и параллельность определяются измерениями. Постоянные ошибки неподдерживаемого формата и конфигурации не повторяются бесконечно. Ограничение частоты, загрузка, разбор, сохранение и последующая обработка учитываются как разные причины ошибок. Успешная загрузка не означает готовый индекс; последнее успешное получение источника и состояние обработки не смешиваются.
 
-Падение adapter изолировано по source; сохранённые новости не удаляются. Retry same input возвращает тот же processing identity. Raw saved/metadata failed восстанавливается reconciliation. Изменение parser/index config требует replay нужных версий с trace, без перезаписывания evidence старых Insight.
+Сбой адаптера изолирован по источнику; сохранённые новости не удаляются. Повтор с теми же входными данными возвращает тот же идентификатор обработки. Сохранённый оригинал при ошибке метаданных восстанавливается сверкой. Изменение конфигурации парсера или индекса требует повторной обработки нужных версий с трассировкой, без перезаписи доказательств старых разборов.
 
-## Add source workflow
+## Добавление источника
 
-1. Bank Admin/Analyst с разрешением (Q01) выбирает поддержанный adapter и вводит валидируемую config.
-2. Backend/ML3 проверяют schema, allowed network target/redirects, secret refs, polling interval и permissions.
-3. Создаётся Source, trust assignment проходит agreed policy (пока TBD), UI показывает initial health.
-4. Manual sync/scheduler создаёт отслеживаемую sync operation; результаты и ошибки видны в control plane.
-5. Новый custom adapter получает fixture tests: success/empty/malformed/timeout/rate-limit/duplicate/changed content/unsafe URL. Эти tests выполняются при реализации, сейчас только план.
+1. Администратор или аналитик банка с разрешением (Q01) выбирает поддерживаемый адаптер и вводит проверяемую конфигурацию.
+2. Сервер и ML3 проверяют схему, разрешённые сетевые адреса и перенаправления, ссылки на секреты, интервал опроса и права.
+3. Создаётся источник; уровень доверия назначается по согласованным правилам (пока TBD), интерфейс показывает начальное состояние.
+4. Ручной запуск или планировщик создаёт отслеживаемую операцию синхронизации; результат и ошибки видны в панели управления.
+5. Для нового специализированного адаптера при реализации готовятся тесты на фиксированных примерах: успех, пустой или некорректный материал, превышение времени ожидания, лимит частоты, дубликат, изменение содержимого и небезопасный URL. Пока это план проверок.
 
-SourceManagement показывает list/detail, type/trust/enabled, last sync/success, errors, adapter capabilities, config edit и manual sync state. Нет secrets/raw stack traces. Retention Q10/Q13 TBD, automatic deletion original materials не вводится без политики, сохраняющей claim provenance.
+Управление источниками показывает список и карточку, тип, доверие, включение, последнюю синхронизацию и успех, ошибки, возможности адаптера, настройку и состояние ручного запуска. Секреты и внутренние стеки ошибок не раскрываются. Сроки хранения Q10/Q13 — TBD; автоматическое удаление оригиналов не вводится без политики, сохраняющей происхождение утверждений.

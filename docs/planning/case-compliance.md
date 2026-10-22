@@ -1,31 +1,31 @@
-# Case compliance matrix
+# Матрица соответствия требованиям кейса
 
-Источник: предоставленный PDF «Альфа Хак_Новостная аналитика», страницы 1–19. Это матрица покрытия дизайном, не отчёт о работающем продукте. TEAM additions указаны отдельно; веса критериев жюри не опубликованы в PDF.
+Источник: PDF «Альфа Хак_Новостная аналитика», страницы 1–19. Матрица показывает покрытие проектом, а не подтверждает работу прототипа. Дополнения команды указаны отдельно; веса критериев жюри в PDF не опубликованы.
 
-| ID / Case requirement | Design response | Document where covered | Status / проверка |
+| ID / требование кейса | Как учитывается в проекте | Документ | Статус / проверка |
 |---|---|---|---|
-| C01. Крупный бизнес >15 млрд ₽, люди с разными ролями, с. 4–5 | Контекст Company/Group и доверенная роль | [PRD](../product/PRD.md), [model](../architecture/data-model.md) | CASE REQUIREMENT; сравнить роли на одном событии |
-| C02. Бизнес-контекст и значимость событий, с. 6, 9 | CompanyProfile, связи, explainable ranking | [ML](../ml/ml-design.md) | CASE REQUIREMENT; EDA/разметка ещё нужны |
-| C03. Парсер внешних новостей и аналитики, с. 6 | Registry, adapters, raw/normalized, event processing | [ingestion](../ingestion/source-ingestion.md) | CASE REQUIREMENT; publishers TBD |
-| C04. Последствия, риски и возможности с несколькими факторами, с. 9, 11, 14 | Structured Insight и claims на feature + news + bank evidence | [PRD](../product/PRD.md), [ML](../ml/ml-design.md) | CASE REQUIREMENT; экспертная рубрика |
-| C05. Видимая позиция банка, отличимая от AI, с. 9, 11, 14 | ALFA_ANALYTICS отдельно от AI_INFERENCE/FORECAST | [model](../architecture/data-model.md), [API](../api/README.md) | CASE REQUIREMENT; attribution check |
-| C06. Источники, минимум фактологических ошибок, с. 9, 14 | Claim-level grounding, immutable references, verification | [model](../architecture/data-model.md), [ML](../ml/ml-design.md) | CASE REQUIREMENT; claim audit |
-| C07. Неизвестные ранее события, с. 9 | Held-out events/time split, ingestion новых материалов | [demo](../demo/demo-evaluation.md) | CASE REQUIREMENT; без заготовленных ответов |
-| C08. Полный сценарий и заметная постоянная точка входа, с. 9–10 | Alfa-Business shell → контекст → лента → инсайт | [PRD](../product/PRD.md) | CASE REQUIREMENT; интерактивное E2E |
-| C09. Follow-up, иной разрез, первоисточник, с. 10 | Insight-bound conversation, retrieval tools, source links | [API](../api/openapi.yaml), [ML](../ml/ml-design.md) | CASE REQUIREMENT; grounded dialogue |
-| C10. Планирование, tools, context, self-check/adaptation, с. 7, 10 | Собственная оркестрация, verification → повторный retrieval | [ML](../ml/ml-design.md) | CASE REQUIREMENT; наблюдаемый recovery trace |
-| C11. Трассируемость действий и оснований, с. 10 | trace_id, stages, версионные Evidence и Profile refs | [observability](../analytics/observability.md) | CASE REQUIREMENT; восстановить цепочку |
-| C12. Масштабирование, сопровождение, метрики и feedback, с. 10 | Adapter boundaries, eval, quality UI, Feedback | [architecture](../architecture/architecture.md), [observability](../analytics/observability.md) | CASE REQUIREMENT; workflow мониторинга |
-| C13. Неполные, неоднозначные, шумные данные, с. 12 | missingness, contradictions, insufficient evidence | [model](../architecture/data-model.md), [demo](../demo/demo-evaluation.md) | CASE REQUIREMENT; adverse tests |
-| C14. Разрешённые LLM и дневной бюджет 500 ₽, с. 12, 18 | Allowlist, gateway, token/cost accounting, controlled retries | [ML](../ml/ml-design.md) | CASE REQUIREMENT; model IDs/prices проверить у провайдера |
-| C15. Собственная агентная логика без готовой платформы как ядра, с. 18 | Один orchestrating agent как baseline, собственные tools | [ML](../ml/ml-design.md) | CASE REQUIREMENT; code review при реализации |
-| C16. Права, чувствительные данные, tool logs и ограничения действий, с. 12 | Проверки backend, read-only analysis tools, redaction | [architecture](../architecture/architecture.md) | CASE REQUIREMENT; auth Q01 открыт, production gate |
-| C17. Компания, физлица, payments и банковская аналитика, с. 15–17 | Раздельные исходные сущности, связи, profile provenance | [model](../architecture/data-model.md), [ML](../ml/ml-design.md) | CASE: данные предоставлены; TEAM: graph в v0.1; EDA не проведена |
-| C18. GitHub/history/pinned version, README, Docker, locks, notices, synthetic E2E, с. 8 | Release checklist и единый запуск | [demo](../demo/demo-evaluation.md), [architecture](../architecture/architecture.md) | CASE REQUIREMENT; runtime deliverables позже |
-| C19. Внешний сервер, с. 8 | Возможная demo deployment после выбора stacks | [architecture](../architecture/architecture.md) | Рекомендация кейса, не обязательный выбранный hosting |
+| C01. Крупный бизнес с выручкой >15 млрд ₽, пользователи с разными ролями, с. 4–5 | Контекст компании или группы и доверенная роль | [PRD](../product/PRD.md), [модель](../architecture/data-model.md) | CASE REQUIREMENT; сравнить роли на одном событии |
+| C02. Бизнес-контекст и значимость событий, с. 6, 9 | Бизнес-профиль, связи и объяснимое ранжирование | [ML](../ml/ml-design.md) | CASE REQUIREMENT; нужны исследование данных и разметка |
+| C03. Парсер внешних новостей и аналитики, с. 6 | Реестр, адаптеры, оригиналы и нормализованные данные, обработка событий | [Загрузка](../ingestion/source-ingestion.md) | CASE REQUIREMENT; издатели TBD |
+| C04. Многофакторные последствия, риски и возможности, с. 9, 11, 14 | Структурированный разбор, утверждения с опорой на признаки, новости и материалы банка | [PRD](../product/PRD.md), [ML](../ml/ml-design.md) | CASE REQUIREMENT; экспертные критерии оценки |
+| C05. Видимая позиция банка отдельно от ИИ, с. 9, 11, 14 | ALFA_ANALYTICS отдельно от AI_INFERENCE и FORECAST | [Модель](../architecture/data-model.md), [API](../api/README.md) | CASE REQUIREMENT; проверить правильность приписывания |
+| C06. Источники и минимум фактических ошибок, с. 9, 14 | Доказательства отдельных утверждений, неизменяемые ссылки, проверка | [Модель](../architecture/data-model.md), [ML](../ml/ml-design.md) | CASE REQUIREMENT; проверка утверждений |
+| C07. Новые, ранее не показанные события, с. 9 | Отложенные события, разделение по времени, загрузка новых материалов | [Демонстрация](../demo/demo-evaluation.md) | CASE REQUIREMENT; без заготовленных ответов |
+| C08. Полный сценарий и постоянная заметная точка входа, с. 9–10 | Интерфейс Альфа-Бизнеса → контекст → лента → разбор | [PRD](../product/PRD.md) | CASE REQUIREMENT; интерактивная проверка от начала до конца |
+| C09. Уточнение, иной разрез и первоисточник, с. 10 | Диалог внутри разбора, инструменты поиска, ссылки на источники | [API](../api/openapi.yaml), [ML](../ml/ml-design.md) | CASE REQUIREMENT; ответы с подтверждениями |
+| C10. Планирование, инструменты, контекст, самопроверка и адаптация, с. 7, 10 | Собственная оркестрация, проверка → повторный поиск | [ML](../ml/ml-design.md) | CASE REQUIREMENT; трассировка уточнения при недостатке данных |
+| C11. Трассируемость действий и оснований, с. 10 | trace_id, этапы, версии доказательств и профилей | [Наблюдаемость](../analytics/observability.md) | CASE REQUIREMENT; восстановить цепочку |
+| C12. Масштабирование, сопровождение, метрики и обратная связь, с. 10 | Границы адаптеров, оценка, панель качества и Feedback | [Архитектура](../architecture/architecture.md), [наблюдаемость](../analytics/observability.md) | CASE REQUIREMENT; процесс мониторинга |
+| C13. Неполные, неоднозначные и шумные данные, с. 12 | Пропуски, противоречия, недостаток доказательств | [Модель](../architecture/data-model.md), [демонстрация](../demo/demo-evaluation.md) | CASE REQUIREMENT; проверки неблагоприятных сценариев |
+| C14. Разрешённые LLM и дневной бюджет 500 ₽, с. 12, 18 | Разрешённый перечень, шлюз, учёт токенов и стоимости, контролируемые повторы | [ML](../ml/ml-design.md) | CASE REQUIREMENT; идентификаторы и тарифы проверить у провайдера |
+| C15. Собственная логика без готовой агентной платформы как основы, с. 18 | Один управляющий агент как исходный вариант, собственные инструменты | [ML](../ml/ml-design.md) | CASE REQUIREMENT; проверка кода при реализации |
+| C16. Права, защита данных, журналы инструментов и ограничения действий, с. 12 | Проверки сервера, инструменты анализа только на чтение, исключение чувствительных данных | [Архитектура](../architecture/architecture.md) | CASE REQUIREMENT; Q01 открыт, условие готовности к эксплуатации |
+| C17. Компании, физлица, платежи и банковская аналитика, с. 15–17 | Раздельные исходные сущности, связи и происхождение профиля | [Модель](../architecture/data-model.md), [ML](../ml/ml-design.md) | CASE: данные предоставлены; TEAM: граф в v0.1; EDA ещё не проведена |
+| C18. GitHub с историей, версия сдачи, README, Docker, фиксированные зависимости, уведомления и синтетический полный сценарий, с. 8 | Список требований к выпуску и единый запуск | [Демонстрация](../demo/demo-evaluation.md), [архитектура](../architecture/architecture.md) | CASE REQUIREMENT; файлы запуска готовятся позже |
+| C19. Внешний сервер, с. 8 | Возможное размещение демонстрации после выбора технологий | [Архитектура](../architecture/architecture.md) | Рекомендация кейса, не обязательный выбранный хостинг |
 
 ## Дополнения команды, не приписываемые кейсу
 
-TEAM DECISION: on-demand full generation, high-impact alerts, Source Management и Quality UI, Python/FastAPI/Pydantic для ML, PostgreSQL, HTTP/JSON, два OpenAPI, polling около 15 минут, сохранённый CompanyProfile, Article/Event/Insight semantics и scope-bound chat.
+TEAM DECISION: полный анализ по запросу, предупреждения о высоком влиянии, управление источниками и панель качества, Python/FastAPI/Pydantic для ML, PostgreSQL, HTTP/JSON, два OpenAPI, опрос примерно каждые 15 минут, сохранённый бизнес-профиль, различение публикации, события и персонального разбора, диалог в фиксированном контексте.
 
-FUTURE: Story engine, behavioral recommender, webhook ingestion, возможное расширение analytics storage. Число агентов, наличие vector DB или число сервисов сами по себе не являются критериями успеха кейса.
+FUTURE: обработка развивающихся сюжетов, поведенческие рекомендации, уведомления источников (webhooks) и расширение аналитического хранилища при измеренной потребности. Число агентов, наличие векторной БД и число сервисов сами по себе не являются критериями успеха.

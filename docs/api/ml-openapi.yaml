@@ -1,38 +1,41 @@
 ---
 openapi: 3.1.0
 info:
-  title: Burmalda Internal ML API
+  title: 'Burmalda: внутренний API ML-сервиса'
   version: 0.1.0-draft
-  description: 'DRAFT initial design. Paths/DTO are ASSUMPTION proposals. No authorization
-    scheme is selected: Q01 blocks protected implementation/exposure. Sync/async alternatives
-    Q07 are not a selected hybrid. See README.md and decision-register.md.'
+  description: 'Первоначальный проект, статус DRAFT. Пути и DTO — предложения ASSUMPTION.
+    Способ авторизации не выбран: Q01 блокирует реализацию и публикацию защищённых
+    операций. Альтернативы синхронного и асинхронного выполнения Q07 не означают принятый
+    гибрид. См. README.md и реестр решений decision-register.md.'
 paths:
   "/internal/v0.1/profiles/{profile_id}":
     get:
       operationId: mlGetProfile
       tags:
       - Profiles
-      summary: Получить точный snapshot профиля
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Получить точную сохранённую версию профиля
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/CompanyProfile"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: profile_id
         in: path
@@ -51,27 +54,29 @@ paths:
       operationId: mlRebuildProfile
       tags:
       - Profiles
-      summary: Управляемый rebuild, не polling CSV
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Управляемое перестроение профиля, без периодического опроса CSV
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '202':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/ProfileRebuildOperation"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -84,13 +89,13 @@ paths:
                 source_snapshot_id:
                   type: string
                   minLength: 1
-                  description: Opaque domain ID; не raw dataset key и не обещание
-                    UUID в БД.
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
                 trace_id:
                   type: string
                   minLength: 1
-                  description: Opaque domain ID; не raw dataset key и не обещание
-                    UUID в БД.
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
               additionalProperties: false
               required:
               - context
@@ -103,34 +108,36 @@ paths:
         schema:
           type: string
           minLength: 1
-          description: Draft retry boundary; retention/scoping review, не cache final
-            answers.
+          description: Предлагаемая граница повторного выполнения; срок хранения и
+            контекст действия требуют согласования. Не кэш финальных ответов.
   "/internal/v0.1/profile-rebuilds/{rebuild_id}":
     get:
       operationId: mlGetProfileRebuild
       tags:
       - Profiles
-      summary: Состояние rebuild и новый snapshot ref
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Состояние перестроения и ссылка на новую версию профиля
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/ProfileRebuildOperation"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: rebuild_id
         in: path
@@ -143,27 +150,29 @@ paths:
       operationId: mlRankFeed
       tags:
       - Retrieval
-      summary: Rank event previews для trusted context
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Ранжировать краткие карточки событий для доверенного контекста
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/FeedPage"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -188,27 +197,29 @@ paths:
       operationId: mlRetrieveEvidence
       tags:
       - Retrieval
-      summary: Вернуть структурированный EvidencePackage
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Вернуть структурированный пакет доказательств EvidencePackage
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/EvidencePackage"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -221,8 +232,8 @@ paths:
                 primary_event_id:
                   type: string
                   minLength: 1
-                  description: Opaque domain ID; не raw dataset key и не обещание
-                    UUID в БД.
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
                 query_intent:
                   type: string
               additionalProperties: false
@@ -234,34 +245,36 @@ paths:
       operationId: mlAnalyze
       tags:
       - Agent
-      summary: Подготовить grounded персональный разбор
-      description: Agent может сделать новый retrieval. EvidencePackage optional,
-        не единственная разрешённая retrieval iteration. Проверить совпадение context/profile/trace
-        при его передаче. Q07 lifecycle unresolved.
+      summary: Подготовить персональный разбор с подтверждёнными основаниями
+      description: Агент может выполнить дополнительный поиск. EvidencePackage необязателен
+        и не ограничивает число допустимых этапов поиска. При его передаче проверяется
+        совпадение контекста, профиля и трассировки. Порядок выполнения Q07 не выбран.
       responses:
         '200':
-          description: Sync candidate Q07
+          description: Синхронный вариант Q07
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/AgentResponse"
         '202':
-          description: Async candidate Q07
+          description: Асинхронный вариант Q07
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/AnalysisOperation"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -274,8 +287,8 @@ paths:
                 primary_event_id:
                   type: string
                   minLength: 1
-                  description: Opaque domain ID; не raw dataset key и не обещание
-                    UUID в БД.
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
                 evidence_package:
                   "$ref": "./schemas.yaml#/components/schemas/EvidencePackage"
               additionalProperties: false
@@ -289,35 +302,37 @@ paths:
         schema:
           type: string
           minLength: 1
-          description: Draft retry boundary; retention/scoping review, не cache final
-            answers.
+          description: Предлагаемая граница повторного выполнения; срок хранения и
+            контекст действия требуют согласования. Не кэш финальных ответов.
   "/internal/v0.1/analyses/{analysis_id}":
     get:
       operationId: mlGetAnalysis
       tags:
       - Agent
-      summary: Candidate execution state и structured result
-      description: 'TBD Q07: только async/hybrid. После SUCCEEDED response содержит
-        AgentResponse; Backend сохраняет публичный Insight/message. analysis_id не
-        равен public generation_id автоматически.'
+      summary: Предлагаемое состояние выполнения и структурированный результат
+      description: 'TBD Q07: только асинхронный или гибридный вариант. После SUCCEEDED
+        поле response содержит AgentResponse; сервер сохраняет публичный разбор или
+        сообщение. analysis_id не равен публичному generation_id автоматически.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/AnalysisOperation"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: analysis_id
         in: path
@@ -330,33 +345,35 @@ paths:
       operationId: mlFollowUp
       tags:
       - Agent
-      summary: Ответить в существующем Insight context
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Ответить в контексте существующего разбора Insight
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Sync candidate
+          description: Синхронный вариант
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/AgentResponse"
         '202':
-          description: Async candidate
+          description: Асинхронный вариант
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/AnalysisOperation"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -371,8 +388,8 @@ paths:
                 conversation_id:
                   type: string
                   minLength: 1
-                  description: Opaque domain ID; не raw dataset key и не обещание
-                    UUID в БД.
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
                 history:
                   type: array
                   items:
@@ -394,34 +411,36 @@ paths:
         schema:
           type: string
           minLength: 1
-          description: Draft retry boundary; retention/scoping review, не cache final
-            answers.
+          description: Предлагаемая граница повторного выполнения; срок хранения и
+            контекст действия требуют согласования. Не кэш финальных ответов.
   "/internal/v0.1/sources":
     get:
       operationId: mlListSources
       tags:
       - SourceRegistry
-      summary: Registry list для Backend
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Список реестра для серверной части
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/SourcePage"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: cursor
         in: query
@@ -436,32 +455,34 @@ paths:
           type: integer
           minimum: 1
           maximum: 100
-          description: ASSUMPTION proposed bound; review.
+          description: 'ASSUMPTION: предлагаемое ограничение, требует согласования.'
     post:
       operationId: mlCreateSource
       tags:
       - SourceRegistry
-      summary: Persist validated supported source config
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Сохранить проверенную конфигурацию поддерживаемого источника
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '201':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Source"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -473,27 +494,29 @@ paths:
       operationId: mlGetSource
       tags:
       - SourceRegistry
-      summary: Registry detail
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Карточка реестра
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Source"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: source_id
         in: path
@@ -505,27 +528,29 @@ paths:
       operationId: mlUpdateSource
       tags:
       - SourceRegistry
-      summary: Update config / enabled
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Обновить конфигурацию или признак включения
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Source"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -544,27 +569,29 @@ paths:
       operationId: mlSyncSource
       tags:
       - Ingestion
-      summary: Создать source sync operation
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Создать операцию синхронизации источника
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '202':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       requestBody:
         required: true
         content:
@@ -586,34 +613,36 @@ paths:
         schema:
           type: string
           minLength: 1
-          description: Draft retry boundary; retention/scoping review, не cache final
-            answers.
+          description: Предлагаемая граница повторного выполнения; срок хранения и
+            контекст действия требуют согласования. Не кэш финальных ответов.
   "/internal/v0.1/source-syncs/{sync_id}":
     get:
       operationId: mlGetSourceSync
       tags:
       - Ingestion
-      summary: Состояние sync
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Состояние синхронизации
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/SyncOperation"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: sync_id
         in: path
@@ -626,27 +655,29 @@ paths:
       operationId: mlGetTrace
       tags:
       - Trace
-      summary: Санитизированные ML trace stages
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Этапы трассировки ML без чувствительных данных
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Trace"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: trace_id
         in: path
@@ -659,27 +690,29 @@ paths:
       operationId: mlGetQuality
       tags:
       - Quality
-      summary: ML/platform metrics с версиями
-      description: 'ASSUMPTION: draft operation, requires contract review. Protected
-        boundary; auth Q01 unresolved.'
+      summary: Метрики ML и платформы с версиями
+      description: 'ASSUMPTION: проект операции требует согласования контракта. Операция
+        защищённая; авторизация Q01 не определена.'
       responses:
         '200':
-          description: Structured response
+          description: Структурированный ответ
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/QualityReport"
         default:
-          description: 'Единая ошибка: HTTP 400 validation, 403 forbidden, 404 not
-            found, 409 conflict/profile not ready, 422 insufficient evidence/unsupported
-            config, 429 budget/rate limit, 502 upstream/source, 503 unavailable, 504
-            timeout. Конкретный mapping — DRAFT, review; без stack traces.'
+          description: 'Единая ошибка: HTTP 400 — проверка входных данных; 403 — доступ
+            запрещён; 404 — не найдено; 409 — конфликт или неготовый профиль; 422
+            — недостаток доказательств или неподдерживаемая конфигурация; 429 — бюджет
+            или частота; 502 — ошибка внешнего сервиса или источника; 503 — недоступность;
+            504 — превышение времени ожидания. Соответствие кодам — DRAFT, требует
+            согласования; стеки ошибок не раскрываются.'
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
       x-decision-status: ASSUMPTION
-      x-auth-policy: TBD Q01; not anonymous access
+      x-auth-policy: TBD Q01; анонимный доступ не разрешён
       parameters:
       - name: from
         in: query
@@ -694,4 +727,4 @@ paths:
           type: string
           format: date-time
 x-auth-contract-status: TBD
-x-contract-status: DRAFT / REVIEW REQUIRED
+x-contract-status: DRAFT / требуется согласование

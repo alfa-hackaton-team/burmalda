@@ -1,10 +1,11 @@
 ---
 openapi: 3.1.0
 info:
-  title: Burmalda shared DTO proposals
+  title: 'Burmalda: общие форматы обмена данными'
   version: 0.1.0-draft
-  description: ASSUMPTION semantic schemas, not physical PostgreSQL schema. Auth and
-    sync/async gates unresolved. See README.md.
+  description: 'ASSUMPTION: схемы предметной области, не физическая схема PostgreSQL.
+    Авторизация и порядок синхронного или асинхронного выполнения остаются открытыми.
+    См. README.md.'
 paths: {}
 components:
   schemas:
@@ -14,13 +15,15 @@ components:
         context_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         kind:
           const: COMPANY
         company_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - context_id
@@ -32,13 +35,15 @@ components:
         context_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         kind:
           const: GROUP
         group_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - context_id
@@ -59,7 +64,8 @@ components:
         profile_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         version:
           type: string
       additionalProperties: false
@@ -72,23 +78,28 @@ components:
         source_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         document_version_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         chunk_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         article_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         article_version_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - source_id
@@ -102,14 +113,15 @@ components:
         feature_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         contributing_company_ids:
           type: array
           items:
             type: string
             minLength: 1
-            description: Opaque domain ID; не raw dataset key и не обещание UUID в
-              БД.
+            description: Идентификатор предметной области со скрытой внутренней структурой;
+              не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - profile
@@ -121,7 +133,8 @@ components:
         source_snapshot_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         record_refs:
           type: array
           items:
@@ -141,7 +154,8 @@ components:
         evidence_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         evidence_type:
           type: string
           enum:
@@ -173,7 +187,8 @@ components:
         evidence_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         evidence_type:
           const: COMPANY_DATA
         reference:
@@ -199,7 +214,8 @@ components:
         evidence_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         relation:
           type: string
           enum:
@@ -216,7 +232,8 @@ components:
         claim_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         text:
           type: string
         claim_type:
@@ -250,16 +267,18 @@ components:
       - verification_status
       - evidence_links
       - assumptions
-      description: Общий внутренний DTO включает UNSUPPORTED для проверки. Client
-        projection исключает unsupported facts; material claims должны иметь supporting
-        links. Semantic invariants проверяет приложение, не только JSON Schema.
+      description: Общий внутренний DTO включает UNSUPPORTED для проверки. Клиентское
+        представление исключает неподтверждённые факты; существенные утверждения должны
+        иметь ссылки на поддерживающие доказательства. Обязательные смысловые правила
+        проверяет приложение, не только JSON Schema.
     SourceRef:
       type: object
       properties:
         source_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         name:
           type: string
         source_role:
@@ -293,8 +312,8 @@ components:
           items:
             type: string
             minLength: 1
-            description: Opaque domain ID; не raw dataset key и не обещание UUID в
-              БД.
+            description: Идентификатор предметной области со скрытой внутренней структурой;
+              не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - code
@@ -305,7 +324,8 @@ components:
         event_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         title:
           type: string
         summary:
@@ -326,7 +346,8 @@ components:
         feature_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         name:
           type: string
         value: {}
@@ -343,8 +364,8 @@ components:
           items:
             type: string
             minLength: 1
-            description: Opaque domain ID; не raw dataset key и не обещание UUID в
-              БД.
+            description: Идентификатор предметной области со скрытой внутренней структурой;
+              не исходный ключ набора и не обязательный UUID в БД.
         provenance:
           "$ref": "#/components/schemas/Provenance"
       additionalProperties: false
@@ -355,8 +376,8 @@ components:
       - availability
       - contributing_company_ids
       - provenance
-      description: Тип value определяется feature dictionary после EDA; missing не
-        zero/false.
+      description: Тип value определяется словарём признаков после EDA; отсутствие
+        данных не равно нулю или false.
     CompanyProfile:
       type: object
       properties:
@@ -396,15 +417,16 @@ components:
       - label
       - explanation
       - policy_version
-      description: Шкала/threshold TBD Q11; label не произвольный score. Примеры high/medium
-        не фиксируют final enum.
+      description: Шкала и порог — TBD Q11; label не произвольная численная оценка.
+        Примеры high/medium не задают окончательный перечень значений.
     FeedItem:
       type: object
       properties:
         preview_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         event:
           "$ref": "#/components/schemas/EventRef"
         published_at:
@@ -429,7 +451,8 @@ components:
         alert_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - preview_id
@@ -446,7 +469,8 @@ components:
         alert_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         context:
           "$ref": "#/components/schemas/BusinessContext"
         event:
@@ -481,8 +505,8 @@ components:
           items:
             type: string
             minLength: 1
-            description: Opaque domain ID; не raw dataset key и не обещание UUID в
-              БД.
+            description: Идентификатор предметной области со скрытой внутренней структурой;
+              не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - section_type
@@ -493,7 +517,8 @@ components:
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         claims:
           type: array
           items:
@@ -526,7 +551,8 @@ components:
         insight_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         revision:
           type: string
         primary_event:
@@ -536,14 +562,15 @@ components:
           items:
             type: string
             minLength: 1
-            description: Opaque domain ID; не raw dataset key и не обещание UUID в
-              БД.
+            description: Идентификатор предметной области со скрытой внутренней структурой;
+              не исходный ключ набора и не обязательный UUID в БД.
         context:
           "$ref": "#/components/schemas/BusinessContext"
         role_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         profile:
           "$ref": "#/components/schemas/ProfileRef"
         created_at:
@@ -568,7 +595,8 @@ components:
         generation_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         state:
           type: string
           enum:
@@ -580,18 +608,21 @@ components:
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         created_at:
           type: string
           format: date-time
         insight_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         message_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         error:
           "$ref": "#/components/schemas/Error"
       additionalProperties: false
@@ -600,8 +631,8 @@ components:
       - state
       - trace_id
       - created_at
-      description: 'ASSUMPTION: только async/hybrid candidate Q07; terminal state/result
-        consistency — semantic invariant.'
+      description: 'ASSUMPTION: только асинхронный или гибридный вариант Q07; согласованность
+        конечного состояния и результата — обязательное смысловое правило.'
     Error:
       type: object
       properties:
@@ -625,7 +656,8 @@ components:
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         retryable:
           type: boolean
       additionalProperties: false
@@ -633,19 +665,22 @@ components:
       - code
       - message
       - retryable
-      description: Нет stack traces, secrets и скрытых resource details. INSUFFICIENT_EVIDENCE
-        может быть structured limited result, если есть безопасная полезная часть.
+      description: Нет стеков ошибок, секретов и скрытых сведений о ресурсах. INSUFFICIENT_EVIDENCE
+        может быть структурированным ограниченным результатом, если безопасная полезная
+        часть доступна.
     Conversation:
       type: object
       properties:
         conversation_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         insight_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         insight_revision:
           type: string
         context:
@@ -653,7 +688,8 @@ components:
         role_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         created_at:
           type: string
           format: date-time
@@ -671,11 +707,13 @@ components:
         message_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         conversation_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         sequence:
           type: integer
           minimum: 1
@@ -698,8 +736,8 @@ components:
       - sequence
       - author
       - created_at
-      description: USER содержит text; ASSISTANT содержит structured response; invariant
-        проверяется server-side. Не LLM private reasoning.
+      description: USER содержит text; ASSISTANT — структурированный response. Правило
+        проверяется на сервере. Скрытые рассуждения LLM не передаются.
     FollowUpResult:
       type: object
       properties:
@@ -735,19 +773,21 @@ components:
       required:
       - insight_revision
       - rating
-      description: Reason taxonomy ASSUMPTION; negative допускает reason/comment,
-        не требует текста.
+      description: Перечень причин — ASSUMPTION; отрицательная оценка допускает причину
+        и комментарий, но не требует текста.
     Feedback:
       type: object
       properties:
         feedback_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         insight_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         created_at:
           type: string
           format: date-time
@@ -799,9 +839,9 @@ components:
       - endpoint
       - enabled
       - polling_interval_seconds
-      description: Только supported config; adapter_config валидируется adapter-specific
-        schema; никаких inline secrets. Registry policy/restrictions на поля и trust
-        TBD.
+      description: Только поддерживаемая конфигурация; adapter_config проверяется
+        по схеме конкретного адаптера. Значения секретов не передаются. Правила реестра,
+        ограничения полей и доверия — TBD.
     SourceUpdate:
       type: object
       properties:
@@ -833,15 +873,16 @@ components:
           type: object
           additionalProperties: true
       additionalProperties: false
-      description: PATCH allowlist и concurrent config_version review. Нельзя менять
-        trust произвольно без разрешения.
+      description: Разрешённые поля PATCH и защита одновременного изменения config_version
+        требуют согласования. Уровень доверия нельзя менять произвольно без разрешения.
     Source:
       type: object
       properties:
         source_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         config_version:
           type: string
         config:
@@ -873,19 +914,21 @@ components:
       - health
       - last_sync_at
       - last_success_at
-      description: credential_ref — reference, не secret value; даже reference требует
-        admin projection review.
+      description: credential_ref — ссылка, не значение секрета; даже её выдача требует
+        согласования административного представления.
     SyncOperation:
       type: object
       properties:
         sync_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         source_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         state:
           type: string
           enum:
@@ -896,7 +939,8 @@ components:
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         created_at:
           type: string
           format: date-time
@@ -915,11 +959,13 @@ components:
         stage_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         parent_stage_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         stage_type:
           type: string
         status:
@@ -937,8 +983,8 @@ components:
           items:
             type: string
             minLength: 1
-            description: Opaque domain ID; не raw dataset key и не обещание UUID в
-              БД.
+            description: Идентификатор предметной области со скрытой внутренней структурой;
+              не исходный ключ набора и не обязательный UUID в БД.
         feature_refs:
           type: array
           items:
@@ -954,15 +1000,16 @@ components:
       - finished_at
       - evidence_ids
       - feature_refs
-      description: Только разрешённая sanitized projection. Нет private reasoning/raw
-        prompts.
+      description: Только разрешённое представление без чувствительных данных. Нет
+        скрытых рассуждений и полных запросов к модели.
     Trace:
       type: object
       properties:
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         stages:
           type: array
           items:
@@ -977,7 +1024,8 @@ components:
         analytics_event_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         schema_version:
           type: string
         event_type:
@@ -993,19 +1041,23 @@ components:
         context_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         insight_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         source_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         alert_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
       additionalProperties: false
       required:
       - analytics_event_id
@@ -1013,7 +1065,7 @@ components:
       - event_type
       - occurred_at
       - context_id
-      description: User identity определяется backend; internal quality events сюда
+      description: Пользователя определяет сервер; внутренние события качества сюда
         не принимаются.
     Metric:
       type: object
@@ -1070,21 +1122,25 @@ components:
         request_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         user_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         context:
           "$ref": "#/components/schemas/BusinessContext"
         role_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         profile:
           "$ref": "#/components/schemas/ProfileRef"
       additionalProperties: false
@@ -1095,28 +1151,30 @@ components:
       - context
       - role_id
       - profile
-      description: Только internal Backend→ML. Не auth mechanism и не разрешение доверять
-        public payload; Q01 gate.
+      description: Только внутреннее взаимодействие сервер → ML. Не механизм авторизации
+        и не разрешение доверять публичным данным запроса; Q01 — обязательное условие.
     EvidencePackage:
       type: object
       properties:
         package_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         request_context:
           "$ref": "#/components/schemas/TrustedRequestContext"
         primary_event_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         supporting_event_ids:
           type: array
           items:
             type: string
             minLength: 1
-            description: Opaque domain ID; не raw dataset key и не обещание UUID в
-              БД.
+            description: Идентификатор предметной области со скрытой внутренней структурой;
+              не исходный ключ набора и не обязательный UUID в БД.
         evidence:
           type: array
           items:
@@ -1139,15 +1197,18 @@ components:
         article_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         article_version_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         source_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         external_id:
           type: string
         canonical_url:
@@ -1194,7 +1255,8 @@ components:
         analysis_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         state:
           type: string
           enum:
@@ -1206,7 +1268,8 @@ components:
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         created_at:
           type: string
           format: date-time
@@ -1220,16 +1283,17 @@ components:
       - state
       - trace_id
       - created_at
-      description: Async candidate Q07. SUCCEEDED требует response; FAILED требует
-        error. Backend связывает analysis_id с public generation_id, это разные domain
-        refs.
+      description: Асинхронный вариант Q07. SUCCEEDED требует response; FAILED — error.
+        Сервер связывает analysis_id с публичным generation_id; это разные идентификаторы
+        предметной области.
     ProfileRebuildOperation:
       type: object
       properties:
         rebuild_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         state:
           type: string
           enum:
@@ -1240,7 +1304,8 @@ components:
         trace_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         created_at:
           type: string
           format: date-time
@@ -1254,22 +1319,23 @@ components:
       - state
       - trace_id
       - created_at
-      description: ASSUMPTION background rebuild; SUCCEEDED содержит profile ref.
-        Не Insight generation resource.
+      description: 'ASSUMPTION: фоновое перестроение; SUCCEEDED содержит ссылку на
+        профиль. Не ресурс генерации разбора.'
     Me:
       type: object
       properties:
         user_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         display_name:
           type: string
       additionalProperties: false
       required:
       - user_id
-      description: Identity projection only; session/auth transport TBD, не login
-        contract.
+      description: Только сведения об идентичности; передача сессии и авторизации
+        — TBD, это не контракт входа.
     AvailableContext:
       type: object
       properties:
@@ -1280,7 +1346,8 @@ components:
         role_id:
           type: string
           minLength: 1
-          description: Opaque domain ID; не raw dataset key и не обещание UUID в БД.
+          description: Идентификатор предметной области со скрытой внутренней структурой;
+            не исходный ключ набора и не обязательный UUID в БД.
         profile:
           "$ref": "#/components/schemas/ProfileRef"
       additionalProperties: false
@@ -1288,8 +1355,8 @@ components:
       - context
       - display_name
       - role_id
-      description: Только backend-resolved доступные contexts. Semantics grants TBD
-        Q01.
+      description: Только доступные контексты, определённые сервером. Правила предоставления
+        доступа — TBD Q01.
     ContextPage:
       type: object
       properties:
@@ -1305,8 +1372,8 @@ components:
       required:
       - items
       - next_cursor
-      description: Cursor относится к стабильному snapshot выдачи; параметры/срок
-        действия ASSUMPTION, review.
+      description: Курсор относится к зафиксированной версии выдачи; параметры и срок
+        действия — ASSUMPTION, требуют согласования.
     FeedPage:
       type: object
       properties:
@@ -1322,8 +1389,8 @@ components:
       required:
       - items
       - next_cursor
-      description: Cursor относится к стабильному snapshot выдачи; параметры/срок
-        действия ASSUMPTION, review.
+      description: Курсор относится к зафиксированной версии выдачи; параметры и срок
+        действия — ASSUMPTION, требуют согласования.
     AlertPage:
       type: object
       properties:
@@ -1339,8 +1406,8 @@ components:
       required:
       - items
       - next_cursor
-      description: Cursor относится к стабильному snapshot выдачи; параметры/срок
-        действия ASSUMPTION, review.
+      description: Курсор относится к зафиксированной версии выдачи; параметры и срок
+        действия — ASSUMPTION, требуют согласования.
     SourcePage:
       type: object
       properties:
@@ -1356,8 +1423,8 @@ components:
       required:
       - items
       - next_cursor
-      description: Cursor относится к стабильному snapshot выдачи; параметры/срок
-        действия ASSUMPTION, review.
+      description: Курсор относится к зафиксированной версии выдачи; параметры и срок
+        действия — ASSUMPTION, требуют согласования.
     ConversationPage:
       type: object
       properties:
@@ -1373,8 +1440,8 @@ components:
       required:
       - items
       - next_cursor
-      description: Cursor относится к стабильному snapshot выдачи; параметры/срок
-        действия ASSUMPTION, review.
+      description: Курсор относится к зафиксированной версии выдачи; параметры и срок
+        действия — ASSUMPTION, требуют согласования.
     MessagePage:
       type: object
       properties:
@@ -1390,5 +1457,5 @@ components:
       required:
       - items
       - next_cursor
-      description: Cursor относится к стабильному snapshot выдачи; параметры/срок
-        действия ASSUMPTION, review.
+      description: Курсор относится к зафиксированной версии выдачи; параметры и срок
+        действия — ASSUMPTION, требуют согласования.

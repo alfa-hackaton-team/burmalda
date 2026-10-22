@@ -1,78 +1,78 @@
-# ML design v0.1
+# Проектирование ML v0.1
 
-Status: DRAFT. [Реестр D/Q](../planning/decision-register.md) определяет статус решений. TEAM DECISION: ML Python/FastAPI/Pydantic, HTTP/JSON, собственная agent logic. Domain concepts и version semantics — [data model](../architecture/data-model.md).
+Статус: DRAFT. Статусы решений определяет [реестр D/Q](../planning/decision-register.md). TEAM DECISION: Python/FastAPI/Pydantic для ML, HTTP/JSON, собственная агентная логика. Смысл сущностей и версий описан в [модели данных](../architecture/data-model.md).
 
-## ML1: Company и Event intelligence
+## ML1: анализ бизнеса и обработка событий
 
-TEAM DECISION: ML1 owns client EDA, CompanyProfile, graph context, Article→Event, retrieval/ranking и EvidencePackage.
+TEAM DECISION: ML1 отвечает за исследование клиентских данных (EDA), бизнес-профиль `CompanyProfile`, граф связей, преобразование публикаций в события, поиск, ранжирование и пакет доказательств `EvidencePackage`.
 
-Client EDA обязана проверить ключи/дубликаты/связность, missingness и распределения, смысл категориальных градаций, units/currency/time payments, направление payer/beneficiary, group membership, неизвестные endpoints, состав банковских продуктов и FTS. Не считать географию регистрации географией операций. Наличие кредита не даёт величину долга/тип ставки. FTS country не даёт точный объём exposure. Совпадение Person не доказывает группу/ownership без исходного подтверждения.
+Исследование клиентских данных должно проверить ключи, дубликаты и связность, пропуски и распределения, смысл категорий и градаций, единицы, валюту и период платежей, направление плательщик → получатель, состав групп, неизвестных участников связей, банковские продукты и данные ФТС. Место регистрации не считается географией операций. Наличие кредита не определяет сумму долга или тип ставки. Страна из ФТС не даёт точную величину зависимости от неё. Совпадение физического лица не доказывает принадлежность к группе или собственность без исходного подтверждения.
 
-TEAM DECISION: профиль строится заранее. ASSUMPTION: импорт → versioned source snapshot → validated features → Company profile → Group aggregation с contribution refs → persisted profile. Rebuild управляемый; mechanism updates Q09. Профиль хранит gaps и provenance, а не заполняет пропуски правдоподобным текстом.
+TEAM DECISION: профиль строится заранее. ASSUMPTION: импорт → версия исходных данных → проверенные признаки → профиль компании → объединение группы со ссылками на вклад участников → сохранённый профиль. Перестроение управляемое; способ получения обновлений — Q09. Профиль хранит пробелы и происхождение признаков, не заменяя пропуски правдоподобным текстом.
 
-Graph hypotheses (TBD Q06): значимость контрагента, concentration, directional dependencies, indirect country/industry exposure. Для каждой: raw premise → derivation → hypothesis limitations → сравнение ranking с/без feature → экспертная оценка и решение. Graph representation не означает отдельную graph DB. Начинать с исследования data quality; GNN/PageRank/community clustering не выбраны.
+Гипотезы по графу (TBD Q06): значимость контрагента, концентрация, направленные зависимости и косвенное влияние стран или отраслей. Для каждой гипотезы: исходная предпосылка → расчёт → ограничения → сравнение ранжирования с признаком и без него → экспертная оценка и решение. Представление связей графом не требует отдельной графовой БД. Сначала исследуется качество данных; GNN, PageRank и кластеризация сообществ не выбраны.
 
-Event intelligence получает NormalizedArticle от ingestion. ASSUMPTION stages: quality checks → factual extraction → candidate event matching → semantic dedup → event classification → версии/источники/contradictions → indexing. Extraction output валидируется; semantic merge требует сохранения всех publication versions и возможности обнаружить неверное объединение. Topic similarity не равна одному событию. Story pipeline FUTURE.
+Обработка событий получает `NormalizedArticle` от загрузчика. ASSUMPTION: проверка качества → извлечение фактов → поиск подходящих событий → смысловая дедупликация → классификация → версии, источники и противоречия → индексирование. Извлечённые данные проверяются; смысловое объединение сохраняет все версии публикаций и позволяет обнаружить ошибочное объединение. Сходство тем не означает одно событие. Обработка развивающихся сюжетов — FUTURE.
 
-## Retrieval / ranking experiments
+## Эксперименты с поиском и ранжированием
 
-TBD Q03/Q04: lexical/BM25 baseline, embedding, hybrid и optional reranking сравниваются на одинаковом corpus и labeled requests. Не выбран ни storage, ни embedding/reranker/model, ни chunk length/overlap, K/weights/thresholds. Рекомендуемые варианты — кандидаты для эксперимента, не production defaults.
+TBD Q03/Q04: базовый лексический поиск, включая BM25, поиск по векторам, гибридный поиск и дополнительное переранжирование сравниваются на одном наборе материалов и размеченных запросов. Не выбраны хранилище, модели векторизации и переранжирования, размер и перекрытие фрагментов, K, веса и пороги. Перечисленные варианты — кандидаты для экспериментов, а не настройки готовой системы.
 
-Query unit: BusinessContext + profile snapshot + trusted role + event/question intent. Feed ranking возвращает event previews; evidence retrieval возвращает конкретные цитируемые фрагменты/признаки. Не смешивать similarity с вероятностью влияния. Предпочтение source определяется классификацией и проверяемыми признаками, не произвольным reliability_score.
+Единица запроса: бизнес-контекст + версия профиля + доверенная роль + событие или смысл вопроса. Ранжирование ленты возвращает краткие карточки событий; поиск доказательств — конкретные цитируемые фрагменты и признаки. Смысловая близость не равна вероятности влияния. Предпочтение источников определяется классификацией и проверяемыми признаками, а не произвольным `reliability_score`.
 
-TEAM DECISION: аналитика Альфы отдельно индексируется/отбирается как ALFA_ANALYTICS. Нельзя гарантировать наличие позиции банка для любого события. Retrieval собирает как support, так и contradiction/context; пустой bank evidence возвращается как gap. Устаревший прогноз не представляется текущей позицией без даты/оговорки.
+TEAM DECISION: аналитика Альфы отдельно индексируется и отбирается как `ALFA_ANALYTICS`. Наличие позиции банка по любому событию не гарантируется. Поиск собирает поддержку, противоречия и контекст; отсутствие банковских материалов отмечается как пробел. Устаревший прогноз не выдаётся за текущую позицию без даты и оговорки.
 
-ASSUMPTION EvidencePackage semantic contract: package_id, trace_id, context, trusted_role_id, profile_id/version, primary_event_id, supporting_event_ids, ranked candidates, Evidence[], limitations. News Evidence ссылается на material version/chunk, Company Evidence — на feature/provenance; downstream ML2 не знает publisher adapter. Metadata может содержать raw scores с method/config version, но не публичный псевдо confidence.
+ASSUMPTION: смысловой контракт `EvidencePackage` содержит `package_id`, `trace_id`, контекст, доверенную роль (`trusted_role_id`), `profile_id`/версию, `primary_event_id`, `supporting_event_ids`, ранжированных кандидатов, `Evidence[]` и ограничения. Доказательство из новости ссылается на версию материала и фрагмент, из данных компании — на признак и его происхождение. ML2 не зависит от адаптера конкретного издателя. Метаданные могут содержать внутренние оценки с версией метода и конфигурации, но не публичный необоснованный процент уверенности.
 
-## ML2: Agent & Generation
+## ML2: агент и генерация
 
-ASSUMPTION D13: один orchestrating agent с tools как baseline; framework не выбран и готовая autonomous platform не является ядром. TEAM DECISION: самостоятельные planning/tool use/context/self-check/adaptation.
+ASSUMPTION D13: исходный вариант — один управляющий агент с инструментами. Фреймворк не выбран; готовая автономная платформа не является основой решения. TEAM DECISION: самостоятельное планирование, вызов инструментов, сохранение контекста, самопроверка и адаптация.
 
 ```mermaid
 flowchart TD
-  R[Trusted request + Profile snapshot + Event] --> P[Plan: required data/tools]
-  P --> E[Retrieve EvidencePackage]
-  E --> G[Structured claims / risks / opportunities]
-  G --> V[Verify grounding / consistency / completeness]
-  V -->|missing or conflicting support| T[Bounded tool retrieval / correction]
+  R[Доверенный запрос, версия профиля и событие] --> P[План: нужные данные и инструменты]
+  P --> E[Поиск пакета доказательств]
+  E --> G[Структурированные утверждения, риски и возможности]
+  G --> V[Проверка оснований, согласованности и полноты]
+  V -->|Недостаток или противоречие оснований| T[Ограниченный дополнительный поиск и корректировка]
   T --> E
-  V -->|sufficient or explicitly limited| A[AgentResponse + claims + evidence + limitations]
-  V -->|no safe result / budget exhausted| L[Insufficient evidence or controlled error]
+  V -->|Достаточно данных или ограничения обозначены| A[AgentResponse: утверждения, доказательства, ограничения]
+  V -->|Нет безопасного результата или исчерпан бюджет| L[Недостаток подтверждений или контролируемая ошибка]
 ```
 
-Proposed tools (ASSUMPTION; exact DTO below contract review):
+Предлагаемые инструменты — ASSUMPTION; точные DTO требуют согласования контракта:
 
-| Tool | Input / output | Guardrail |
+| Инструмент | Вход / выход | Ограничения |
 |---|---|---|
-| get_company_context | Trusted context/profile ref → features/gaps/provenance | Read-only, fixed scope; не принимает произвольную роль от модели |
-| get_business_relations | Profile ref + allowed feature request → validated relations | Не интерпретирует person link как grant |
-| search_news | Query intent + approved corpus filters → cited external Evidence | Не произвольный web browser per user request |
-| search_alfa_analytics | Query intent → dated ALFA_ANALYTICS Evidence | Не генерирует bank position при отсутствии |
-| get_event_evidence | Event ref → versioned facts/materials/contradictions | Имеет provenance; не доверяет merged summary как первоисточнику |
+| `get_company_context` | Доверенный контекст и ссылка на профиль → признаки, пробелы и происхождение | Только чтение, фиксированный контекст; не принимает произвольную роль от модели |
+| `get_business_relations` | Ссылка на профиль и разрешённый запрос признаков → проверенные связи | Связь с физлицом не считается правом доступа |
+| `search_news` | Смысл запроса и разрешённые фильтры материалов → цитируемые внешние доказательства | Не произвольный просмотр интернета при каждом пользовательском запросе |
+| `search_alfa_analytics` | Смысл запроса → датированные доказательства ALFA_ANALYTICS | Не создаёт позицию банка при её отсутствии |
+| `get_event_evidence` | Ссылка на событие → версии фактов, материалов и противоречий | Сохраняет происхождение; объединённое резюме не считается первоисточником |
 
-Контекст выполнения содержит immutable refs, использованные evidence, structured intermediate outputs и ограничения. Agent не может расширить access scope/tool allowlist текстом news/user message. Сохранённый trace содержит наблюдаемые действия и результаты, а не private reasoning.
+Контекст выполнения содержит неизменяемые ссылки, использованные доказательства, структурированные промежуточные результаты и ограничения. Текст новости или пользовательского сообщения не может расширить доступ агента и набор разрешённых инструментов. Сохранённая трассировка отражает наблюдаемые действия и результаты, без скрытых рассуждений модели.
 
-Verification проверяет schema, существенные claims, соответствие evidence конкретному утверждению, банк attribution, численные/временные факты, consistency между рисками/действиями, связь с profile и отсутствие unsupported knowledge. Автоматический verifier — измеряемый компонент, не абсолютная истина; сравнить rule checks и permitted-LLM checks (Q05). Второй LLM-вызов сам по себе не считается независимым доказательством.
+Проверка охватывает схему ответа, существенные утверждения, применимость доказательств к конкретному утверждению, корректность приписывания позиции банку, числа и даты, согласованность рисков и действий, связь с профилем и отсутствие неподтверждённых сведений. Автоматическая проверка — компонент с измеряемым качеством, а не абсолютная истина; требуется сравнить правила и проверки разрешённой LLM (Q05). Второй вызов LLM сам по себе не является независимым доказательством.
 
-TEAM DECISION: SUPPORTED допускается; PARTIALLY_SUPPORTED требует caveat/assumption или retrieval; UNSUPPORTED нельзя выдавать как факт. Условный прогноз имеет основания, но не гарантирован. Ограничение цикла: bounded attempts, deadlines, token/cost reserve; конкретные значения TBD по budget/benchmark. При исчерпании — limitation/контролируемый отказ, не бесконечные retries.
+TEAM DECISION: `SUPPORTED` допускается; `PARTIALLY_SUPPORTED` требует оговорки, допущения или нового поиска; `UNSUPPORTED` нельзя выдавать как факт. Условный прогноз имеет основания, но не гарантирован. Цикл ограничен числом попыток, временем и резервом токенов и стоимости; значения TBD по бюджету и измерениям. При исчерпании — ограничение или контролируемый отказ, без бесконечных повторов.
 
-AgentResponse semantic output: primary Event, context, trusted role, profile snapshot, sections с claim_ids, claims/evidence, limitations, trace_id, model/config refs, generation status. Риски/возможности/действия структурируются как sections/claims, не дублируются независимыми несогласованными текстами. Full Insight и follow-up используют одну Claim/Evidence семантику.
+Смысловой результат `AgentResponse`: основное событие, контекст, доверенная роль, версия профиля, разделы с `claim_ids`, утверждения и доказательства, ограничения, `trace_id`, ссылки на модель и конфигурацию, состояние генерации. Риски, возможности и действия представлены разделами и утверждениями, а не независимыми несогласованными текстами. Полный разбор и уточняющий ответ используют одинаковый смысл `Claim` и `Evidence`.
 
-## Follow-up
+## Уточняющий диалог
 
-TEAM DECISION: Conversation привязана к Insight/User/context/role, история сохраняется. Backend загружает доверенные refs, ML2 получает текущий Insight, разрешённую history и question. Бюджет history и grounded summarization TBD Q13; persisted history и LLM prompt window не одно и то же.
+TEAM DECISION: диалог `Conversation` связан с разбором, пользователем, контекстом и ролью; история сохраняется. Сервер загружает доверенные ссылки, ML2 получает текущий разбор, разрешённую историю и вопрос. Объём истории и её сокращение с сохранением оснований — TBD Q13; сохранённая история и фактический контекст запроса к LLM не одно и то же.
 
-Агент сначала определяет, относится ли вопрос к текущему Insight. Связанный иной разрез допускается; произвольный новый business scope/несвязанная новость не подменяет исходную сущность. Для недостающих данных вызываются tools; новый ответ содержит свои claim/evidence refs и trace, сохраняя прежний ответ. Ошибка generation не должна создавать видимость готового assistant message.
+Агент сначала определяет, относится ли вопрос к текущему разбору. Связанный иной ракурс допускается; произвольный новый бизнес-контекст или несвязанная новость не подменяют исходную сущность. Недостающие данные запрашиваются инструментами; новый ответ содержит собственные ссылки на утверждения, доказательства и трассировку, сохраняя прежний ответ. Ошибка генерации не создаёт видимость готового сообщения помощника.
 
-## ML3: Platform & Integration
+## ML3: платформа и интеграция
 
-TEAM DECISION: ML3 owns internal HTTP/OpenAPI, LLM gateway, registry/adapters/scheduler, retries/timeouts/rate limits, trace persistence/metrics, sessions integration, Docker/health/config и Backend↔ML tests. Index infra ownership уточняется после Q03.
+TEAM DECISION: ML3 отвечает за внутренний HTTP/OpenAPI, шлюз LLM, реестр, адаптеры и планировщик, повторы, время ожидания и ограничения частоты вызовов, сохранение трассировки и метрик, взаимодействие с сессиями, Docker, состояние, конфигурацию и тесты сервер ↔ ML. Владелец инфраструктуры индекса уточняется после Q03.
 
-Gateway проверяет allowlist, model ID, structured-output capabilities, budgets и per-call metadata; фиксирует tokens/cost если провайдер предоставляет. Дневной денежный лимит 500 ₽ общий: локальный учёт не гарантирует остаток других участников, если provider не даёт shared usage. Нужны provider limits + командная координация бюджета; pricing и reset boundary уточнить. Классификация/preview не должны потреблять весь budget full analysis. Model routing после benchmark, не по предполагаемой «силе» названия.
+Шлюз проверяет разрешённый перечень моделей, их идентификаторы, поддержку структурированных ответов, бюджет и метаданные каждого вызова; фиксирует токены и стоимость, если провайдер их предоставляет. Дневной лимит 500 ₽ общий: локальный учёт не гарантирует остаток других участников без общей статистики провайдера. Нужны ограничения провайдера и командная координация бюджета; тарифы и границу сброса лимита необходимо уточнить. Классификация и краткие карточки не должны расходовать весь бюджет подробного анализа. Модель для задачи выбирается после измерений, не по предполагаемой силе названия.
 
-## Allowed LLMs
+## Разрешённые LLM
 
-CASE REQUIREMENT C14/C15, список из PDF, без утверждения доступности/качества:
+CASE REQUIREMENT C14/C15: список из PDF, без утверждений о доступности или качестве:
 
 1. Gemma 4 26B A4B.
 2. GLM-5.3-Flash.
@@ -81,20 +81,20 @@ CASE REQUIREMENT C14/C15, список из PDF, без утверждения �
 5. Qwen3-VL-30B-A3B-Instruct.
 6. Kimi-K2.6.
 
-Exact provider names, task mapping, context/tool/JSON support, embedding/reranker admissibility TBD Q05. Не использовать другие LLM или внешний autonomous service как основной компонент. Никаких предположений о реальных характеристиках этих моделей без проверки.
+Точные идентификаторы провайдера, распределение задач по моделям, поддержка контекста, инструментов и JSON, допустимость моделей векторизации и переранжирования — TBD Q05. Другие LLM или внешний автономный сервис не используются как основной компонент. Реальные характеристики моделей требуют проверки.
 
-## Evaluation plan
+## План оценки качества
 
-ASSUMPTION: versioned evaluation rows включают query/context/role/profile ref, Event/corpus refs, graded relevance, expected source/feature support, high-impact judgement и annotator notes. Train/tuning examples отделены от held-out событий и article duplicates. Related Articles одного Event не должны утекать между split; временной split и frozen snapshot позволяют честно проверить новые новости.
+ASSUMPTION: версионируемые строки оценки содержат запрос, ссылки на контекст, роль и профиль, событие и набор материалов, градуированную релевантность, ожидаемую поддержку источниками и признаками, оценку высокого влияния и заметки разметчика. Примеры обучения и настройки отделены от отложенных событий и дубликатов публикаций. Материалы одного события не должны попадать в разные части выборки; разделение по времени и зафиксированная версия данных позволяют честно проверить новые новости.
 
-| Experiment | Metric / decision |
+| Эксперимент | Метрика / решение |
 |---|---|
-| Lexical vs embeddings vs hybrid vs rerank | Recall@K/NDCG@K/MRR, p95 latency/cost; primary/K TBD |
-| Role/context personalization ablation | Expert relevance delta, role-specific explanation correctness |
-| Company vs Group / graph features | Gain vs no graph; provenance coverage; false exposure claims |
-| Alfa retrieval ablation | Bank attribution correctness, evidence coverage, effect on interpretation |
-| Generation/verification candidates | Claim support, factual error, personalization depth, structured output reliability, latency/tokens |
-| Insufficient/conflicting/noisy inputs | Correct limitations, additional retrieval success, unsupported assertion rate |
-| Source duplicates and changed document | Event merge quality, citation/version stability |
+| Лексический, векторный, гибридный поиск и переранжирование | Recall@K/NDCG@K/MRR, p95 задержки и стоимость; основная метрика и K — TBD |
+| Сравнение персонализации с ролью и контекстом и без них | Изменение экспертной релевантности, правильность объяснения с учётом роли |
+| Компания, группа и признаки графа | Улучшение относительно варианта без графа, покрытие происхождением данных, ложные утверждения о зависимостях |
+| Сравнение с поиском аналитики Альфы и без него | Правильность приписывания банку, покрытие доказательствами, влияние на интерпретацию |
+| Варианты генерации и проверки | Подтверждённость утверждений, фактические ошибки, глубина персонализации, надёжность структурированного ответа, задержки и токены |
+| Неполные, противоречивые и зашумлённые данные | Корректность ограничений, успех дополнительного поиска, доля неподтверждённых утверждений |
+| Дубли источников и изменение документа | Качество объединения событий, стабильность цитат и версий |
 
-Результаты имеют dataset/config/model versions и численность выборки. CTR/feedback не заменяют labels; small demo sample не доказывает production performance. Назначение экспериментов и demo — [evaluation](../demo/demo-evaluation.md).
+Результаты содержат версии данных, конфигурации и модели, а также размер выборки. Доля кликов (CTR) и обратная связь не заменяют разметку; небольшая демонстрационная выборка не доказывает качество и производительность при эксплуатации. Подробности — [демонстрация и оценка](../demo/demo-evaluation.md).
