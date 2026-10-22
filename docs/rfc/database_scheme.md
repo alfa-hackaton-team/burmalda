@@ -36,7 +36,81 @@
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 | `updated_at` | TIMESTAMPTZ | NOT NULL |
 
-### 1.2. `persons`
+### 1.2. `company_groups`
+
+Группы компаний, для которых может строиться агрегированный контекст.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `external_id` | TEXT | UNIQUE, nullable |
+| `name` | TEXT | |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+
+### 1.3. `company_group_members`
+
+Состав группы компаний.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `group_id` | UUID | PK, FK → `company_groups.id` |
+| `company_id` | UUID | PK, FK → `companies.id` |
+| `is_primary` | BOOLEAN | NOT NULL, DEFAULT `false` |
+| `valid_from` | DATE | nullable |
+| `valid_to` | DATE | nullable |
+
+### 1.4. `business_profiles`
+
+Версионируемый профиль отдельной компании или агрегированный профиль группы.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `subject_type` | TEXT | `company`, `group` |
+| `company_id` | UUID | FK → `companies.id`, nullable |
+| `group_id` | UUID | FK → `company_groups.id`, nullable |
+| `version` | INTEGER | NOT NULL |
+| `status` | TEXT | `draft`, `active`, `superseded` |
+| `profile_data` | JSONB | NOT NULL, DEFAULT `{}` |
+| `generated_by_run_id` | UUID | FK → `analysis_runs.id`, nullable |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+
+Заполняется ровно одно из полей: `company_id` или `group_id`. Старые версии профиля не перезаписываются.
+
+### 1.5. `business_profile_features`
+
+Отдельные признаки профиля, на которые можно сослаться из конкретного вывода.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `profile_id` | UUID | FK → `business_profiles.id` |
+| `feature_key` | TEXT | NOT NULL |
+| `feature_value` | JSONB | NOT NULL |
+| `source_type` | TEXT | `company_field`, `person_link`, `payment`, `derived` |
+| `source_ref` | JSONB | NOT NULL, DEFAULT `{}` |
+
+Уникальность: `(profile_id, feature_key)`.
+
+### 1.6. `business_contexts`
+
+Контекст, для которого формируется insight: компания или группа плюс роль пользователя и версия профиля.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `subject_type` | TEXT | `company`, `group` |
+| `company_id` | UUID | FK → `companies.id`, nullable |
+| `group_id` | UUID | FK → `company_groups.id`, nullable |
+| `profile_id` | UUID | FK → `business_profiles.id` |
+| `role_code` | TEXT | `owner`, `ceo`, `cfo`, `chief_accountant`, `treasury`, `other` |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+
+Заполняется ровно одно из полей: `company_id` или `group_id`.
+
+Центральная связь персонализации: `BusinessContext(Company|Group, ProfileVersion, Role) + Event → Insight`.
+
+### 1.7. `persons`
 
 Обезличенные физические лица.
 
@@ -47,7 +121,7 @@
 | `city` | TEXT | |
 | `region` | TEXT | |
 
-### 1.3. `company_person_links`
+### 1.8. `company_person_links`
 
 Связи компаний и физических лиц.
 
@@ -59,7 +133,7 @@
 | `person_id` | UUID | PK, FK → `persons.id` |
 | `relation_type` | TEXT | PK |
 
-### 1.4. `payment_edges`
+### 1.9. `payment_edges`
 
 Агрегированные платежные связи компаний.
 
@@ -73,7 +147,7 @@
 | `period_start` | DATE | |
 | `period_end` | DATE | |
 
-### 1.5. `sources`
+### 1.10. `sources`
 
 Источники документов.
 
@@ -86,11 +160,13 @@
 | `base_url` | TEXT | |
 | `ingestion_type` | TEXT | `rss`, `api`, `html`, `pdf`, `csv`, `manual` |
 | `feed_url` | TEXT | |
-| `reliability_score` | NUMERIC | `0..1` |
+| `trust_level` | TEXT | `primary`, `trusted`, `standard`, `unknown` |
 | `is_active` | BOOLEAN | NOT NULL, DEFAULT `true` |
 | `last_success_at` | TIMESTAMPTZ | |
 
-### 1.6. `documents`
+Числовой score не вводится до появления измеримой методики. `trust_level` задает понятную категорию: первоисточник, доверенный источник, обычный источник или источник без оценки.
+
+### 1.11. `documents`
 
 Стабильная запись документа независимо от изменений его содержимого.
 
@@ -104,7 +180,7 @@
 
 Уникальность: `(source_id, external_id)` и `canonical_url`.
 
-### 1.7. `document_versions`
+### 1.12. `document_versions`
 
 Версии содержимого документа. При изменении текста создается новая строка; предыдущая версия не перезаписывается.
 
@@ -139,7 +215,7 @@
 4. Если хеш изменился — загрузить новый оригинал в S3 и создать следующую `document_version`.
 5. Создать новые чанки и embeddings только для новой версии.
 
-### 1.8. `document_chunks`
+### 1.13. `document_chunks`
 
 Фрагменты документов для поиска и RAG.
 
@@ -158,7 +234,7 @@
 
 Уникальность: `(document_version_id, chunk_no)`.
 
-### 1.9. `events`
+### 1.14. `events`
 
 Дедуплицированные события.
 
@@ -174,7 +250,7 @@
 | `confidence` | NUMERIC | `0..1` |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 
-### 1.10. `event_documents`
+### 1.15. `event_documents`
 
 Связь событий с документами.
 
@@ -185,7 +261,7 @@
 | `evidence_role` | TEXT | `support`, `contradict`, `context` |
 | `is_primary` | BOOLEAN | DEFAULT `false` |
 
-### 1.11. `event_facts`
+### 1.16. `event_facts`
 
 Факты, выделенные из события.
 
@@ -199,7 +275,7 @@
 | `verification_status` | TEXT | `candidate`, `confirmed`, `disputed`, `rejected` |
 | `confidence` | NUMERIC | `0..1` |
 
-### 1.12. `fact_evidence`
+### 1.17. `fact_evidence`
 
 Фрагменты, подтверждающие факт.
 
@@ -210,14 +286,14 @@
 | `quote_text` | TEXT | NOT NULL |
 | `evidence_role` | TEXT | `support`, `contradict`, `context` |
 
-### 1.13. `company_event_assessments`
+### 1.18. `insights`
 
-Оценка влияния события на компанию.
+Персонализированная интерпретация события для конкретного бизнес-контекста и роли.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `company_id` | UUID | FK → `companies.id` |
+| `business_context_id` | UUID | FK → `business_contexts.id` |
 | `event_id` | UUID | FK → `events.id` |
 | `analysis_run_id` | UUID | FK → `analysis_runs.id` |
 | `version` | INTEGER | NOT NULL |
@@ -228,7 +304,7 @@
 | `confidence` | NUMERIC | `0..1` |
 | `severity` | TEXT | `low`, `medium`, `high`, `critical` |
 | `time_horizon` | TEXT | |
-| `rationale` | TEXT | NOT NULL |
+| `summary` | TEXT | NOT NULL |
 | `consequences` | JSONB | NOT NULL, DEFAULT `[]` |
 | `recommended_actions` | JSONB | NOT NULL, DEFAULT `[]` |
 | `score_components` | JSONB | NOT NULL, DEFAULT `{}` |
@@ -236,30 +312,51 @@
 | `bank_view_document_version_id` | UUID | FK → `document_versions.id` |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 
-Уникальность: `(company_id, event_id, version)`.
+Уникальность: `(business_context_id, event_id, version)`. Одно событие может дать разные insights для CEO и CFO, а также для отдельной компании и всей группы.
 
-### 1.14. `assessment_evidence`
+### 1.19. `insight_claims`
 
-Доказательства выводов оценки.
+Отдельные проверяемые утверждения внутри insight.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `assessment_id` | UUID | FK → `company_event_assessments.id` |
-| `fact_id` | UUID | FK → `event_facts.id`, nullable |
-| `chunk_id` | UUID | FK → `document_chunks.id`, nullable |
+| `insight_id` | UUID | FK → `insights.id` |
 | `claim_type` | TEXT | `relevance`, `impact`, `consequence`, `action`, `bank_view` |
+| `claim_text` | TEXT | NOT NULL |
+| `position` | INTEGER | NOT NULL |
+| `confidence` | NUMERIC | `0..1` |
 
-Должно быть заполнено хотя бы одно из полей: `fact_id`, `chunk_id`.
+### 1.20. `claim_evidence`
 
-### 1.15. `analysis_runs`
+Связь конкретного claim с источником или признаком бизнес-профиля.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `claim_id` | UUID | FK → `insight_claims.id` |
+| `evidence_type` | TEXT | `document_chunk`, `event_fact`, `profile_feature` |
+| `chunk_id` | UUID | FK → `document_chunks.id`, nullable |
+| `fact_id` | UUID | FK → `event_facts.id`, nullable |
+| `profile_feature_id` | UUID | FK → `business_profile_features.id`, nullable |
+| `evidence_role` | TEXT | `support`, `contradict`, `context` |
+| `quote_text` | TEXT | nullable |
+
+Заполняется ровно одно из полей: `chunk_id`, `fact_id`, `profile_feature_id`. Это позволяет восстановить цепочку `claim → источник/признак клиента`.
+
+Insight нельзя переводить в `verified`, пока каждый его claim не имеет хотя бы одного подтверждающего `claim_evidence`.
+
+### 1.21. `analysis_runs`
 
 Версии и статусы запусков AI-анализа.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `company_id` | UUID | FK → `companies.id` |
+| `trace_id` | UUID | UNIQUE, NOT NULL |
+| `parent_trace_id` | UUID | FK → `analysis_runs.trace_id`, nullable |
+| `business_context_id` | UUID | FK → `business_contexts.id`, nullable для построения профиля |
+| `request_type` | TEXT | `initial`, `follow_up`, `reanalyze` |
 | `status` | TEXT | `queued`, `running`, `succeeded`, `failed` |
 | `model_name` | TEXT | |
 | `prompt_version` | TEXT | |
@@ -268,7 +365,7 @@
 | `finished_at` | TIMESTAMPTZ | |
 | `error_message` | TEXT | |
 
-### 1.16. `analysis_steps`
+### 1.22. `analysis_steps`
 
 Шаги внутри запуска AI-анализа.
 
@@ -277,7 +374,7 @@
 | `id` | BIGSERIAL | PK |
 | `run_id` | UUID | FK → `analysis_runs.id` |
 | `step_no` | INTEGER | NOT NULL |
-| `step_type` | TEXT | NOT NULL |
+| `step_type` | TEXT | `request`, `retrieval`, `tool`, `llm`, `verification`, `response` |
 | `tool_name` | TEXT | |
 | `status` | TEXT | NOT NULL |
 | `input_summary` | JSONB | NOT NULL, DEFAULT `{}` |
@@ -285,10 +382,69 @@
 
 Уникальность: `(run_id, step_no)`.
 
+### 1.23. `conversations`
+
+Диалог в рамках конкретного бизнес-контекста и, опционально, исходного insight.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `business_context_id` | UUID | FK → `business_contexts.id` |
+| `initial_insight_id` | UUID | FK → `insights.id`, nullable |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+| `updated_at` | TIMESTAMPTZ | NOT NULL |
+
+### 1.24. `messages`
+
+Сообщения пользователя, AI и инструментов внутри диалога.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `conversation_id` | UUID | FK → `conversations.id` |
+| `parent_message_id` | UUID | FK → `messages.id`, nullable |
+| `trace_id` | UUID | FK → `analysis_runs.trace_id`, nullable |
+| `role` | TEXT | `user`, `assistant`, `tool`, `system` |
+| `content` | TEXT | NOT NULL |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+
+### 1.25. `message_citations`
+
+Первоисточники и claims, показанные вместе с ответом.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `message_id` | UUID | PK, FK → `messages.id` |
+| `citation_order` | INTEGER | PK |
+| `chunk_id` | UUID | FK → `document_chunks.id`, nullable |
+| `claim_id` | UUID | FK → `insight_claims.id`, nullable |
+
+Должно быть заполнено хотя бы одно из полей: `chunk_id`, `claim_id`.
+
+### 1.26. `feedback`
+
+Обратная связь по insight или конкретному ответу в диалоге.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK |
+| `insight_id` | UUID | FK → `insights.id`, nullable |
+| `message_id` | UUID | FK → `messages.id`, nullable |
+| `rating` | SMALLINT | `-1`, `0`, `1` |
+| `reason_code` | TEXT | `useful`, `irrelevant`, `incorrect`, `unclear`, `other` |
+| `comment` | TEXT | nullable |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+
+Должно быть заполнено хотя бы одно из полей: `insight_id`, `message_id`. `reason_code` нужен, чтобы feedback можно было использовать для оценки качества, а не только считать лайки.
+
 ## 2. Связи
 
 | Таблица A | Связь | Таблица B |
 |---|---|---|
+| `company_groups` | N ↔ M | `companies` через `company_group_members` |
+| `companies` / `company_groups` | 1 → N | `business_profiles` |
+| `business_profiles` | 1 → N | `business_profile_features` |
+| `business_profiles` | 1 → N | `business_contexts` |
 | `companies` | N ↔ M | `persons` через `company_person_links` |
 | `companies` | 1 → N | `payment_edges` как плательщик |
 | `companies` | 1 → N | `payment_edges` как получатель |
@@ -299,11 +455,17 @@
 | `events` | 1 → N | `event_facts` |
 | `event_facts` | 1 → N | `fact_evidence` |
 | `document_chunks` | 1 → N | `fact_evidence` |
-| `companies` | 1 → N | `company_event_assessments` |
-| `events` | 1 → N | `company_event_assessments` |
-| `company_event_assessments` | 1 → N | `assessment_evidence` |
+| `business_contexts` | 1 → N | `insights` |
+| `events` | 1 → N | `insights` |
+| `insights` | 1 → N | `insight_claims` |
+| `insight_claims` | 1 → N | `claim_evidence` |
+| `business_profile_features` | 1 → N | `claim_evidence` |
 | `analysis_runs` | 1 → N | `analysis_steps` |
-| `analysis_runs` | 1 → N | `company_event_assessments` |
+| `analysis_runs` | 1 → N | `insights` |
+| `business_contexts` | 1 → N | `conversations` |
+| `conversations` | 1 → N | `messages` |
+| `messages` | 1 → N | `message_citations` |
+| `insights` / `messages` | 1 → N | `feedback` |
 
 ## 3. JSONB
 
@@ -312,11 +474,14 @@
 | Таблица | Поле | Содержимое |
 |---|---|---|
 | `companies` | `raw_profile` | Дополнительные исходные признаки компании |
+| `business_profiles` | `profile_data` | Версионируемый профиль компании или группы |
+| `business_profile_features` | `feature_value` | Значение отдельного признака |
+| `business_profile_features` | `source_ref` | Ссылка на исходные данные признака |
 | `document_versions` | `metadata` | Теги и дополнительные метаданные конкретной версии документа |
 | `events` | `geography` | Список стран и регионов |
-| `company_event_assessments` | `consequences` | Список последствий |
-| `company_event_assessments` | `recommended_actions` | Список действий |
-| `company_event_assessments` | `score_components` | Компоненты оценки релевантности |
+| `insights` | `consequences` | Список последствий |
+| `insights` | `recommended_actions` | Список действий |
+| `insights` | `score_components` | Компоненты оценки релевантности |
 | `analysis_runs` | `model_parameters` | Параметры модели |
 | `analysis_steps` | `input_summary` | Краткие входные данные шага |
 | `analysis_steps` | `output_summary` | Краткий результат шага |
@@ -331,12 +496,31 @@
 {
   "eco_mark_label": "developing",
   "negative_mark": false,
-  "group_external_id": "group-42",
   "additional_products": ["guarantee"]
 }
 ```
 
 Если какое-либо значение начинает регулярно использоваться в фильтрах или расчетах, оно переносится из `raw_profile` в отдельную колонку `companies`.
+
+#### `business_profiles.profile_data`
+
+Хранит рассчитанный и переиспользуемый профиль компании или группы. Конкретные признаки дополнительно раскладываются в `business_profile_features`, чтобы на них могли ссылаться claims.
+
+```json
+{
+  "industries": ["construction"],
+  "regions": ["77", "50"],
+  "products": ["loan", "guarantee"],
+  "financial_position": {
+    "revenue": 1250000000,
+    "debt_exposure": "high"
+  },
+  "group_summary": {
+    "company_count": 4,
+    "total_revenue": 3100000000
+  }
+}
+```
 
 #### `document_versions.metadata`
 
@@ -363,7 +547,7 @@
 ]
 ```
 
-#### `company_event_assessments.consequences`
+#### `insights.consequences`
 
 Хранит возможные последствия события для компании.
 
@@ -378,7 +562,7 @@
 ]
 ```
 
-#### `company_event_assessments.recommended_actions`
+#### `insights.recommended_actions`
 
 Хранит предлагаемые действия. Это рекомендации, а не автоматически выполняемые команды.
 
@@ -392,7 +576,7 @@
 ]
 ```
 
-#### `company_event_assessments.score_components`
+#### `insights.score_components`
 
 Хранит составляющие итоговой оценки релевантности.
 
@@ -403,7 +587,7 @@
   "region_match": 0.4,
   "counterparty_match": 0.0,
   "recency": 0.95,
-  "source_quality": 0.9
+  "source_trust_level": "primary"
 }
 ```
 
@@ -644,6 +828,12 @@ raw/cbr/9a2f.../3/a84c....html
 |---|---|
 | `companies` | B-tree: `synthetic_uid` |
 | `companies` | B-tree: `(main_okved_code, region)` |
+| `company_group_members` | UNIQUE: `(group_id, company_id)` |
+| `business_profiles` | B-tree: `(company_id, version DESC)` WHERE `company_id IS NOT NULL` |
+| `business_profiles` | B-tree: `(group_id, version DESC)` WHERE `group_id IS NOT NULL` |
+| `business_profile_features` | UNIQUE: `(profile_id, feature_key)` |
+| `business_contexts` | UNIQUE: `(company_id, profile_id, role_code)` WHERE `company_id IS NOT NULL` |
+| `business_contexts` | UNIQUE: `(group_id, profile_id, role_code)` WHERE `group_id IS NOT NULL` |
 | `documents` | UNIQUE: `(source_id, external_id)` |
 | `documents` | UNIQUE: `canonical_url` |
 | `document_versions` | UNIQUE: `(document_id, version_no)` |
@@ -655,9 +845,14 @@ raw/cbr/9a2f.../3/a84c....html
 | `document_chunks` | HNSW: `embedding vector_cosine_ops` |
 | `events` | B-tree: `occurred_at DESC` |
 | `event_facts` | B-tree: `event_id` |
-| `company_event_assessments` | UNIQUE: `(company_id, event_id, version)` |
-| `company_event_assessments` | B-tree: `(company_id, created_at DESC)` |
+| `insights` | UNIQUE: `(business_context_id, event_id, version)` |
+| `insights` | B-tree: `(business_context_id, created_at DESC)` |
+| `insight_claims` | UNIQUE: `(insight_id, position)` |
+| `claim_evidence` | B-tree: `claim_id` |
+| `analysis_runs` | UNIQUE: `trace_id` |
 | `analysis_steps` | UNIQUE: `(run_id, step_no)` |
+| `messages` | B-tree: `(conversation_id, created_at)` |
+| `feedback` | B-tree: `(insight_id, created_at DESC)` |
 
 ## 7. Что входит в MVP
 
@@ -665,24 +860,34 @@ raw/cbr/9a2f.../3/a84c....html
 
 ```text
 companies
+company_groups
+company_group_members
+business_profiles
+business_profile_features
+business_contexts
+persons
+company_person_links
+payment_edges
 sources
 documents
 document_versions
 document_chunks
 events
 event_documents
-company_event_assessments
-assessment_evidence
+insights
+insight_claims
+claim_evidence
 analysis_runs
 analysis_steps
+conversations
+messages
+message_citations
+feedback
 ```
 
 Можно добавить позже:
 
 ```text
-persons
-company_person_links
-payment_edges
 event_facts
 fact_evidence
 ```
