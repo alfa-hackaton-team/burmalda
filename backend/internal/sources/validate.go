@@ -67,7 +67,7 @@ func (v Validator) validateEndpoint(ctx context.Context, raw string, resolveHost
 		return fmt.Errorf("%w: endpoint host is not allowed", ErrInvalid)
 	}
 	if ip, err := netip.ParseAddr(host); err == nil {
-		if !publicIP(ip) {
+		if !PublicIP(ip) {
 			return fmt.Errorf("%w: endpoint IP is not public", ErrInvalid)
 		}
 		return nil
@@ -87,7 +87,7 @@ func (v Validator) validateEndpoint(ctx context.Context, raw string, resolveHost
 	}
 	for _, address := range addresses {
 		ip, ok := netip.AddrFromSlice(address.IP)
-		if !ok || !publicIP(ip.Unmap()) {
+		if !ok || !PublicIP(ip.Unmap()) {
 			return fmt.Errorf("%w: endpoint resolves to a non-public IP", ErrInvalid)
 		}
 	}
@@ -106,7 +106,8 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("2001:db8::/32"),
 }
 
-func publicIP(ip netip.Addr) bool {
+// PublicIP applies the same address policy at configuration time and at dial time.
+func PublicIP(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {
 		return false

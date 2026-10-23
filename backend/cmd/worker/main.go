@@ -9,6 +9,8 @@ import (
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/database"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/feeds"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
 )
 
 func main() {
@@ -32,8 +34,17 @@ func run() error {
 	}
 	defer pool.Close()
 
-	slog.Info("worker started; source polling is not implemented yet")
-	<-ctx.Done()
+	runner := polling.Runner{
+		Store:         polling.NewStore(pool),
+		Processor:     feeds.Processor{Fetcher: feeds.NewSafeFetcher(nil)},
+		LeaseDuration: cfg.SourcePollLease,
+		IdleInterval:  cfg.SourcePollIdle,
+		ReapBatch:     cfg.SourcePollReapBatch,
+	}
+	slog.Info("source worker started")
+	if err := runner.Run(ctx); err != nil {
+		return err
+	}
 	slog.Info("worker stopped")
 	return nil
 }
