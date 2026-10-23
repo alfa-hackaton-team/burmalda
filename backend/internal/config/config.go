@@ -14,6 +14,9 @@ type Config struct {
 	DatabaseConnectTimeout time.Duration
 	ReadinessTimeout       time.Duration
 	ShutdownTimeout        time.Duration
+	SourcePollLease        time.Duration
+	SourcePollIdle         time.Duration
+	SourcePollReapBatch    int
 }
 
 func Load() (Config, error) {
@@ -42,6 +45,8 @@ func Load() (Config, error) {
 		{"DB_CONNECT_TIMEOUT", &cfg.DatabaseConnectTimeout, "5s"},
 		{"READINESS_TIMEOUT", &cfg.ReadinessTimeout, "2s"},
 		{"SHUTDOWN_TIMEOUT", &cfg.ShutdownTimeout, "10s"},
+		{"SOURCE_POLL_LEASE", &cfg.SourcePollLease, "2m"},
+		{"SOURCE_POLL_IDLE", &cfg.SourcePollIdle, "5s"},
 	} {
 		duration, err := time.ParseDuration(getenv(item.name, item.def))
 		if err != nil || duration <= 0 {
@@ -49,6 +54,14 @@ func Load() (Config, error) {
 		}
 		*item.value = duration
 	}
+	if cfg.SourcePollLease < 3*time.Second {
+		return Config{}, fmt.Errorf("SOURCE_POLL_LEASE must be at least 3s")
+	}
+	reapBatch, err := strconv.Atoi(getenv("SOURCE_POLL_REAP_BATCH", "100"))
+	if err != nil || reapBatch < 1 || reapBatch > 1000 {
+		return Config{}, fmt.Errorf("SOURCE_POLL_REAP_BATCH must be between 1 and 1000")
+	}
+	cfg.SourcePollReapBatch = reapBatch
 
 	return cfg, nil
 }
