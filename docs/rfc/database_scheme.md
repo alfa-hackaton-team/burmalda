@@ -205,15 +205,17 @@
 | `processing_status` | TEXT | `new`, `parsed`, `embedded`, `analyzed`, `failed` |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 
-Уникальность: `(document_id, version_no)` и `(document_id, content_hash)`.
+Уникальность: `(document_id, version_no)`. На `(document_id, content_hash)` используется обычный, не уникальный индекс: одинаковое содержимое может повториться в истории документа.
 
 Алгоритм обновления:
 
 1. Повторно получить материал из источника.
 2. Вычислить `content_hash` нормализованного текста.
-3. Если хеш не изменился — обновление не создавать.
-4. Если хеш изменился — загрузить новый оригинал в S3 и создать следующую `document_version`.
+3. Сравнить хеш с последней сохраненной версией документа. Если хеш не изменился — обновление не создавать.
+4. Если хеш отличается от последней версии — загрузить новый оригинал в S3 и создать следующую `document_version`, даже если такой текст уже встречался раньше. Последовательность A → B → A сохраняется как три версии.
 5. Создать новые чанки и embeddings только для новой версии.
+
+Сравнение с последней версией и выделение следующего `version_no` выполняются с сериализацией записи по `document_id`, чтобы два одновременных опроса не создавали две версии одного изменения. Ссылки старых доказательств сохраняются.
 
 ### 1.13. `document_chunks`
 
@@ -316,16 +318,19 @@
 
 ### 1.19. `insight_claims`
 
-Отдельные проверяемые утверждения внутри insight.
+Отдельные проверяемые утверждения внутри insight или ответа AI в диалоге. Для обоих случаев используются существующие `insight_claims` и `claim_evidence`.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `insight_id` | UUID | FK → `insights.id` |
+| `insight_id` | UUID | FK → `insights.id`, nullable |
+| `message_id` | UUID | FK → `messages.id`, nullable |
 | `claim_type` | TEXT | `relevance`, `impact`, `consequence`, `action`, `bank_view` |
 | `claim_text` | TEXT | NOT NULL |
 | `position` | INTEGER | NOT NULL |
 | `confidence` | NUMERIC | `0..1` |
+
+Заполняется ровно одно из полей: `insight_id` или `message_id`; это проверяется ограничением `CHECK`. Для утверждения сообщения `message_id` указывает на ответ с `role = assistant`. Позиция утверждения уникальна внутри соответствующего insight или сообщения.
 
 ### 1.20. `claim_evidence`
 
@@ -346,6 +351,8 @@
 
 Insight нельзя переводить в `verified`, пока каждый его claim не имеет хотя бы одного подтверждающего `claim_evidence`.
 
+Новые выводы уточняющего ответа сохраняются как claims этого сообщения с собственными доказательствами, включая признаки бизнес-профиля. Они не изменяют утверждения исходного insight. Для опубликованных выводов ответа также требуется подтверждающее основание; недостаток данных явно отражается в тексте ответа.
+
 ### 1.21. `analysis_runs`
 
 Версии и статусы запусков AI-анализа.
@@ -354,6 +361,7 @@ Insight нельзя переводить в `verified`, пока каждый �
 |---|---|---|
 | `id` | UUID | PK |
 | `trace_id` | UUID | UNIQUE, NOT NULL |
+| `request_operation_id` | UUID | UNIQUE, FK → `request_operations.id`, nullable для запуска вне пользовательского разбора или уточнения |
 | `parent_trace_id` | UUID | FK → `analysis_runs.trace_id`, nullable |
 | `business_context_id` | UUID | FK → `business_contexts.id`, nullable для построения профиля |
 | `request_type` | TEXT | `initial`, `follow_up`, `reanalyze` |
@@ -364,6 +372,8 @@ Insight нельзя переводить в `verified`, пока каждый �
 | `started_at` | TIMESTAMPTZ | NOT NULL |
 | `finished_at` | TIMESTAMPTZ | |
 | `error_message` | TEXT | |
+
+Для пользовательского разбора и уточнения ML сохраняет связь с `request_operation_id` до платного вызова модели. Повторное обращение с тем же идентификатором возвращает существующий запуск и его состояние; смена `trace_id` не создает новый запуск.
 
 ### 1.22. `analysis_steps`
 
@@ -384,15 +394,20 @@ Insight нельзя переводить в `verified`, пока каждый �
 
 ### 1.23. `conversations`
 
-Диалог в рамках конкретного бизнес-контекста и, опционально, исходного insight.
+Диалог пользователя по конкретному исходному insight и его бизнес-контексту.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `business_context_id` | UUID | FK → `business_contexts.id` |
-| `initial_insight_id` | UUID | FK → `insights.id`, nullable |
+| `user_id` | TEXT | NOT NULL; идентификатор пользователя из проверенной сессии Go |
+| `business_context_id` | UUID | NOT NULL, FK → `business_contexts.id` |
+| `initial_insight_id` | UUID | NOT NULL, FK → `insights.id` |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 | `updated_at` | TIMESTAMPTZ | NOT NULL |
+
+`user_id` — стабильный идентификатор пользователя сервиса, отдельный от обезличенного `persons.id`. Go берет его из проверенной сессии, сохраняет владельца диалога и проверяет владельца вместе с доступом к контексту при чтении и записи. Два пользователя с одной компанией и ролью имеют отдельные диалоги.
+
+`business_context_id` должен совпадать с контекстом `initial_insight_id`; Go проверяет это в транзакции создания диалога. Исходные insight и контекст диалога не меняются при уточняющих вопросах.
 
 ### 1.24. `messages`
 
@@ -421,6 +436,8 @@ Insight нельзя переводить в `verified`, пока каждый �
 
 Должно быть заполнено хотя бы одно из полей: `chunk_id`, `claim_id`.
 
+`claim_id` может ссылаться на утверждение текущего сообщения или исходного insight этого диалога. Go проверяет принадлежность ссылки при сохранении. Для нового вывода используется claim текущего сообщения; его источники и признаки профиля доступны через `claim_evidence`.
+
 ### 1.26. `feedback`
 
 Обратная связь по insight или конкретному ответу в диалоге.
@@ -428,6 +445,7 @@ Insight нельзя переводить в `verified`, пока каждый �
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
+| `user_id` | TEXT | NOT NULL; автор оценки из проверенной сессии Go |
 | `insight_id` | UUID | FK → `insights.id`, nullable |
 | `message_id` | UUID | FK → `messages.id`, nullable |
 | `rating` | SMALLINT | `-1`, `0`, `1` |
@@ -436,6 +454,39 @@ Insight нельзя переводить в `verified`, пока каждый �
 | `created_at` | TIMESTAMPTZ | NOT NULL |
 
 Должно быть заполнено хотя бы одно из полей: `insight_id`, `message_id`. `reason_code` нужен, чтобы feedback можно было использовать для оценки качества, а не только считать лайки.
+
+Go определяет автора по сессии и проверяет доступ к оцениваемому insight либо принадлежность сообщения диалогу этого пользователя. Если заполнены оба поля, сообщение должно относиться к диалогу указанного insight.
+
+### 1.27. `request_operations`
+
+Сохраненные пользовательские операции разбора и уточнения, которые защищают от повторного платного запуска и связывают запрос с результатом.
+
+| Поле | Тип | Ограничения |
+|---|---|---|
+| `id` | UUID | PK; стабильный идентификатор операции Go |
+| `user_id` | TEXT | NOT NULL; из проверенной сессии Go |
+| `operation_type` | TEXT | NOT NULL; `insight`, `follow_up` |
+| `idempotency_key` | TEXT | NOT NULL; непустой обязательный `Idempotency-Key` запроса |
+| `request_fingerprint` | TEXT | NOT NULL; отпечаток клиентских параметров |
+| `business_context_id` | UUID | NOT NULL, FK → `business_contexts.id` |
+| `event_id` | UUID | FK → `events.id`, обязателен для разбора, nullable для уточнения |
+| `conversation_id` | UUID | FK → `conversations.id`, nullable для разбора |
+| `request_message_id` | UUID | FK → `messages.id`, nullable для разбора |
+| `request_snapshot` | JSONB | NOT NULL; зафиксированные параметры и версии выполнения |
+| `status` | TEXT | NOT NULL; `queued`, `running`, `succeeded`, `insufficient_evidence`, `failed` |
+| `insight_id` | UUID | FK → `insights.id`, nullable до результата разбора |
+| `response_message_id` | UUID | FK → `messages.id`, nullable до результата уточнения |
+| `error_message` | TEXT | Очищенная причина ошибки, nullable |
+| `created_at` | TIMESTAMPTZ | NOT NULL |
+| `updated_at` | TIMESTAMPTZ | NOT NULL |
+
+Уникальность: `(user_id, operation_type, idempotency_key)`. Go сохраняет операцию транзакционно до обращения к ML. Для разбора обязателен `event_id`. Для уточнения в той же транзакции один раз сохраняется пользовательское сообщение; `conversation_id` и `request_message_id` обязательны и относятся к диалогу владельца операции с тем же бизнес-контекстом.
+
+`request_snapshot` фиксирует параметры события или вопроса, роль, идентификатор и версию профиля, версию конфигурации обработки; для уточнения также фиксируется граница истории диалога. Эти значения сохраняются при первом запросе и повторно не вычисляются. Отпечаток считается по клиентским параметрам, включая выбранный контекст, событие либо диалог и текст вопроса; технический `trace_id` в него не входит.
+
+Повтор с тем же ключом и параметрами возвращает прежнюю операцию или результат после повторной проверки прав. Другие параметры с тем же ключом дают `409 Conflict`; отсутствие ключа — `400`. Go передает `request_operations.id` как внутренний `Idempotency-Key`; ML сохраняет его в `analysis_runs.request_operation_id` до платного вызова и устраняет одновременные повторы. При неизвестном исходе вызова модели новый платный вызов не запускается вслепую: проверяется сохраненный результат либо возвращается контролируемая ошибка.
+
+Для успешного разбора обязателен `insight_id`, для успешного уточнения — `response_message_id`. Результат относится к тому же бизнес-контексту и доступен пользователю операции; insight соответствует указанному событию, сообщение ответа принадлежит указанному диалогу. Сохранение результата и перевод операции в `succeeded` выполняются в одной транзакции. Ключи незавершенных операций сохраняются; ключи завершенных хранятся не меньше установленного в настройках окна повторов.
 
 ## 2. Связи
 
@@ -458,6 +509,7 @@ Insight нельзя переводить в `verified`, пока каждый �
 | `business_contexts` | 1 → N | `insights` |
 | `events` | 1 → N | `insights` |
 | `insights` | 1 → N | `insight_claims` |
+| `messages` | 1 → N | `insight_claims` для выводов уточняющего ответа |
 | `insight_claims` | 1 → N | `claim_evidence` |
 | `business_profile_features` | 1 → N | `claim_evidence` |
 | `analysis_runs` | 1 → N | `analysis_steps` |
@@ -466,6 +518,10 @@ Insight нельзя переводить в `verified`, пока каждый �
 | `conversations` | 1 → N | `messages` |
 | `messages` | 1 → N | `message_citations` |
 | `insights` / `messages` | 1 → N | `feedback` |
+| `business_contexts` | 1 → N | `request_operations` |
+| `conversations` | 1 → N | `request_operations` для уточнений |
+| `request_operations` | 1 → 0..1 | `analysis_runs` |
+| `request_operations` | N → 0..1 | `insights` или `messages` как результат |
 
 ## 3. JSONB
 
@@ -485,6 +541,7 @@ Insight нельзя переводить в `verified`, пока каждый �
 | `analysis_runs` | `model_parameters` | Параметры модели |
 | `analysis_steps` | `input_summary` | Краткие входные данные шага |
 | `analysis_steps` | `output_summary` | Краткий результат шага |
+| `request_operations` | `request_snapshot` | Параметры запроса, зафиксированные роль, профиль, конфигурация и граница истории |
 
 ### 3.1. Формат полей
 
@@ -837,7 +894,7 @@ raw/cbr/9a2f.../3/a84c....html
 | `documents` | UNIQUE: `(source_id, external_id)` |
 | `documents` | UNIQUE: `canonical_url` |
 | `document_versions` | UNIQUE: `(document_id, version_no)` |
-| `document_versions` | UNIQUE: `(document_id, content_hash)` |
+| `document_versions` | B-tree: `(document_id, content_hash)` |
 | `document_versions` | B-tree: `content_hash` |
 | `document_versions` | B-tree: `published_at DESC` |
 | `document_chunks` | UNIQUE: `(document_version_id, chunk_no)` |
@@ -847,12 +904,16 @@ raw/cbr/9a2f.../3/a84c....html
 | `event_facts` | B-tree: `event_id` |
 | `insights` | UNIQUE: `(business_context_id, event_id, version)` |
 | `insights` | B-tree: `(business_context_id, created_at DESC)` |
-| `insight_claims` | UNIQUE: `(insight_id, position)` |
+| `insight_claims` | UNIQUE: `(insight_id, position)` WHERE `insight_id IS NOT NULL` |
+| `insight_claims` | UNIQUE: `(message_id, position)` WHERE `message_id IS NOT NULL` |
 | `claim_evidence` | B-tree: `claim_id` |
 | `analysis_runs` | UNIQUE: `trace_id` |
+| `analysis_runs` | UNIQUE: `request_operation_id` WHERE `request_operation_id IS NOT NULL` |
 | `analysis_steps` | UNIQUE: `(run_id, step_no)` |
+| `conversations` | B-tree: `(user_id, updated_at DESC)` |
 | `messages` | B-tree: `(conversation_id, created_at)` |
 | `feedback` | B-tree: `(insight_id, created_at DESC)` |
+| `request_operations` | UNIQUE: `(user_id, operation_type, idempotency_key)` |
 
 ## 7. Что входит в MVP
 
@@ -883,6 +944,7 @@ conversations
 messages
 message_citations
 feedback
+request_operations
 ```
 
 Можно добавить позже:

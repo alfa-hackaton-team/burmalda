@@ -1,0 +1,46 @@
+{
+  "contract_version": "v1",
+  "trace_id": "00000000-0000-4000-8000-000000000001",
+  "request_operation_id": "00000000-0000-4000-8000-000000000011",
+  "request_type": "initial",
+  "context": {
+    "business_context_id": "00000000-0000-4000-8000-000000000002",
+    "subject_type": "company",
+    "company_id": "00000000-0000-4000-8000-000000000008",
+    "group_id": null,
+    "profile_id": "00000000-0000-4000-8000-000000000009",
+    "profile_version": 1,
+    "role_code": "cfo",
+    "profile_data": {
+      "products": [
+        "loan"
+      ]
+    },
+    "profile_features": [
+      {
+        "id": "00000000-0000-4000-8000-000000000007",
+        "feature_key": "has_loan",
+        "feature_value": true,
+        "source_type": "company_field",
+        "source_ref": {
+          "field": "companies.has_loan"
+        }
+      }
+    ]
+  },
+  "event": {
+    "id": "00000000-0000-4000-8000-000000000010",
+    "event_type": "credit_terms_change",
+    "title": "Учебное изменение условий продукта X",
+    "summary": "С 1 ноября новые договоры продукта X заключаются по обновленным условиям.",
+    "occurred_at": null,
+    "geography": [],
+    "status": "confirmed",
+    "document_version_ids": [
+      "00000000-0000-4000-8000-000000000005"
+    ],
+    "confidence": null
+  },
+  "follow_up": null,
+  "processing_config_version": "processing-v1"
+}
