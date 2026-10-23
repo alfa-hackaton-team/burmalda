@@ -652,6 +652,8 @@ components:
           - CONFLICT
           - PROFILE_NOT_READY
           - UNSUPPORTED_ADAPTER
+          - UNSUPPORTED_PIPELINE_VERSION
+          - PAYLOAD_TOO_LARGE
           - INTERNAL_ERROR
           - UNAUTHENTICATED
           - FORBIDDEN
@@ -827,7 +829,8 @@ components:
           type: boolean
         polling_interval_seconds:
           type: integer
-          minimum: 1
+          minimum: 60
+          maximum: 86400
         credential_ref:
           type: string
         adapter_config:
@@ -870,9 +873,12 @@ components:
           type: boolean
         polling_interval_seconds:
           type: integer
-          minimum: 1
+          minimum: 60
+          maximum: 86400
         credential_ref:
-          type: string
+          type:
+          - string
+          - 'null'
         adapter_config:
           type: object
           additionalProperties: true
@@ -1223,8 +1229,11 @@ components:
           format: uri
         title:
           type: string
+          description: Может быть пустым, если источник не содержит заголовка.
         body:
           type: string
+          minLength: 1
+          description: Непустой извлечённый текст; пробельный текст отклоняется ML.
         published_at:
           type:
           - string
@@ -1239,11 +1248,15 @@ components:
           type: string
         raw_ref:
           type: string
+          minLength: 1
         content_hash:
           type: string
+          pattern: '^[0-9a-f]{64}$'
         metadata:
           type: object
-          additionalProperties: true
+          additionalProperties: false
+          description: Для прототипа передаётся пустой объект. Новые поля добавляются
+            после согласования с ML1, без произвольных метаданных источника.
       additionalProperties: false
       required:
       - article_id
@@ -1251,15 +1264,16 @@ components:
       - source_id
       - title
       - body
-      - published_at
       - fetched_at
       - raw_ref
       - content_hash
       - metadata
       description: Материал, загруженный, сохранённый, нормализованный и технически
-        дедуплицированный Go-воркером. ML выполняет смысловую обработку. raw_ref обозначает
-        сохранённую версию, а не произвольный адрес для сетевой загрузки; учётные
-        данные источника в metadata не передаются.
+        дедуплицированный Go-воркером. Go извлекает текст из PDF/HTML. ML выполняет
+        смысловую обработку и не скачивает оригинал по raw_ref; это ссылка на
+        сохранённые исходные байты для происхождения материала. Дата публикации,
+        язык и автор могут отсутствовать. Текст сверх согласованного лимита
+        отклоняется явно, без незаметного обрезания.
     AnalysisOperation:
       type: object
       properties:
@@ -1438,9 +1452,9 @@ components:
       required:
       - items
       - next_cursor
-      description: Курсор связан с зафиксированной выдачей, параметрами запроса и
-        версиями профиля и конфигурации. Изменение контекста или фильтров начинает
-        новый проход; срок действия контролируется сервером.
+      description: Курсор продолжает выдачу по устойчивому порядку создания источников
+        (created_at, source_id). Новые источники после первой страницы попадут в
+        следующий проход списка.
     ConversationPage:
       type: object
       properties:
@@ -1486,6 +1500,9 @@ components:
         article_version_id:
           type: string
           minLength: 1
+        pipeline_version:
+          type: string
+          minLength: 1
         state:
           type: string
           enum:
@@ -1513,9 +1530,30 @@ components:
       required:
       - processing_id
       - article_version_id
+      - pipeline_version
       - state
       - trace_id
       - created_at
+      allOf:
+      - if:
+          properties:
+            state:
+              const: SUCCEEDED
+          required:
+          - state
+        then:
+          required:
+          - document_version_id
+          - event_ids
+      - if:
+          properties:
+            state:
+              const: FAILED
+          required:
+          - state
+        then:
+          required:
+          - error
       description: Вычислительная обработка материала от Go; не синхронизация источника.
         SUCCEEDED содержит document_version_id и event_ids, включая пустой список,
         если событие не выделено. FAILED содержит безопасную ошибку. Повтор с тем
