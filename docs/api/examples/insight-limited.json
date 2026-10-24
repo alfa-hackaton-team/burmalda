@@ -1,0 +1,115 @@
+{
+  "insight_id": "insight-demo-1",
+  "revision": "fixture-v1",
+  "primary_event": {
+    "event_id": "event-demo-1",
+    "title": "Синтетическое изменение кредитных условий",
+    "summary": "Фиктивное событие для проверки DTO, не актуальная новость."
+  },
+  "supporting_event_ids": [],
+  "context": {
+    "context_id": "ctx-demo-a",
+    "kind": "COMPANY",
+    "company_id": "company-demo-a"
+  },
+  "role_id": "role-demo-cfo",
+  "profile": {
+    "profile_id": "profile-demo-a",
+    "version": "fixture-v1"
+  },
+  "created_at": "2026-10-22T00:02:00Z",
+  "response": {
+    "trace_id": "trace-demo-1",
+    "claims": [
+      {
+        "claim_id": "claim-fact",
+        "text": "В синтетическом событии рассматривается изменение условий новых кредитов.",
+        "claim_type": "FACT",
+        "verification_status": "SUPPORTED",
+        "evidence_links": [
+          {
+            "evidence_id": "ev-news",
+            "relation": "SUPPORT"
+          }
+        ],
+        "assumptions": []
+      },
+      {
+        "claim_id": "claim-risk",
+        "text": "Если компания планирует новые заимствования, стоит проверить изменившиеся условия; величину влияния без параметров финансирования определить нельзя.",
+        "claim_type": "AI_INFERENCE",
+        "verification_status": "PARTIALLY_SUPPORTED",
+        "evidence_links": [
+          {
+            "evidence_id": "ev-news",
+            "relation": "SUPPORT"
+          },
+          {
+            "evidence_id": "ev-company",
+            "relation": "CONTEXT"
+          }
+        ],
+        "assumptions": [
+          "Потребность в новых заимствованиях не установлена."
+        ]
+      }
+    ],
+    "evidence": [
+      {
+        "evidence_id": "ev-news",
+        "evidence_type": "EXTERNAL_NEWS",
+        "reference": {
+          "source_id": "source-fixture",
+          "document_version_id": "doc-fixture-v1",
+          "chunk_id": "chunk-fixture-1"
+        },
+        "excerpt": "Синтетический материал: условия выдачи новых кредитов могут измениться.",
+        "published_at": "2026-10-22T00:00:00Z",
+        "fetched_at": "2026-10-22T00:01:00Z"
+      },
+      {
+        "evidence_id": "ev-company",
+        "evidence_type": "COMPANY_DATA",
+        "reference": {
+          "profile": {
+            "profile_id": "profile-demo-a",
+            "version": "fixture-v1"
+          },
+          "feature_id": "has-loan",
+          "contributing_company_ids": [
+            "company-demo-a"
+          ]
+        },
+        "content": "Синтетический признак has_loan=true; сумма долга и тип ставки неизвестны.",
+        "provenance": {
+          "source_snapshot_id": "synthetic-client-v1",
+          "record_refs": [
+            "company-demo-a"
+          ],
+          "derivation_version": "fixture-direct-v1"
+        }
+      }
+    ],
+    "sections": [
+      {
+        "section_type": "WHAT_HAPPENED",
+        "claim_ids": [
+          "claim-fact"
+        ]
+      },
+      {
+        "section_type": "RISKS",
+        "claim_ids": [
+          "claim-risk"
+        ]
+      }
+    ],
+    "limitations": [
+      {
+        "code": "NO_BANK_EVIDENCE",
+        "message": "В этом синтетическом примере подходящая аналитика банка не найдена."
+      }
+    ],
+    "model_config_ref": "synthetic-example-not-a-model-run"
+  }
+}

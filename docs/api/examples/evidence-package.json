@@ -1,0 +1,62 @@
+{
+  "package_id": "package-demo-1",
+  "request_context": {
+    "request_id": "request-demo-1",
+    "trace_id": "trace-demo-1",
+    "user_id": "user-demo-cfo",
+    "context": {
+      "context_id": "ctx-demo-a",
+      "kind": "COMPANY",
+      "company_id": "company-demo-a"
+    },
+    "role_id": "role-demo-cfo",
+    "profile": {
+      "profile_id": "profile-demo-a",
+      "version": "fixture-v1"
+    }
+  },
+  "primary_event_id": "event-demo-1",
+  "supporting_event_ids": [],
+  "evidence": [
+    {
+      "evidence_id": "ev-news",
+      "evidence_type": "EXTERNAL_NEWS",
+      "reference": {
+        "source_id": "source-fixture",
+        "document_version_id": "doc-fixture-v1",
+        "chunk_id": "chunk-fixture-1"
+      },
+      "excerpt": "Синтетический материал: условия выдачи новых кредитов могут измениться.",
+      "published_at": "2026-10-22T00:00:00Z",
+      "fetched_at": "2026-10-22T00:01:00Z"
+    },
+    {
+      "evidence_id": "ev-company",
+      "evidence_type": "COMPANY_DATA",
+      "reference": {
+        "profile": {
+          "profile_id": "profile-demo-a",
+          "version": "fixture-v1"
+        },
+        "feature_id": "has-loan",
+        "contributing_company_ids": [
+          "company-demo-a"
+        ]
+      },
+      "content": "Синтетический признак has_loan=true; сумма долга и тип ставки неизвестны.",
+      "provenance": {
+        "source_snapshot_id": "synthetic-client-v1",
+        "record_refs": [
+          "company-demo-a"
+        ],
+        "derivation_version": "fixture-direct-v1"
+      }
+    }
+  ],
+  "limitations": [
+    {
+      "code": "NO_BANK_EVIDENCE",
+      "message": "В этом синтетическом примере подходящая аналитика банка не найдена."
+    }
+  ]
+}
