@@ -312,18 +312,20 @@ paths:
       tags:
       - Agent
       summary: Подготовить персональный разбор с подтверждёнными основаниями
-      x-ml-contract-version: v1
-      description: Принимает AnalysisRequest v1 со снимком контекста и события.
-        Idempotency-Key равен request_operation_id. Агент использует search/get_chunks;
-        AnalysisResponse — подготовленный результат, публичный успех наступает после
-        транзакции Go. Повтор возвращает исходные ID и результат без новой генерации.
+      description: Агент может выполнить дополнительный поиск. EvidencePackage необязателен
+        и не ограничивает допустимые этапы поиска. При передаче пакета проверяется
+        совпадение контекста, профиля и трассировки; все новые доказательства сохраняют
+        происхождение. Повтор не создаёт новое выполнение. Контекст, профиль, конфигурация
+        и история диалога фиксируются при первом запуске; изменение прав проверяется
+        повторно. Неизвестный исход вызова провайдера не допускает слепого повторного
+        платного вызова.
       responses:
         '200':
           description: Готовый результат при синхронном выполнении
           content:
             application/json:
               schema:
-                "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisResponse"
+                "$ref": "./schemas.yaml#/components/schemas/AgentResponse"
         '202':
           description: Принятие в асинхронную обработку
           content:
@@ -373,13 +375,21 @@ paths:
         content:
           application/json:
             schema:
-              allOf:
-              - "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisRequest"
-              - properties:
-                  request_type:
-                    enum:
-                    - initial
-                    - reanalyze
+              type: object
+              properties:
+                request_context:
+                  "$ref": "./schemas.yaml#/components/schemas/TrustedRequestContext"
+                primary_event_id:
+                  type: string
+                  minLength: 1
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
+                evidence_package:
+                  "$ref": "./schemas.yaml#/components/schemas/EvidencePackage"
+              additionalProperties: false
+              required:
+              - request_context
+              - primary_event_id
       parameters:
       - name: Idempotency-Key
         in: header
@@ -400,7 +410,7 @@ paths:
       tags:
       - Agent
       summary: Получить состояние выполнения и структурированный результат
-      description: При асинхронном выполнении Конечное состояние содержит AnalysisResponse v1 в response;
+      description: При асинхронном выполнении SUCCEEDED содержит AgentResponse в response;
         сервер сохраняет разбор или сообщение и связывает с ним внешнюю операцию.
         Внутренний analysis_id не равен публичному generation_id автоматически.
       responses:
@@ -449,19 +459,18 @@ paths:
       tags:
       - Agent
       summary: Ответить в контексте существующего разбора Insight
-      x-ml-contract-version: v1
-      description: Принимает AnalysisRequest v1 с request_type=follow_up.
-        Go передает initial_insight с claims/evidence/чанками и структурированную историю
-        до request_message_id. Профиль и событие зафиксированы исходным разбором.
-        Idempotency-Key равен request_operation_id. Новый запуск имеет отдельный trace_id
-        и parent_trace_id исходного анализа. Повтор не создает новое выполнение.
+      description: Доступно аутентифицированному Go по SERVICE_TOKEN. ML проверяет
+        структуру и согласованность переданных данных. Повтор не создаёт новое выполнение.
+        Контекст, профиль, конфигурация и история диалога фиксируются при первом запуске;
+        изменение прав проверяется повторно. Неизвестный исход вызова провайдера не
+        допускает слепого повторного платного вызова.
       responses:
         '200':
           description: Синхронный вариант
           content:
             application/json:
               schema:
-                "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisResponse"
+                "$ref": "./schemas.yaml#/components/schemas/AgentResponse"
         '202':
           description: Асинхронный вариант
           content:
@@ -511,12 +520,31 @@ paths:
         content:
           application/json:
             schema:
-              allOf:
-              - "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisRequest"
-              - properties:
-                  request_type:
-                    enum:
-                    - follow_up
+              type: object
+              properties:
+                request_context:
+                  "$ref": "./schemas.yaml#/components/schemas/TrustedRequestContext"
+                insight:
+                  "$ref": "./schemas.yaml#/components/schemas/Insight"
+                conversation_id:
+                  type: string
+                  minLength: 1
+                  description: Идентификатор предметной области со скрытой внутренней
+                    структурой; не исходный ключ набора и не обязательный UUID в БД.
+                history:
+                  type: array
+                  items:
+                    "$ref": "./schemas.yaml#/components/schemas/Message"
+                question:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
+              required:
+              - request_context
+              - insight
+              - conversation_id
+              - history
+              - question
       parameters:
       - name: Idempotency-Key
         in: header

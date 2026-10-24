@@ -325,18 +325,12 @@
 | `id` | UUID | PK |
 | `insight_id` | UUID | FK → `insights.id`, nullable |
 | `message_id` | UUID | FK → `messages.id`, nullable |
-| `claim_type` | TEXT | `relevance`, `impact`, `consequence`, `action`, `bank_view`; назначение утверждения |
-| `knowledge_type` | TEXT | NOT NULL; `FACT`, `ALFA_ANALYTICS`, `AI_INFERENCE`, `FORECAST` |
-| `verification_status` | TEXT | NOT NULL; `SUPPORTED`, `PARTIALLY_SUPPORTED` для опубликованных claims |
-| `assumptions` | JSONB | NOT NULL, DEFAULT `[]`; явные допущения |
-| `time_horizon` | TEXT | nullable; срок утверждения |
+| `claim_type` | TEXT | `relevance`, `impact`, `consequence`, `action`, `bank_view` |
 | `claim_text` | TEXT | NOT NULL |
 | `position` | INTEGER | NOT NULL |
 | `confidence` | NUMERIC | `0..1` |
 
 Заполняется ровно одно из полей: `insight_id` или `message_id`; это проверяется ограничением `CHECK`. Для утверждения сообщения `message_id` указывает на ответ с `role = assistant`. Позиция утверждения уникальна внутри соответствующего insight или сообщения.
-
-Поля `knowledge_type`, `verification_status`, `assumptions`, `time_horizon` добавлены в целевую спецификацию редакции ML 1.1 для сохранения смысла публичного API. Миграции пока отсутствуют; backend реализует их до I05. Старые claims нельзя автоматически классифицировать по claim_type: они требуют восстановления метаданных/повторной проверки. PARTIALLY_SUPPORTED требует непустого списка assumptions; банк и прогноз не определяются по confidence.
 
 ### 1.20. `claim_evidence`
 
@@ -366,7 +360,7 @@ Insight нельзя переводить в `verified`, пока каждый �
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `trace_id` | UUID | UNIQUE, NOT NULL; отдельный для каждого нового запуска |
+| `trace_id` | UUID | UNIQUE, NOT NULL |
 | `request_operation_id` | UUID | UNIQUE, FK → `request_operations.id`, nullable для запуска вне пользовательского разбора или уточнения |
 | `parent_trace_id` | UUID | FK → `analysis_runs.trace_id`, nullable |
 | `business_context_id` | UUID | FK → `business_contexts.id`, nullable для построения профиля |
