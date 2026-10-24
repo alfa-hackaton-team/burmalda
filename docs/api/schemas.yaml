@@ -836,7 +836,7 @@ components:
         adapter_config:
           type: object
           additionalProperties: true
-          description: Для rss/atom поддерживается пустой объект или article_html boolean. HTML-режим требует ссылки на том же host и страницы с article/main.
+          description: Для rss/atom поддерживаются article_html boolean и при его включении article_container_id со списком article_exclude_classes. Без контейнера HTML-режим ищет article/main. Ссылки статей должны вести на тот же host.
       additionalProperties: false
       required:
       - name
@@ -883,7 +883,7 @@ components:
         adapter_config:
           type: object
           additionalProperties: true
-          description: Для rss/atom поддерживается пустой объект или article_html boolean.
+          description: Для rss/atom поддерживаются article_html boolean и при его включении article_container_id со списком article_exclude_classes.
       additionalProperties: false
       description: PATCH принимает только разрешённые поля. При одновременном изменении
         проверяется config_version; уровень доверия не меняется без соответствующих
@@ -948,6 +948,7 @@ components:
           - QUEUED
           - RUNNING
           - SUCCEEDED
+          - PARTIAL
           - FAILED
         trace_id:
           type: string
