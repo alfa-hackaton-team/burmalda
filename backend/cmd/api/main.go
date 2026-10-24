@@ -10,10 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/authn"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/database"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/dataset"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/health"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/userapi"
 )
 
 func main() {
@@ -46,6 +48,9 @@ func run() error {
 	mux := http.NewServeMux()
 	mux.Handle("/health/", health.HandlerWithTimeout(pool, func() time.Duration { return manager.Current().Server.ReadinessTimeout.Std() }))
 	dataset.DatasetHandler{DB: pool, Token: os.Getenv("DATASET_API_TOKEN")}.Register(mux)
+	sessionStore := authn.NewPostgresStore(pool)
+	userStore := userapi.NewPostgresStore(pool)
+	mux.Handle("/v0.1/", authn.Middleware(sessionStore, userapi.Handler(userStore)))
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
