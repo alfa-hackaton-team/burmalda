@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -18,6 +19,19 @@ ALLOWED_BASE_URLS = frozenset({
     DEFAULT_BASE_URL,
     "https://api.alfahack-gateway26.ru/v1",
 })
+
+
+def _log_safe_diagnostic(exc: Exception, *, status_code: int | None = None) -> None:
+    """Log provider diagnostics locally without printing credentials or payloads."""
+    if os.environ.get("ML_LLM_DEBUG") != "1":
+        return
+    details = [f"error_type={type(exc).__name__}"]
+    if status_code is not None:
+        details.append(f"status_code={status_code}")
+    request_id = getattr(exc, "request_id", None)
+    if request_id:
+        details.append(f"request_id={request_id}")
+    print("ML gateway diagnostic: " + " ".join(details), file=sys.stderr)
 
 
 class OpenAICompatibleModelClient:
@@ -65,13 +79,17 @@ class OpenAICompatibleModelClient:
                         "content": json.dumps(input_payload, ensure_ascii=False),
                     },
                 ],
+                response_format={"type": "json_object"},
                 timeout=max(0.1, timeout_seconds),
             )
         except APITimeoutError as exc:
+            _log_safe_diagnostic(exc)
             raise ModelCallError("Model request timed out.", "TIMEOUT", True) from exc
         except APIConnectionError as exc:
+            _log_safe_diagnostic(exc)
             raise ModelCallError("Model gateway is unavailable.", "MODEL_UNAVAILABLE", True) from exc
         except APIStatusError as exc:
+            _log_safe_diagnostic(exc, status_code=exc.status_code)
             retryable = exc.status_code == 429 or exc.status_code >= 500
             raise ModelCallError(
                 "Model gateway rejected or failed the request.",
@@ -81,6 +99,7 @@ class OpenAICompatibleModelClient:
         except Exception as exc:
             # Never return raw provider exception text; it can contain request
             # details and is not a stable part of the ML contract.
+            _log_safe_diagnostic(exc)
             raise ModelCallError("Model gateway request failed.", "MODEL_UNAVAILABLE", True) from exc
 
         if not completion.choices:
