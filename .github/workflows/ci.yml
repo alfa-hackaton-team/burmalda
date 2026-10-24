@@ -2,6 +2,7 @@ name: CI and images
 
 'on':
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
   push:
     branches: [main]
 
@@ -120,7 +121,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Check reachable Go vulnerabilities
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
 
   images:
@@ -137,8 +138,8 @@ jobs:
         run: docker build --pull -t backend-ci ./backend
       - name: Check compiled backend binaries
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
-          container="$(docker create backend-ci)"
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          container="$(docker create backend-ci /app/api)"
           trap 'docker rm "$container" >/dev/null' EXIT
           mkdir -p /tmp/backend-bin
           for binary in api worker observer retention migrate; do
