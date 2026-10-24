@@ -89,6 +89,11 @@ type Runtime struct {
 		StatusPollInterval    Duration `yaml:"status_poll_interval"`
 		MaxProcessingDuration Duration `yaml:"max_processing_duration"`
 	} `yaml:"ml"`
+	Retention struct {
+		SourcePollDays int      `yaml:"source_poll_days"`
+		BatchSize      int      `yaml:"batch_size"`
+		Interval       Duration `yaml:"interval"`
+	} `yaml:"retention"`
 }
 
 func DefaultRuntime() Runtime {
@@ -117,6 +122,7 @@ func DefaultRuntime() Runtime {
 	r.ML.RetryStep, r.ML.RetryMax, r.ML.RetryAfterMax = Duration(5*time.Second), Duration(time.Minute), Duration(time.Hour)
 	r.ML.StatusPollInterval = Duration(5 * time.Second)
 	r.ML.MaxProcessingDuration = Duration(30 * time.Minute)
+	r.Retention.SourcePollDays, r.Retention.BatchSize, r.Retention.Interval = 30, 1000, Duration(24*time.Hour)
 	return r
 }
 
@@ -142,6 +148,7 @@ func (r Runtime) validate() error {
 		"ml.retry_max": r.ML.RetryMax, "ml.retry_after_max": r.ML.RetryAfterMax,
 		"ml.status_poll_interval":    r.ML.StatusPollInterval,
 		"ml.max_processing_duration": r.ML.MaxProcessingDuration,
+		"retention.interval":         r.Retention.Interval,
 	} {
 		if d <= 0 {
 			return fmt.Errorf("%s must be positive", name)
@@ -176,6 +183,10 @@ func (r Runtime) validate() error {
 		r.ML.RetryMax < r.ML.RetryStep || r.ML.RetryAfterMax < r.ML.RetryMax ||
 		r.ML.Lease <= r.ML.RequestTimeout+r.ML.FinishTimeout {
 		return fmt.Errorf("invalid ml limits or retry intervals")
+	}
+	if r.Retention.SourcePollDays < 1 || r.Retention.SourcePollDays > 3650 ||
+		r.Retention.BatchSize < 1 || r.Retention.BatchSize > 10000 {
+		return fmt.Errorf("invalid retention source_poll_days or batch_size")
 	}
 	return nil
 }

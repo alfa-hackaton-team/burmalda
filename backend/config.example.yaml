@@ -49,3 +49,7 @@ ml:
   retry_after_max: 1h
   status_poll_interval: 5s
   max_processing_duration: 30m
+retention:
+  source_poll_days: 30
+  batch_size: 1000
+  interval: 24h
