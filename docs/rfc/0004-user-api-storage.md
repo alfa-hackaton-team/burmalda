@@ -48,6 +48,10 @@
 
 Действующая сессия удовлетворяет условиям `revoked_at IS NULL`, `expires_at > now()` и пользователь не отключён. Сырой session token и сырой CSRF token в БД не сохраняются. При выходе или компрометации заполняется `revoked_at`; строка не удаляется немедленно, чтобы отзыв был однозначным.
 
+Оба токена генерируются независимо из 32 случайных байт и передаются в base64url без padding. API устанавливает `session_id` с атрибутами `HttpOnly; Secure; SameSite=Lax; Path=/`, без `Domain`; срок cookie не превышает `expires_at`. CSRF-токен передаётся в отдельной cookie `csrf_token` с `Secure; SameSite=Lax; Path=/`, но без `HttpOnly`, чтобы браузерный клиент мог скопировать его в заголовок `X-CSRF-Token`. На изменяющих запросах API требует одновременного совпадения cookie и заголовка, проверяет разрешённый `Origin`, вычисляет SHA-256 токена и сравнивает его с `csrf_token_hash` выбранной сессии. При logout обе cookie удаляются через `Max-Age=0`, а сессия отзывается в БД.
+
+На каждом запросе API хеширует значение `session_id`, находит ровно одну сессию по `session_token_hash` и проверяет её срок, отзыв и `users.disabled_at`. Сырые токены не логируются. После входа, повышения прав или подозрения на компрометацию создаётся новая сессия с новой парой токенов, а старая отзывается.
+
 ### 1.3. `roles`
 
 | Поле | Тип | Ограничения |
@@ -72,7 +76,9 @@
 | `expires_at` | TIMESTAMPTZ | nullable |
 | `revoked_at` | TIMESTAMPTZ | nullable |
 
-Заполняется ровно одно из полей `company_id` или `group_id`. Активный grant уникален для `(user_id, company_id/group_id, role_code)`. История отозванных grants сохраняется. Проверка группы никогда не заменяет отдельную проверку компании.
+Заполняется ровно одно из полей `company_id` или `group_id`. Действующий grant удовлетворяет `revoked_at IS NULL AND (expires_at IS NULL OR expires_at > now())`. История отозванных grants сохраняется. Проверка группы никогда не заменяет отдельную проверку компании.
+
+Частичный UNIQUE-индекс обеспечивает уникальность **неотозванных**, а не только неистёкших записей: `now()` нельзя использовать в предикате индекса PostgreSQL. Повторная выдача выполняется в одной транзакции: API блокирует найденный неотозванный grant через `SELECT ... FOR UPDATE`; если он истёк — записывает ему `revoked_at = now()` и создаёт новый; если он ещё действует — возвращает существующий grant без дубля. UNIQUE-индекс защищает тот же сценарий от параллельных вставок. Для `admin_permission_grants` действует такой же порядок.
 
 ### 1.5. `admin_permission_grants`
 
@@ -99,7 +105,7 @@
 | `business_contexts` | `role_code` становится FK → `roles.code`; контекст сам по себе не предоставляет доступ |
 | `conversations` | `user_id UUID NOT NULL` и FK → `users.id` |
 | `feedback` | `user_id UUID NOT NULL` и FK → `users.id`; добавить nullable `insight_version INTEGER`, обязательный вместе с `insight_id`, и составной FK → `insights(id, version)` |
-| `request_operations` | `user_id UUID NOT NULL` и FK → `users.id`; `request_fingerprint` хранится как 32-байтовый SHA-256 |
+| `request_operations` | `user_id UUID NOT NULL` и FK → `users.id`; `request_fingerprint BYTEA NOT NULL`, SHA-256 ровно 32 байта |
 | `analysis_runs` | `request_operation_id` связывает ML-запуск со стабильной операцией Go до платного вызова |
 
 Для составной ссылки feedback таблица `insights` получает UNIQUE `(id, version)`. Если feedback относится к сообщению, `insight_id` и `insight_version` остаются `NULL`.
@@ -169,6 +175,8 @@ Snapshot фиксирует выдачу, к которой относится �
 - состояние `succeeded` требует ссылки на сохранённый insight либо assistant message;
 - повторное чтение операции, insight или сообщения всегда заново проверяет действующий доступ.
 
+`request_fingerprint` вычисляется не из сырых байтов HTTP-запроса, а из нормализованной типизированной структуры `fingerprint_v1`: версия формата, `operation_type`, path/query-параметры и принятые после валидации поля JSON body. Go сериализует структуру с фиксированным порядком полей через `encoding/json`; UUID записываются в канонической lowercase-форме, отсутствующие nullable-поля — как `null`, значения enum — в каноническом виде. Строковые значения хешируются без дополнительного trim после того, как прошли валидацию. SHA-256 считается по UTF-8-байтам этой JSON-сериализации и сохраняется как `BYTEA` длиной 32 байта. Cookie, `Idempotency-Key`, `trace_id` и серверные версии обработки в preimage не входят; пользователь и тип операции уже входят в область уникальности ключа. Версия `v1` позволяет изменить правила сериализации без неоднозначного сравнения старых операций.
+
 Для `messages` добавляется уникальность `(conversation_id, sequence)`. `parent_message_id`, если заполнен, должен указывать на сообщение того же диалога. Смена контекста, роли или исходной версии insight внутри существующего диалога запрещена.
 
 ## 4. Продуктовая аналитика
@@ -225,8 +233,8 @@ Snapshot фиксирует выдачу, к которой относится �
 | Таблица | Индекс |
 |---|---|
 | `user_sessions` | UNIQUE `(session_token_hash)`; B-tree `(user_id, expires_at)` WHERE `revoked_at IS NULL` |
-| `context_access_grants` | UNIQUE `(user_id, company_id, role_code)` WHERE `revoked_at IS NULL AND company_id IS NOT NULL`; отдельный такой же индекс для `group_id`; B-tree `(user_id, expires_at)` WHERE `revoked_at IS NULL` |
-| `admin_permission_grants` | UNIQUE active grant `(user_id, permission)`; B-tree `(user_id, expires_at)` WHERE `revoked_at IS NULL` |
+| `context_access_grants` | UNIQUE для неотозванных `(user_id, company_id, role_code)` WHERE `revoked_at IS NULL AND company_id IS NOT NULL`; отдельный такой же индекс для `group_id`; B-tree `(user_id, expires_at)` WHERE `revoked_at IS NULL` |
+| `admin_permission_grants` | UNIQUE для неотозванных `(user_id, permission)` WHERE `revoked_at IS NULL`; B-tree `(user_id, expires_at)` WHERE `revoked_at IS NULL` |
 | `alerts` | B-tree `(business_context_id, created_at DESC, id DESC)` |
 | `feed_snapshots` | B-tree `(user_id, business_context_id, expires_at)` |
 | `feed_snapshot_items` | UNIQUE `(snapshot_id, preview_id)` |
@@ -245,3 +253,14 @@ Snapshot фиксирует выдачу, к которой относится �
 5. `trace_projections`, `client_analytics_events`, `rate_limit_buckets`.
 
 Перед созданием FK должны существовать предметные таблицы `companies`, `company_groups`, `business_contexts`, `events`, `insights` и `request_operations`. Миграции будут отдельным PR после согласования этой схемы.
+
+В текущем репозитории миграции `000001`–`000010` ещё не создают `conversations`, `feedback` и `request_operations`, поэтому штатный путь — сразу создать их с `user_id UUID` и не выполнять преобразование данных.
+
+Если окружение уже содержит legacy-таблицы с `user_id TEXT`, используется отдельная staged-миграция:
+
+1. Создать `users` и временную таблицу соответствий `legacy_user_id → users.id`. Соответствия загружаются из доверенного реестра идентификации как пара `identity_issuer + identity_subject`; UUID не вычисляется из текста и не угадывается.
+2. Добавить в каждую legacy-таблицу nullable-колонку `user_id_uuid`, заполнить её JOIN-ом с таблицей соответствий.
+3. До переключения приложения проверить, что для каждой строки с legacy `user_id` найден ровно один пользователь. При неизвестном или неоднозначном значении миграция прерывается и откатывается; запись не удаляется и не передаётся другому пользователю.
+4. После полной проверки добавить `NOT NULL` и FK → `users.id`, переключить Go на UUID, затем удалить старую TEXT-колонку и переименовать `user_id_uuid` в `user_id`.
+
+Для работающего окружения шаги выполняются с кратким запретом пользовательских записей либо через двухфазный dual-write. Удалять legacy-колонку до проверки чтения и записи новой версии API запрещено.
