@@ -54,7 +54,8 @@ func (s *Store) Claim(ctx context.Context) (Job, bool, error) {
 	defer tx.Rollback(ctx)
 	var id string
 	err = tx.QueryRow(ctx, `SELECT id::text FROM processing_jobs
-		WHERE ((status IN ('QUEUED','RETRY') AND next_attempt_at <= clock_timestamp())
+		WHERE source_snapshot_origin <> 'UNVERIFIED_LEGACY'
+		AND ((status IN ('QUEUED','RETRY') AND next_attempt_at <= clock_timestamp())
 		    OR (status='RUNNING' AND lease_until <= clock_timestamp()))
 		ORDER BY next_attempt_at, id FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {

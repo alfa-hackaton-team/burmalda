@@ -34,10 +34,11 @@ type Result struct {
 }
 
 type Client struct {
-	BaseURL  string
-	Token    string
-	HTTP     *http.Client
-	Settings func() config.Runtime
+	BaseURL      string
+	Token        string
+	MaxTextBytes int
+	HTTP         *http.Client
+	Settings     func() config.Runtime
 }
 
 func (c Client) settings() config.Runtime {
@@ -48,16 +49,19 @@ func (c Client) settings() config.Runtime {
 }
 
 type operation struct {
-	ProcessingID      string    `json:"processing_id"`
-	ArticleVersionID  string    `json:"article_version_id"`
-	PipelineVersion   string    `json:"pipeline_version"`
-	State             string    `json:"state"`
-	DocumentVersionID string    `json:"document_version_id"`
-	EventIDs          *[]string `json:"event_ids"`
+	ProcessingID      string     `json:"processing_id"`
+	ArticleVersionID  string     `json:"article_version_id"`
+	PipelineVersion   string     `json:"pipeline_version"`
+	State             string     `json:"state"`
+	TraceID           string     `json:"trace_id"`
+	CreatedAt         *time.Time `json:"created_at"`
+	DocumentVersionID string     `json:"document_version_id"`
+	EventIDs          *[]string  `json:"event_ids"`
 	Error             *struct {
-		Code      string `json:"code"`
-		Message   string `json:"message"`
-		Retryable *bool  `json:"retryable"`
+		Code      string  `json:"code"`
+		Message   string  `json:"message"`
+		Retryable *bool   `json:"retryable"`
+		TraceID   *string `json:"trace_id,omitempty"`
 	} `json:"error"`
 }
 
@@ -79,7 +83,7 @@ func (c Client) get(ctx context.Context, job Job) (Result, bool) {
 	}
 	status, body, retryAfter, err := c.do(req)
 	if err != nil {
-		return Result{Error: "ML status request failed"}, false
+		return Result{Error: "ML status request failed", ErrorCode: "ML_TRANSPORT_ERROR", ErrorRetryable: true}, false
 	}
 	if status == http.StatusNotFound {
 		return Result{}, true
@@ -91,9 +95,41 @@ func (c Client) get(ctx context.Context, job Job) (Result, bool) {
 }
 
 func (c Client) post(ctx context.Context, job Job) Result {
+	limit := c.MaxTextBytes
+	if limit <= 0 {
+		limit = config.MLTextByteLimit
+	}
+	limit = min(limit, config.MLTextByteLimit)
+	if len(job.Body) > limit {
+		return Result{Permanent: true, ErrorCode: "PAYLOAD_TOO_LARGE", Error: fmt.Sprintf("article.body exceeds ML limit: %d > %d UTF-8 bytes", len(job.Body), limit)}
+	}
+
 	if job.SourceConfigVersion <= 0 {
 		return Result{Permanent: true, Error: "source config version is missing"}
 	}
+	body, err := RequestPayload(job)
+	if err != nil {
+		return Result{Permanent: true, Error: "cannot encode ML request", ErrorCode: "INVALID_ML_REQUEST"}
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		c.BaseURL+"/internal/v0.1/article-processings", bytes.NewReader(body))
+	if err != nil {
+		return Result{Permanent: true, Error: "invalid ML endpoint"}
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Idempotency-Key", job.DedupeKey)
+	status, response, retryAfter, err := c.do(req)
+	if err != nil {
+		return Result{Error: "ML submission failed", ErrorCode: "ML_TRANSPORT_ERROR", ErrorRetryable: true}
+	}
+	if status != http.StatusAccepted {
+		return classifyStatus(status, retryAfter, response)
+	}
+	return decodeOperationWithInterval(response, job, c.settings().ML.StatusPollInterval.Std())
+}
+
+func RequestPayload(job Job) ([]byte, error) {
 	article := map[string]any{
 		"article_id": job.ArticleID, "article_version_id": job.VersionID,
 		"source_id": job.SourceID, "title": job.Title, "body": job.Body,
@@ -119,7 +155,7 @@ func (c Client) post(ctx context.Context, job Job) Result {
 	if len(job.Metadata) == 0 {
 		article["metadata"] = map[string]any{}
 	}
-	body, err := json.Marshal(map[string]any{
+	return json.Marshal(map[string]any{
 		"article": article,
 		"source": map[string]string{
 			"source_id": job.SourceID, "name": job.SourceName,
@@ -130,24 +166,6 @@ func (c Client) post(ctx context.Context, job Job) Result {
 		"pipeline_version": job.PipelineVersion,
 		"trace_id":         job.ID,
 	})
-	if err != nil {
-		return Result{Permanent: true, Error: "cannot encode ML request"}
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		c.BaseURL+"/internal/v0.1/article-processings", bytes.NewReader(body))
-	if err != nil {
-		return Result{Permanent: true, Error: "invalid ML endpoint"}
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Idempotency-Key", job.DedupeKey)
-	status, response, retryAfter, err := c.do(req)
-	if err != nil {
-		return Result{Error: "ML submission failed"}
-	}
-	if status != http.StatusAccepted {
-		return classifyStatus(status, retryAfter, response)
-	}
-	return decodeOperationWithInterval(response, job, c.settings().ML.StatusPollInterval.Std())
 }
 
 func (c Client) do(req *http.Request) (int, []byte, time.Duration, error) {
@@ -187,12 +205,51 @@ func decodeOperation(body []byte, job Job) Result {
 
 func decodeOperationWithInterval(body []byte, job Job, interval time.Duration) Result {
 	var op operation
-	if err := json.Unmarshal(body, &op); err != nil || strings.TrimSpace(op.ProcessingID) == "" ||
-		op.ArticleVersionID != job.VersionID || op.PipelineVersion != job.PipelineVersion {
-		return Result{Permanent: true, Error: "ML operation response does not match the job"}
+	decoder := json.NewDecoder(bytes.NewReader(body))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&op); err != nil {
+		return protocolError("ML operation response has invalid JSON or field types")
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return protocolError("ML operation response has trailing JSON")
+	}
+	if strings.TrimSpace(op.ProcessingID) == "" || strings.TrimSpace(op.TraceID) == "" || op.CreatedAt == nil ||
+		strings.TrimSpace(op.ArticleVersionID) == "" || strings.TrimSpace(op.PipelineVersion) == "" {
+		return protocolError("ML operation response is missing required fields")
+	}
+	if op.ArticleVersionID != job.VersionID || op.PipelineVersion != job.PipelineVersion {
+		return protocolError("ML operation response does not match article version or pipeline")
 	}
 	if job.ProcessingID != nil && *job.ProcessingID != op.ProcessingID {
-		return Result{Permanent: true, Error: "confirmed ML processing ID changed"}
+		return protocolError("confirmed ML processing ID changed")
+	}
+	var fields map[string]json.RawMessage
+	_ = json.Unmarshal(body, &fields)
+	for _, key := range []string{"document_version_id", "event_ids", "error"} {
+		if value, ok := fields[key]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return protocolError("ML operation contains null " + key)
+		}
+	}
+	if _, present := fields["document_version_id"]; present && strings.TrimSpace(op.DocumentVersionID) == "" {
+		return protocolError("ML operation contains empty document_version_id")
+	}
+	if op.EventIDs != nil {
+		for _, id := range *op.EventIDs {
+			if strings.TrimSpace(id) == "" {
+				return protocolError("ML operation contains an empty event ID")
+			}
+		}
+	}
+	if op.Error != nil {
+		if !validMLErrorCode(op.Error.Code) || strings.TrimSpace(op.Error.Message) == "" || op.Error.Retryable == nil || (op.Error.TraceID != nil && strings.TrimSpace(*op.Error.TraceID) == "") {
+			return protocolError("ML operation contains an invalid structured error")
+		}
+		var errorFields map[string]json.RawMessage
+		_ = json.Unmarshal(fields["error"], &errorFields)
+		if value, ok := errorFields["trace_id"]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return protocolError("ML error contains null trace_id")
+		}
 	}
 	result := Result{ProcessingID: op.ProcessingID}
 	switch op.State {
@@ -201,36 +258,30 @@ func decodeOperationWithInterval(body []byte, job Job, interval time.Duration) R
 		result.RetryAfter = interval
 	case "SUCCEEDED":
 		if strings.TrimSpace(op.DocumentVersionID) == "" || op.EventIDs == nil {
-			return Result{ProcessingID: op.ProcessingID, Permanent: true, Error: "ML success is missing results"}
-		}
-		for _, eventID := range *op.EventIDs {
-			if strings.TrimSpace(eventID) == "" {
-				return Result{ProcessingID: op.ProcessingID, Permanent: true, Error: "ML success contains an empty event ID"}
-			}
+			return protocolError("ML success is missing document_version_id or event_ids")
 		}
 		result.Succeeded = true
 		result.DocumentVersionID = op.DocumentVersionID
 		result.EventIDs = *op.EventIDs
 	case "FAILED":
 		result.Permanent = true
-		if op.Error == nil || strings.TrimSpace(op.Error.Code) == "" ||
-			strings.TrimSpace(op.Error.Message) == "" || op.Error.Retryable == nil {
-			result.Error = "ML failure is missing structured error"
-			result.ErrorCode = "INVALID_ML_RESPONSE"
-		} else {
-			result.Error = op.Error.Message
-			result.ErrorCode = op.Error.Code
-			result.ErrorRetryable = *op.Error.Retryable
+		if op.Error == nil {
+			return protocolError("ML failure is missing structured error")
 		}
+		result.Error = op.Error.Message
+		result.ErrorCode = op.Error.Code
+		result.ErrorRetryable = *op.Error.Retryable
 	default:
 		result.Permanent = true
 		result.Error = "ML operation has an unknown state"
+		result.ErrorCode = "INVALID_ML_RESPONSE"
 	}
 	return result
 }
 
 func classifyStatus(status int, retryAfter time.Duration, body []byte) Result {
-	result := Result{RetryAfter: retryAfter, Error: fmt.Sprintf("ML returned HTTP %d", status)}
+	temporary := status == http.StatusTooManyRequests || status >= 500
+	result := Result{RetryAfter: retryAfter, Error: fmt.Sprintf("ML returned HTTP %d", status), ErrorRetryable: temporary}
 	var remote struct {
 		Code      string `json:"code"`
 		Message   string `json:"message"`
@@ -264,4 +315,17 @@ func parseRetryAfterWithMax(raw string, maxDelay time.Duration) time.Duration {
 		return min(max(time.Until(when), 0), maxDelay)
 	}
 	return 0
+}
+
+func protocolError(message string) Result {
+	return Result{Permanent: true, ErrorCode: "INVALID_ML_RESPONSE", Error: message}
+}
+
+func validMLErrorCode(code string) bool {
+	switch code {
+	case "VALIDATION_ERROR", "NOT_FOUND", "FORBIDDEN_CONTEXT", "SOURCE_UNAVAILABLE", "ML_PROCESSING_ERROR", "INSUFFICIENT_EVIDENCE", "TIMEOUT", "BUDGET_EXHAUSTED", "CONFLICT", "PROFILE_NOT_READY", "UNSUPPORTED_ADAPTER", "UNSUPPORTED_PIPELINE_VERSION", "PAYLOAD_TOO_LARGE", "INTERNAL_ERROR", "UNAUTHENTICATED", "FORBIDDEN":
+		return true
+	default:
+		return false
+	}
 }

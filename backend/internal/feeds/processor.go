@@ -2,6 +2,7 @@ package feeds
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -29,11 +30,14 @@ type ArticleFetcher interface {
 
 type material struct {
 	Entry
-	Raw           []byte
-	ContentType   string
-	ParserVersion string
-	EntryNo       int
-	Artifact      *rawartifacts.Artifact
+	Raw              []byte
+	ContentType      string
+	ParserVersion    string
+	EntryNo          int
+	Artifact         *rawartifacts.Artifact
+	TextOrigin       string
+	ExtractionMethod string
+	ExtractionIssues []string
 }
 
 const MaxArticleEntries = 20
@@ -46,7 +50,7 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	if p.Fetcher == nil {
 		return polling.Outcome{}, fmt.Errorf("feed fetcher is not configured")
 	}
-	if (p.PipelineVersion == "") != (p.MaxTextBytes == 0) || p.MaxTextBytes < 0 {
+	if (p.PipelineVersion != "" && p.MaxTextBytes == 0) || p.MaxTextBytes < 0 {
 		return polling.Outcome{}, fmt.Errorf("ML pipeline version and text limit must be configured together")
 	}
 	adapterConfig, err := sources.ParseFeedAdapterConfig(lease.AdapterConfig)
@@ -163,7 +167,7 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 			}
 			entry.Body = body
 			materials = append(materials, material{Entry: entry, EntryNo: parsed.EntryNo, Raw: articleResponse.Body,
-				ContentType: articleResponse.ContentType, ParserVersion: parserVersion})
+				ContentType: articleResponse.ContentType, ParserVersion: parserVersion, TextOrigin: articleTextOrigin(mediaType), ExtractionMethod: parserVersion})
 		}
 	} else {
 		parserVersion := lease.AdapterType + "-" + ParserVersion
@@ -173,7 +177,7 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes), Response{}, false, false)
 				continue
 			}
-			materials = append(materials, material{Entry: entry, ParserVersion: parserVersion})
+			materials = append(materials, material{Entry: entry, ParserVersion: parserVersion, TextOrigin: "rss_summary", ExtractionMethod: parserVersion})
 		}
 	}
 	if len(response.ETag) > 1024 || len(response.LastModified) > 1024 {
@@ -358,15 +362,36 @@ func saveEntry(ctx context.Context, tx pgx.Tx, lease polling.Lease, feedArtifact
 			return false, false, err
 		}
 	}
+	origin, method := item.TextOrigin, item.ExtractionMethod
+	if origin == "" {
+		origin = "unknown"
+	}
+	if method == "" {
+		method = "unknown"
+	}
+	issues := item.ExtractionIssues
+	if issues == nil {
+		issues = []string{}
+	}
+	issueJSON, err := json.Marshal(issues)
+	if err != nil {
+		return false, false, err
+	}
 	err = tx.QueryRow(ctx, `INSERT INTO article_versions
 		(source_id, article_id, version_no, content_hash, parser_version,
-		 title, body_text, published_at, fetched_at, raw_artifact_id)
-		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10::uuid)
+		 title, body_text, published_at, fetched_at, raw_artifact_id,text_origin,extraction_method,extraction_issues)
+		VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7, $8, $9, $10::uuid,$11,$12,$13::jsonb)
 		RETURNING id::text`, sourceID, articleID, versionNo, contentHash,
 		parserVersion, entry.Title, entry.Body, entry.PublishedAt,
-		fetchedAt, artifactID).Scan(&versionID)
+		fetchedAt, artifactID, origin, method, issueJSON).Scan(&versionID)
 	if err != nil {
 		return false, false, fmt.Errorf("create article version: %w", err)
+	}
+	_, err = tx.Exec(ctx, `INSERT INTO article_version_source_snapshots
+		(article_version_id,source_name,source_type,source_role,source_trust_level,source_config_version,external_id,canonical_url)
+		VALUES ($1::uuid,$2,$3,$4,$5,$6,$7,$8)`, versionID, lease.Name, lease.SourceType, lease.SourceRole, lease.TrustLevel, lease.ConfigVersion, nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL))
+	if err != nil {
+		return false, false, fmt.Errorf("save source snapshot: %w", err)
 	}
 	_, err = tx.Exec(ctx, `UPDATE articles SET latest_version_id=$2::uuid,
 		external_id=COALESCE($3, external_id), canonical_url=COALESCE($4, canonical_url)
@@ -396,4 +421,11 @@ func nullIfEmpty(value string) *string {
 		return nil
 	}
 	return &value
+}
+
+func articleTextOrigin(mediaType string) string {
+	if mediaType == "application/pdf" {
+		return "pdf_extracted"
+	}
+	return "full_article"
 }

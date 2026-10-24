@@ -12,6 +12,7 @@ import (
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/database"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/dataset"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/health"
 )
 
@@ -37,10 +38,18 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	if os.Getenv("DATASET_REQUIRED") == "true" {
+		if err := dataset.RequireActive(ctx, pool); err != nil {
+			return err
+		}
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/health/", health.HandlerWithTimeout(pool, func() time.Duration { return manager.Current().Server.ReadinessTimeout.Std() }))
+	dataset.DatasetHandler{DB: pool, Token: os.Getenv("DATASET_API_TOKEN")}.Register(mux)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           health.HandlerWithTimeout(pool, func() time.Duration { return manager.Current().Server.ReadinessTimeout.Std() }),
+		Handler:           mux,
 		ReadHeaderTimeout: manager.Current().Server.ReadHeaderTimeout.Std(),
 	}
 	serveErr := make(chan error, 1)

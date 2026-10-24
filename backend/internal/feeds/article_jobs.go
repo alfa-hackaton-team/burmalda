@@ -257,7 +257,7 @@ func (p ArticleJobProcessor) Process(ctx context.Context, job ArticleJob) Articl
 	}
 	item := material{Entry: Entry{ExternalID: job.ExternalID, CanonicalURL: job.ArticleURL,
 		Title: job.Title, Body: body, PublishedAt: job.PublishedAt},
-		Raw: response.Body, ContentType: response.ContentType, ParserVersion: parserVersion, Artifact: &artifact}
+		Raw: response.Body, ContentType: response.ContentType, ParserVersion: parserVersion, Artifact: &artifact, TextOrigin: articleTextOrigin(mediaType), ExtractionMethod: parserVersion}
 	return ArticleOutcome{Item: &item}
 }
 

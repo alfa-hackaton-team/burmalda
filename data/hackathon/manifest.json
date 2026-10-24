@@ -1,0 +1,86 @@
+{
+  "version": "alfa-hackathon-2026-v2",
+  "files": [
+    {
+      "name": "ALFA-7M26.pdf",
+      "kind": "pdf",
+      "sha256": "3c64c1e43f3b46a795f9581967f2dbc8efb0994cb77ab82e95da180830e9ff8c",
+      "size_bytes": 6458583,
+      "text_sha256": "419fd98be5f49a7b661314b0a8a70a8c9054aa75de8e5bba600d01e34bcf9f72"
+    },
+    {
+      "name": "ALFA-Macro_Insights-Policy_Rate_11Sep.pdf",
+      "kind": "pdf",
+      "sha256": "92a96805f2b720f76bd0c52d2491044812b38401ab62d0f4a9157b4ca81c49bb",
+      "size_bytes": 6343186,
+      "text_sha256": "945390bbd6ce79963c61c2c2efaac56ec37b0bac6372c877d3debf4576d69b71"
+    },
+    {
+      "name": "ALFA-consumption.pdf",
+      "kind": "pdf",
+      "sha256": "807ee9925cf7d15ecffc72ad7142f9a83d342cd19690e12dd3b90aa2ba8ea1c6",
+      "size_bytes": 6658115,
+      "text_sha256": "0923b47298f3cbffd199d3a903758bf99e2de470e470a90f64f510533028f6a2"
+    },
+    {
+      "name": "ALFA-macro_stat1H26.pdf",
+      "kind": "pdf",
+      "sha256": "84899553fadf3e49abac7074c7b7d2afc2fa5c70b7fde0bf4c3eabe3d7402266",
+      "size_bytes": 6100459,
+      "text_sha256": "87aaef3dd276e957de00427d53de28fa40322ae8f53dc54e1fb5ccbb9433b71f"
+    },
+    {
+      "name": "ALFA_Russian_Steels_1K21PreviewUpdate_15Apr2021.pdf",
+      "kind": "pdf",
+      "sha256": "36eaaa58ae68d858db3600dbf3cc93d0bdefb8ca03f1f5cc154c532cc32e0c86",
+      "size_bytes": 6968001,
+      "text_sha256": "eb7336502874ae4e2bb9a09701c8b27c841796b480bb88296367694e0c89152c"
+    },
+    {
+      "name": "FI_Strategy_3Q26_22072026.pdf",
+      "kind": "pdf",
+      "sha256": "6c3a4882ee784b608880693d8ba2b62d0ba2236e34b404179adaab909c6dd046",
+      "size_bytes": 34890230,
+      "text_sha256": "3d0be22cfdaf75db05fdde1192b956174ba9b92ae1be351cdd041b1c57376411"
+    },
+    {
+      "name": "Gold_digest_August26.pdf",
+      "kind": "pdf",
+      "sha256": "4159576a6223985dd318b6f5a04ad4aeb888f47a6c266d0e9ee9eb35bf01e245",
+      "size_bytes": 8613150,
+      "text_sha256": "589363cad9dccfba4d8ce5937d3c4d56b9ad16fc6d7857b80075b79b700402bd"
+    },
+    {
+      "name": "Inflation_tracker_02.pdf",
+      "kind": "pdf",
+      "sha256": "09d5537f6a52f5f8f2d9518ed9171e794382972ce38cbdc4bd3099b2db129d0c",
+      "size_bytes": 3385668,
+      "text_sha256": "53c97a19397ce47cda349beae208ca66b52563a2c5078ce41ca5ea30c09b5bb5"
+    },
+    {
+      "name": "df_Fid_Uid_link_hack.csv",
+      "kind": "csv",
+      "sha256": "3d9c718e2a87304f48bbc7447607116bb8e4bd61dded70b0a1d0558f086a1b58",
+      "size_bytes": 697194
+    },
+    {
+      "name": "df_Uid_data_hack.csv",
+      "kind": "csv",
+      "sha256": "cb48983806ce7ca0ae045a40c9627ccbe47cc72bfb54058db04df2386da4a983",
+      "size_bytes": 31414716
+    },
+    {
+      "name": "df_Uid_payment_hack.csv",
+      "kind": "csv",
+      "sha256": "30095f75bead1a1dac0d7232b0da09a326b7ef643ee3b77b36ad3b4458a1cab3",
+      "size_bytes": 38752490
+    },
+    {
+      "name": "Бонд_Бриф_14092026.pdf",
+      "kind": "pdf",
+      "sha256": "87dc17520e2a744f95580ee2ec42461d0ee6ebf19e752622a49c49600cb1b055",
+      "size_bytes": 7463613,
+      "text_sha256": "007a119c91df37acb4e237676da4fa453ac6f22936d896456f77529d8ca43263"
+    }
+  ]
+}

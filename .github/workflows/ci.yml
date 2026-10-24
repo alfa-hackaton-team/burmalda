@@ -85,6 +85,7 @@ jobs:
         run: |
           python docs/ml/scripts/check_ml_contracts.py --full
           python docs/ml/scripts/check_api_contracts.py
+          python backend/testdata/ml-payloads/validate.py
           python -m unittest discover -s docs/ml/scripts -p 'test_*.py'
       - name: Verify generated observability files
         run: |
