@@ -94,6 +94,9 @@ type Runtime struct {
 		BatchSize      int      `yaml:"batch_size"`
 		Interval       Duration `yaml:"interval"`
 	} `yaml:"retention"`
+	RawStorage struct {
+		RequestTimeout Duration `yaml:"request_timeout"`
+	} `yaml:"raw_storage"`
 }
 
 func DefaultRuntime() Runtime {
@@ -123,6 +126,7 @@ func DefaultRuntime() Runtime {
 	r.ML.StatusPollInterval = Duration(5 * time.Second)
 	r.ML.MaxProcessingDuration = Duration(30 * time.Minute)
 	r.Retention.SourcePollDays, r.Retention.BatchSize, r.Retention.Interval = 30, 1000, Duration(24*time.Hour)
+	r.RawStorage.RequestTimeout = Duration(30 * time.Second)
 	return r
 }
 
@@ -146,9 +150,10 @@ func (r Runtime) validate() error {
 		"ml.idle":               r.ML.Idle, "ml.lease": r.ML.Lease, "ml.finish_timeout": r.ML.FinishTimeout,
 		"ml.request_timeout": r.ML.RequestTimeout, "ml.retry_step": r.ML.RetryStep,
 		"ml.retry_max": r.ML.RetryMax, "ml.retry_after_max": r.ML.RetryAfterMax,
-		"ml.status_poll_interval":    r.ML.StatusPollInterval,
-		"ml.max_processing_duration": r.ML.MaxProcessingDuration,
-		"retention.interval":         r.Retention.Interval,
+		"ml.status_poll_interval":     r.ML.StatusPollInterval,
+		"ml.max_processing_duration":  r.ML.MaxProcessingDuration,
+		"retention.interval":          r.Retention.Interval,
+		"raw_storage.request_timeout": r.RawStorage.RequestTimeout,
 	} {
 		if d <= 0 {
 			return fmt.Errorf("%s must be positive", name)

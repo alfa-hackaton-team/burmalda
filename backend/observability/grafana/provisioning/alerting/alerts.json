@@ -454,6 +454,62 @@
           },
           "dashboardUid": "ingestion-overview",
           "panelId": 11
+        },
+        {
+          "uid": "ingestion-raw-missing",
+          "title": "Отсутствует оригинал в S3",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "ingestion_raw_missing_objects",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "for": "5m",
+          "labels": {
+            "severity": "critical",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Отсутствует оригинал в S3"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 27
         }
       ]
     }

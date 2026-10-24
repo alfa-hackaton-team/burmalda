@@ -2,8 +2,6 @@ package feeds
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +10,7 @@ import (
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/jackc/pgx/v5"
 )
@@ -21,6 +20,7 @@ type Processor struct {
 	PipelineVersion string
 	MaxTextBytes    int
 	Limits          *config.Runtime
+	RawStore        rawartifacts.Store
 }
 
 type ArticleFetcher interface {
@@ -32,6 +32,8 @@ type material struct {
 	Raw           []byte
 	ContentType   string
 	ParserVersion string
+	EntryNo       int
+	Artifact      *rawartifacts.Artifact
 }
 
 const MaxArticleEntries = 20
@@ -160,7 +162,7 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 				continue
 			}
 			entry.Body = body
-			materials = append(materials, material{Entry: entry, Raw: articleResponse.Body,
+			materials = append(materials, material{Entry: entry, EntryNo: parsed.EntryNo, Raw: articleResponse.Body,
 				ContentType: articleResponse.ContentType, ParserVersion: parserVersion})
 		}
 	} else {
@@ -177,6 +179,31 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	if len(response.ETag) > 1024 || len(response.LastModified) > 1024 {
 		return result, fmt.Errorf("source HTTP validator is too large")
 	}
+	store := p.RawStore
+	if store == nil {
+		store = rawartifacts.PostgreSQL{}
+	}
+	feedContentType := "application/rss+xml"
+	if lease.AdapterType == "atom" {
+		feedContentType = "application/atom+xml"
+	}
+	feedArtifact, err := store.Prepare(ctx, lease.SourceID, feedContentType, response.Body)
+	if err != nil {
+		return result, fmt.Errorf("store feed snapshot: %w", err)
+	}
+	prepared := materials[:0]
+	for _, item := range materials {
+		if item.Raw != nil {
+			artifact, err := store.Prepare(ctx, lease.SourceID, item.ContentType, item.Raw)
+			if err != nil {
+				addFailure(item.EntryNo-1, item.Entry, "RAW_STORAGE_FAILED", err, Response{}, true, true)
+				continue
+			}
+			item.Artifact = &artifact
+		}
+		prepared = append(prepared, item)
+	}
+	materials = prepared
 	result.Success = len(entryFailures) == 0 || len(materials) > 0
 	result.Partial = len(entryFailures) > 0 && len(materials) > 0
 	result.EntryFailures = entryFailures
@@ -186,7 +213,7 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	result.DiscoveredCount = len(entries) + len(parseFailures)
 	fetchedAt := time.Now().UTC()
 	result.Persist = func(ctx context.Context, tx pgx.Tx) (int, int, error) {
-		feedArtifactID, err := saveFeedSnapshot(ctx, tx, lease.SourceID, lease.AdapterType, response.Body)
+		feedArtifactID, err := savePreparedArtifact(ctx, tx, lease.SourceID, feedArtifact)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -227,26 +254,28 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	return result, nil
 }
 
-func saveFeedSnapshot(ctx context.Context, tx pgx.Tx, sourceID, adapterType string, data []byte) (string, error) {
-	contentType := "application/rss+xml"
-	if adapterType == "atom" {
-		contentType = "application/atom+xml"
+func saveRawArtifact(ctx context.Context, tx pgx.Tx, sourceID, contentType string, data []byte) (string, error) {
+	artifact, err := (rawartifacts.PostgreSQL{}).Prepare(ctx, sourceID, contentType, data)
+	if err != nil {
+		return "", err
 	}
-	return saveRawArtifact(ctx, tx, sourceID, contentType, data)
+	return savePreparedArtifact(ctx, tx, sourceID, artifact)
 }
 
-func saveRawArtifact(ctx context.Context, tx pgx.Tx, sourceID, contentType string, data []byte) (string, error) {
-	sum := sha256.Sum256(data)
-	hash := hex.EncodeToString(sum[:])
+func savePreparedArtifact(ctx context.Context, tx pgx.Tx, sourceID string, artifact rawartifacts.Artifact) (string, error) {
+	var content any
+	if artifact.ObjectURI == "" {
+		content = artifact.Content
+	}
 	var id string
 	err := tx.QueryRow(ctx, `INSERT INTO raw_artifacts
-		(source_id, sha256, content_type, size_bytes, content)
-		VALUES ($1::uuid, $2, $3, $4, $5)
+		(source_id, sha256, content_type, size_bytes, content, object_uri)
+		VALUES ($1::uuid, $2, $3, $4, $5, $6)
 		ON CONFLICT (source_id, sha256) DO NOTHING RETURNING id::text`,
-		sourceID, hash, contentType, len(data), data).Scan(&id)
+		sourceID, artifact.SHA256, artifact.ContentType, artifact.Size, content, nullIfEmpty(artifact.ObjectURI)).Scan(&id)
 	if errors.Is(err, pgx.ErrNoRows) {
 		err = tx.QueryRow(ctx, `SELECT id::text FROM raw_artifacts
-			WHERE source_id=$1::uuid AND sha256=$2`, sourceID, hash).Scan(&id)
+			WHERE source_id=$1::uuid AND sha256=$2 AND size_bytes=$3`, sourceID, artifact.SHA256, artifact.Size).Scan(&id)
 	}
 	if err != nil {
 		return "", fmt.Errorf("save raw feed snapshot: %w", err)
@@ -321,7 +350,10 @@ func saveEntry(ctx context.Context, tx pgx.Tx, lease polling.Lease, feedArtifact
 	var versionID string
 	artifactID := feedArtifactID
 	if item.Raw != nil {
-		artifactID, err = saveRawArtifact(ctx, tx, sourceID, item.ContentType, item.Raw)
+		if item.Artifact == nil {
+			return false, false, fmt.Errorf("article raw artifact was not prepared")
+		}
+		artifactID, err = savePreparedArtifact(ctx, tx, sourceID, *item.Artifact)
 		if err != nil {
 			return false, false, err
 		}

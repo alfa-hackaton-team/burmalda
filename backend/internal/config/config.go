@@ -26,6 +26,10 @@ type Config struct {
 	MLMaxTextBytes         int
 	MLBaseURL              string
 	MLServiceToken         string
+	RawStorageBackend      string
+	S3Bucket               string
+	S3Region               string
+	S3Endpoint             string
 }
 
 func Load() (Config, error) {
@@ -107,6 +111,24 @@ func Load() (Config, error) {
 		u, err := url.Parse(cfg.MLBaseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Path != "" || cfg.MLPipelineVersion == "" {
 			return Config{}, fmt.Errorf("ML_BASE_URL must be an http(s) origin and ML pipeline must be configured")
+		}
+	}
+	cfg.RawStorageBackend = getenv("RAW_STORAGE_BACKEND", "postgres")
+	if cfg.RawStorageBackend != "postgres" && cfg.RawStorageBackend != "s3" {
+		return Config{}, fmt.Errorf("RAW_STORAGE_BACKEND must be postgres or s3")
+	}
+	if cfg.RawStorageBackend == "s3" {
+		cfg.S3Bucket = strings.TrimSpace(os.Getenv("S3_BUCKET"))
+		cfg.S3Region = strings.TrimSpace(os.Getenv("S3_REGION"))
+		cfg.S3Endpoint = strings.TrimRight(strings.TrimSpace(os.Getenv("S3_ENDPOINT")), "/")
+		if cfg.S3Bucket == "" || cfg.S3Region == "" {
+			return Config{}, fmt.Errorf("S3_BUCKET and S3_REGION are required for S3 storage")
+		}
+		if cfg.S3Endpoint != "" {
+			u, err := url.Parse(cfg.S3Endpoint)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" {
+				return Config{}, fmt.Errorf("S3_ENDPOINT must be an http(s) origin")
+			}
 		}
 	}
 

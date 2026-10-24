@@ -11,6 +11,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -206,6 +207,7 @@ func (s *ArticleJobStore) Finish(ctx context.Context, job ArticleJob, outcome Ar
 
 type ArticleJobProcessor struct {
 	Fetcher         ArticleFetcher
+	RawStore        rawartifacts.Store
 	Limits          config.Runtime
 	PipelineVersion string
 	MaxTextBytes    int
@@ -245,9 +247,17 @@ func (p ArticleJobProcessor) Process(ctx context.Context, job ArticleJob) Articl
 		return ArticleOutcome{Error: fmt.Sprintf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes),
 			ErrorCode: "ARTICLE_TEXT_TOO_LARGE", HTTPStatus: status}
 	}
+	store := p.RawStore
+	if store == nil {
+		store = rawartifacts.PostgreSQL{}
+	}
+	artifact, err := store.Prepare(ctx, job.SourceID, response.ContentType, response.Body)
+	if err != nil {
+		return ArticleOutcome{Error: err.Error(), ErrorCode: "RAW_STORAGE_FAILED", Retryable: true}
+	}
 	item := material{Entry: Entry{ExternalID: job.ExternalID, CanonicalURL: job.ArticleURL,
 		Title: job.Title, Body: body, PublishedAt: job.PublishedAt},
-		Raw: response.Body, ContentType: response.ContentType, ParserVersion: parserVersion}
+		Raw: response.Body, ContentType: response.ContentType, ParserVersion: parserVersion, Artifact: &artifact}
 	return ArticleOutcome{Item: &item}
 }
 
