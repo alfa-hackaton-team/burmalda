@@ -267,7 +267,8 @@ components:
       - verification_status
       - evidence_links
       - assumptions
-      description: Общий внутренний DTO включает UNSUPPORTED для проверки. Клиентское
+      description: Публичный DTO; claim_type соответствует knowledge_type ML v1, а не
+        бизнес-назначению claim_type ML v1. UNSUPPORTED доступен для проверки. Клиентское
         представление исключает неподтверждённые факты; существенные утверждения должны
         иметь ссылки на поддерживающие доказательства. Обязательные смысловые правила
         проверяет приложение, не только JSON Schema.
@@ -1285,7 +1286,7 @@ components:
           type: string
           format: date-time
         response:
-          "$ref": "#/components/schemas/AgentResponse"
+          "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisResponse"
         error:
           "$ref": "#/components/schemas/Error"
       additionalProperties: false
@@ -1294,9 +1295,54 @@ components:
       - state
       - trace_id
       - created_at
-      description: 'Состояние асинхронного анализа: SUCCEEDED требует response, FAILED
-        — error. Сервер связывает внутренний analysis_id с публичным generation_id;
-        идентификаторы имеют разное назначение.'
+      description: 'Внутреннее выполнение: QUEUED/RUNNING не содержат response.
+        Терминальные SUCCEEDED/INSUFFICIENT_EVIDENCE/FAILED содержат AnalysisResponse
+        с соответствующим status. analysis_id равен analysis_run_id результата.
+        Публичный успех Go фиксирует только после сохранения; generation_id — ID операции Go.'
+      allOf:
+      - if:
+          properties:
+            state:
+              enum: [QUEUED, RUNNING]
+        then:
+          not:
+            required: [response]
+      - if:
+          properties:
+            state:
+              enum: [SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED]
+        then:
+          required: [response]
+      - if:
+          properties:
+            state:
+              const: SUCCEEDED
+        then:
+          properties:
+            response:
+              properties:
+                status:
+                  const: succeeded
+      - if:
+          properties:
+            state:
+              const: INSUFFICIENT_EVIDENCE
+        then:
+          properties:
+            response:
+              properties:
+                status:
+                  const: insufficient_evidence
+      - if:
+          properties:
+            state:
+              const: FAILED
+        then:
+          properties:
+            response:
+              properties:
+                status:
+                  const: failed
     ProfileRebuildOperation:
       type: object
       properties:

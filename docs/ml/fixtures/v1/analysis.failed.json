@@ -1,0 +1,18 @@
+{
+  "contract_version": "v1",
+  "trace_id": "00000000-0000-4000-8000-000000000001",
+  "request_operation_id": "00000000-0000-4000-8000-000000000011",
+  "analysis_run_id": "00000000-0000-4000-8000-000000000014",
+  "status": "failed",
+  "insight": null,
+  "message": null,
+  "warnings": [
+    "Условия действующего кредита неизвестны"
+  ],
+  "gaps": [],
+  "error": {
+    "code": "MODEL_UNAVAILABLE",
+    "message": "Модель недоступна",
+    "retryable": false
+  }
+}
