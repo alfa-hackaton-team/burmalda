@@ -653,6 +653,8 @@ components:
           - CONFLICT
           - PROFILE_NOT_READY
           - UNSUPPORTED_ADAPTER
+          - UNSUPPORTED_PIPELINE_VERSION
+          - PAYLOAD_TOO_LARGE
           - INTERNAL_ERROR
           - UNAUTHENTICATED
           - FORBIDDEN
@@ -1200,97 +1202,11 @@ components:
       - evidence
       - limitations
     NormalizedArticle:
-      type: object
-      properties:
-        article_id:
-          type: string
-          minLength: 1
-          description: Идентификатор предметной области со скрытой внутренней структурой;
-            не исходный ключ набора и не обязательный UUID в БД.
-        article_version_id:
-          type: string
-          minLength: 1
-          description: Идентификатор предметной области со скрытой внутренней структурой;
-            не исходный ключ набора и не обязательный UUID в БД.
-        version_no:
-          type: integer
-          minimum: 1
-          description: Положительный порядковый номер неизменяемой версии статьи; ML1 использует его для каталога версий.
-        source_id:
-          type: string
-          minLength: 1
-          description: Идентификатор предметной области со скрытой внутренней структурой;
-            не исходный ключ набора и не обязательный UUID в БД.
-        external_id:
-          type: string
-        canonical_url:
-          type: string
-          format: uri
-        title:
-          type: string
-        body:
-          type: string
-          minLength: 1
-          description: Извлечённый текст статьи; ML_MAX_TEXT_BYTES — 131072 байта UTF-8 для этого поля без заголовка. ML отклоняет превышение без обрезания.
-        published_at:
-          type:
-          - string
-          - 'null'
-          format: date-time
-        fetched_at:
-          type: string
-          format: date-time
-        language:
-          type: string
-        author:
-          type: string
-        raw_ref:
-          type: string
-        content_hash:
-          type: string
-        metadata:
-          type: object
-          properties:
-            extraction_method:
-              type: string
-              enum:
-              - full_article
-              - rss_summary
-              - pdf_extracted
-            extraction_errors:
-              type: array
-              items:
-                type: string
-                enum:
-                - TEXT_TRUNCATED
-                - MISSING_PAGES
-                - MISSING_TABLES
-                - MISSING_FOOTNOTES
-                - EXTRACTION_FAILED
-                - LAYOUT_LOSS
-                - READING_ORDER_UNCERTAIN
-          additionalProperties: false
-          required:
-          - extraction_method
-          - extraction_errors
-      additionalProperties: false
-      required:
-      - article_id
-      - article_version_id
-      - version_no
-      - source_id
-      - title
-      - body
-      - published_at
-      - fetched_at
-      - raw_ref
-      - content_hash
-      - metadata
-      description: Материал, загруженный, сохранённый, нормализованный и технически
-        дедуплицированный Go-воркером. Extraction metadata сообщает метод и известные
-        потери при извлечении; если потерь нет, extraction_errors передаётся пустым массивом [].
-        raw_ref обозначает сохранённую версию, а не произвольный адрес для сетевой
-        загрузки; учётные данные источника в metadata не передаются.
+      "$ref": "../ml/contracts/quality/v1/quality.schema.json#/$defs/BackendArticle"
+      description: Целевой вход R02, сохранённый Go. body не исправляется ML;
+        extraction_method/extraction_errors обязательны в metadata. Пустой body
+        передаётся quality gate для FAIL; размер ограничен 131072 UTF-8 байтами.
+        Пустой title допустим; published_at может отсутствовать или быть null.
     AnalysisOperation:
       type: object
       properties:
@@ -1562,6 +1478,11 @@ components:
         article_version_id:
           type: string
           minLength: 1
+        pipeline_version:
+          type: string
+          minLength: 1
+          description: Версия набора правил, переданная Go при создании операции.
+            ML возвращает то же значение при каждом POST и GET, включая повторы.
         state:
           type: string
           enum:
@@ -1589,10 +1510,33 @@ components:
       required:
       - processing_id
       - article_version_id
+      - pipeline_version
       - state
       - trace_id
       - created_at
+      allOf:
+      - if:
+          properties:
+            state:
+              const: SUCCEEDED
+          required:
+          - state
+        then:
+          required:
+          - document_version_id
+          - event_ids
+      - if:
+          properties:
+            state:
+              const: FAILED
+          required:
+          - state
+        then:
+          required:
+          - error
       description: Вычислительная обработка материала от Go; не синхронизация источника.
+        SUCCEEDED означает доступность чанков и embeddings для поиска и сохранённый
+        результат обработки событий. event_ids может быть пустым.
         SUCCEEDED содержит document_version_id и event_ids, включая пустой список,
         если событие не выделено. FAILED содержит безопасную ошибку. Повтор с тем
         же ключом возвращает ту же операцию.

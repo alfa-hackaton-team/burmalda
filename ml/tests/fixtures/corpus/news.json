@@ -1,0 +1,29 @@
+{
+  "article": {
+    "article_id": "20000000-0000-4000-8000-000000000011",
+    "article_version_id": "20000000-0000-4000-8000-000000000012",
+    "source_id": "20000000-0000-4000-8000-000000000013",
+    "title": "Учебный материал",
+    "body": "Сохранённый текст. Новые условия применяются с 1 ноября только к новым договорам. Действующие договоры не изменяются.",
+    "fetched_at": "2026-10-24T12:00:00Z",
+    "raw_ref": "raw-artifact:20000000-0000-4000-8000-000000000014",
+    "content_hash": "f33d627190643647f0d59d6683a4b3705848d2584e25c50688449c3ad8d31cc8",
+    "metadata": {
+      "extraction_method": "full_article",
+      "extraction_errors": []
+    },
+    "language": "ru",
+    "canonical_url": "https://example.org/corpus/1",
+    "published_at": "2026-10-20T09:00:00Z"
+  },
+  "source": {
+    "source_id": "20000000-0000-4000-8000-000000000013",
+    "name": "Учебный источник",
+    "source_type": "news",
+    "source_role": "external",
+    "trust_level": "standard",
+    "config_version": "1"
+  },
+  "pipeline_version": "corpus-quality-test-v1",
+  "trace_id": "20000000-0000-4000-8000-000000000015"
+}

@@ -1,0 +1,67 @@
+[
+  {
+    "file": "news.json",
+    "status": "PASS",
+    "failures": [],
+    "warnings": []
+  },
+  {
+    "file": "rss_reviewed.json",
+    "status": "PASS",
+    "failures": [],
+    "warnings": [
+      "EMPTY_TITLE",
+      "UNKNOWN_PUBLICATION_DATE",
+      "RSS_SUMMARY",
+      "SOURCE_TYPE_MAPPED",
+      "SOURCE_TRUST_UNRATED"
+    ]
+  },
+  {
+    "file": "bank_pdf.json",
+    "status": "PASS",
+    "failures": [],
+    "warnings": []
+  },
+  {
+    "file": "pdf_missing_table.json",
+    "status": "FAIL",
+    "failures": [
+      "EXTRACTION_MISSING_TABLES"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "pdf_layout.json",
+    "status": "PASS",
+    "failures": [],
+    "warnings": [
+      "EXTRACTION_LAYOUT_LOSS",
+      "EXTRACTION_READING_ORDER_UNCERTAIN"
+    ]
+  },
+  {
+    "file": "blank.json",
+    "status": "FAIL",
+    "failures": [
+      "EMPTY_TEXT"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "nul.json",
+    "status": "FAIL",
+    "failures": [
+      "NUL_IN_TEXT"
+    ],
+    "warnings": []
+  },
+  {
+    "file": "replacement.json",
+    "status": "PASS",
+    "failures": [],
+    "warnings": [
+      "UNICODE_REPLACEMENT_CHARACTER"
+    ]
+  }
+]
