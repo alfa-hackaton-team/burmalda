@@ -72,8 +72,6 @@ func (s Source) Version() (int64, error) {
 	return strconv.ParseInt(s.ConfigVersion, 10, 64)
 }
 
-// ApplyPatch accepts only the fields from SourceUpdate. It keeps false, null,
-// and missing fields distinct so disabling and clearing credential_ref work.
 func ApplyPatch(current Config, body []byte) (Config, error) {
 	var fields map[string]json.RawMessage
 	if err := json.Unmarshal(body, &fields); err != nil || len(fields) == 0 {

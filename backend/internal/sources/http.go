@@ -28,7 +28,6 @@ type Registry interface {
 	List(ctx context.Context, limit int, cursor string) (Page, error)
 }
 
-// AdminHandler is mountable only when real session/permission authorization is supplied.
 func AdminHandler(registry Registry, authorize Authorize) (http.Handler, error) {
 	if registry == nil || authorize == nil {
 		return nil, fmt.Errorf("source admin handler requires registry and authorizer")
