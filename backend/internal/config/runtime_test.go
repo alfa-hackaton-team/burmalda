@@ -55,6 +55,9 @@ func TestRuntimeYAMLRejectsUnknownAndMalformedValues(t *testing.T) {
 		"feeds:\n  max_article_entries: 600\n",
 		"article_retry:\n  max_attempts: 0\n",
 		"article_retry:\n  lease: 10s\n",
+		"retention:\n  source_poll_days: 0\n",
+		"retention:\n  batch_size: 0\n",
+		"retention:\n  interval: 0s\n",
 		"feeds:\n  max_entries: 3\n---\nfeeds:\n  max_entries: 4\n",
 	} {
 		if err := os.WriteFile(path, []byte(data), 0600); err != nil {

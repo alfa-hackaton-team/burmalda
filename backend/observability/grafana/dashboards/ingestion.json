@@ -1053,6 +1053,164 @@
     },
     {
       "id": 24,
+      "title": "Удалено опросов · за сутки",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 47,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "increase(ingestion_retention_source_polls_deleted_total[24h]) or vector(0)",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 25,
+      "title": "Возраст последней очистки",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 47,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "time() - ingestion_retention_last_success_timestamp_seconds",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 172800
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 26,
+      "title": "Ошибки очистки · за сутки",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 47,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "increase(ingestion_retention_errors_total[24h]) or vector(0)",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 27,
       "title": "Источники",
       "description": "Первые 50 включённых источников, начиная с проблемных. Нулевая просрочка означает, что время следующего опроса ещё не наступило.",
       "type": "table",
@@ -1062,7 +1220,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 47,
+        "y": 53,
         "w": 24,
         "h": 9
       },
@@ -1082,7 +1240,7 @@
       }
     },
     {
-      "id": 25,
+      "id": 28,
       "title": "Логи воркера",
       "description": "JSON-логи с идентификаторами poll_id, article_job_id, job_id и trace_id.",
       "type": "logs",
@@ -1092,7 +1250,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 56,
+        "y": 62,
         "w": 18,
         "h": 9
       },
@@ -1113,12 +1271,12 @@
       }
     },
     {
-      "id": 26,
+      "id": 29,
       "title": "Трейсы",
       "type": "text",
       "gridPos": {
         "x": 18,
-        "y": 56,
+        "y": 62,
         "w": 6,
         "h": 9
       },
