@@ -138,7 +138,7 @@ jobs:
       - name: Check compiled backend binaries
         run: |
           go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
-          container="$(docker create backend-ci)"
+          container="$(docker create backend-ci /app/api)"
           trap 'docker rm "$container" >/dev/null' EXIT
           mkdir -p /tmp/backend-bin
           for binary in api worker observer retention migrate; do
