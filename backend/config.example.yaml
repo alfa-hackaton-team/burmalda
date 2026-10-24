@@ -3,6 +3,11 @@ database:
   connect_timeout: 5s
 server:
   read_header_timeout: 5s
+  read_timeout: 15s
+  write_timeout: 30s
+  idle_timeout: 60s
+  request_timeout: 20s
+  max_body_bytes: 1048576
   readiness_timeout: 2s
   shutdown_timeout: 10s
 source_poll:

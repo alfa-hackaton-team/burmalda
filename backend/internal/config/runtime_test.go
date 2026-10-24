@@ -37,6 +37,10 @@ func TestRuntimeYAMLReloadIsAtomic(t *testing.T) {
 	if manager.Current().Feeds.MaxArticleEntries != 3 {
 		t.Fatal("partial reload applied")
 	}
+	write("server:\n  request_timeout: 30s\n")
+	if err := manager.Reload(); err == nil {
+		t.Fatal("startup-only server limit change accepted on reload")
+	}
 	write("feeds:\n  max_article_entries: 7\n")
 	if err := manager.Reload(); err != nil {
 		t.Fatal(err)
@@ -50,6 +54,9 @@ func TestRuntimeYAMLRejectsUnknownAndMalformedValues(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "runtime.yaml")
 	for _, data := range []string{
 		"feeds:\n  mystery: 10\n",
+		"server:\n  request_timeout: 0s\n",
+		"server:\n  max_body_bytes: 0\n",
+		"server:\n  max_body_bytes: 16777217\n",
 		"feeds:\n  request_timeout: 0s\n",
 		"feeds:\n  request_timeout: 10\n",
 		"feeds:\n  max_article_entries: 600\n",

@@ -82,6 +82,9 @@ services:
       HTTP_ADDR: :8080
       DATASET_REQUIRED: "true"
       DATASET_API_TOKEN: ${DATASET_API_TOKEN:-}
+      # Local-only default keeps the documented one-command startup working.
+      # Deployments outside local Compose must override it with a random key.
+      CURSOR_SIGNING_KEY: ${CURSOR_SIGNING_KEY:-YnVybWFsZGEtbG9jYWwtY3Vyc29yLWtleS0wMDAwMDE=}
     depends_on:
       migrate:
         condition: service_completed_successfully
