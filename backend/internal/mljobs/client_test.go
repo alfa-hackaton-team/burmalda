@@ -31,14 +31,17 @@ func TestProcessUsesStableKeyAndRecoversMissingGET(t *testing.T) {
 				t.Errorf("unstable idempotency key: %q", r.Header.Get("Idempotency-Key"))
 			}
 			var body struct {
-				Article map[string]any `json:"article"`
-				Source  map[string]any `json:"source"`
+				Article         map[string]any `json:"article"`
+				Source          map[string]any `json:"source"`
+				PipelineVersion string         `json:"pipeline_version"`
 			}
 			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 				t.Errorf("decode request: %v", err)
 			}
-			if body.Article["body"] != "Full text" || body.Article["raw_ref"] != "raw-artifact:raw" ||
-				body.Source["name"] != "Example" || body.Source["endpoint"] != nil {
+			if body.PipelineVersion != "pipe" ||
+				body.Article["body"] != "Full text" || body.Article["raw_ref"] != "raw-artifact:raw" ||
+				body.Source["name"] != "Example" || body.Source["config_version"] != "7" ||
+				body.Source["endpoint"] != nil {
 				t.Errorf("unexpected ML request: %+v", body)
 			}
 			return response(http.StatusAccepted, `{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","state":"RUNNING"}`, nil), nil
@@ -55,7 +58,7 @@ func TestProcessUsesStableKeyAndRecoversMissingGET(t *testing.T) {
 	})}}
 	job := Job{ID: "trace", VersionID: "version", ArticleID: "article", SourceID: "source",
 		DedupeKey: "version:pipe", PipelineVersion: "pipe", SourceName: "Example",
-		SourceType: "news", SourceRole: "external", TrustLevel: "reviewed",
+		SourceType: "news", SourceRole: "external", TrustLevel: "reviewed", SourceConfigVersion: 7,
 		Title: "Title", Body: "Full text", ContentHash: "hash", RawArtifactID: "raw",
 		FetchedAt: time.Now().UTC(), Metadata: json.RawMessage(`{}`)}
 	first := client.Process(context.Background(), job)
@@ -78,8 +81,20 @@ func TestProcessClassifiesTooManyRequests(t *testing.T) {
 		return response(http.StatusTooManyRequests, "", http.Header{"Retry-After": []string{"30"}}), nil
 	})}}
 	result := client.Process(context.Background(),
-		Job{Metadata: json.RawMessage(`{}`)})
+		Job{Metadata: json.RawMessage(`{}`), SourceConfigVersion: 1})
 	if result.Permanent || result.RetryAfter != 30*time.Second {
+		t.Fatalf("result=%+v", result)
+	}
+}
+
+func TestProcessPreservesPermanentMLError(t *testing.T) {
+	client := Client{BaseURL: "https://ml.example", Token: "secret", HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return response(http.StatusRequestEntityTooLarge,
+			`{"code":"PAYLOAD_TOO_LARGE","message":"Article text exceeds the limit","retryable":false}`, nil), nil
+	})}}
+	result := client.Process(context.Background(), Job{SourceConfigVersion: 1})
+	if !result.Permanent || result.ErrorCode != "PAYLOAD_TOO_LARGE" ||
+		result.Error != "Article text exceeds the limit" || result.ErrorRetryable {
 		t.Fatalf("result=%+v", result)
 	}
 }

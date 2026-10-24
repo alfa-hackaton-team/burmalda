@@ -18,6 +18,7 @@ type Job struct {
 	ID, Token, VersionID, ArticleID, SourceID string
 	DedupeKey, PipelineVersion                string
 	SourceName, SourceType, SourceRole        string
+	SourceConfigVersion                       int64
 	TrustLevel, Title, Body, ContentHash      string
 	RawArtifactID                             string
 	ExternalID, CanonicalURL                  *string
@@ -68,10 +69,10 @@ func (s *Store) Claim(ctx context.Context) (Job, bool, error) {
 		attempts=attempts+1, updated_at=clock_timestamp()
 		WHERE id=$1::uuid RETURNING id::text, lease_token::text,
 		article_version_id::text, dedupe_key, pipeline_version,
-		source_name, source_type, source_role, source_trust_level,
+		source_name, source_type, source_role, source_trust_level, source_config_version,
 			external_id, canonical_url, ml_processing_id, processing_started_at, attempts`, id, settings.ML.Lease.Std().Seconds()).Scan(
 		&job.ID, &job.Token, &job.VersionID, &job.DedupeKey, &job.PipelineVersion,
-		&job.SourceName, &job.SourceType, &job.SourceRole, &job.TrustLevel,
+		&job.SourceName, &job.SourceType, &job.SourceRole, &job.TrustLevel, &job.SourceConfigVersion,
 		&job.ExternalID, &job.CanonicalURL, &job.ProcessingID, &job.ProcessingStartedAt, &job.Attempts)
 	if err != nil {
 		return Job{}, false, fmt.Errorf("lease ML job: %w", err)

@@ -346,10 +346,12 @@ func saveEntry(ctx context.Context, tx pgx.Tx, lease polling.Lease, feedArtifact
 	if pipelineVersion != "" {
 		_, err = tx.Exec(ctx, `INSERT INTO processing_jobs
 			(article_version_id, dedupe_key, pipeline_version, source_name,
-			 source_type, source_role, source_trust_level, external_id, canonical_url)
-			VALUES ($1::uuid, $1::text || ':' || $2, $2, $3, $4, $5, $6, $7, $8)`,
+			 source_type, source_role, source_trust_level, source_config_version,
+			 external_id, canonical_url)
+			VALUES ($1::uuid, $1::text || ':' || $2, $2, $3, $4, $5, $6, $7, $8, $9)`,
 			versionID, pipelineVersion, lease.Name, lease.SourceType, lease.SourceRole,
-			lease.TrustLevel, nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL))
+			lease.TrustLevel, lease.ConfigVersion,
+			nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL))
 		if err != nil {
 			return false, false, fmt.Errorf("queue article processing: %w", err)
 		}

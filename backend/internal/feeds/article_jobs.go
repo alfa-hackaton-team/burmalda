@@ -159,7 +159,8 @@ func (s *ArticleJobStore) Finish(ctx context.Context, job ArticleJob, outcome Ar
 	status := "SUCCEEDED"
 	if outcome.Item != nil && currentVersion == job.ConfigVersion {
 		lease := polling.Lease{SourceID: job.SourceID, Name: job.Name,
-			SourceType: job.SourceType, SourceRole: job.SourceRole, TrustLevel: job.TrustLevel}
+			SourceType: job.SourceType, SourceRole: job.SourceRole, TrustLevel: job.TrustLevel,
+			ConfigVersion: job.ConfigVersion}
 		if _, _, err := saveEntry(ctx, tx, lease, "", time.Now().UTC(),
 			outcome.Item.ParserVersion, *outcome.Item, pipelineVersion); err != nil {
 			return "", fmt.Errorf("save retried article: %w", err)

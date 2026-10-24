@@ -336,9 +336,13 @@ func TestHTMLArticleVersionsAndOriginals(t *testing.T) {
 		(SELECT id FROM article_versions WHERE source_id=$1::uuid)`, sourceID).Scan(&jobs); err != nil || jobs != 2 {
 		t.Fatalf("processing jobs=%d err=%v, want 2", jobs, err)
 	}
+	if _, err := pool.Exec(ctx, `UPDATE sources SET config_version=2 WHERE id=$1::uuid`, sourceID); err != nil {
+		t.Fatal(err)
+	}
 	jobStore := mljobs.NewStore(pool)
 	job, ok, err := jobStore.Claim(ctx)
-	if err != nil || !ok || job.PipelineVersion != "test-pipeline" || job.RawArtifactID == "" {
+	if err != nil || !ok || job.PipelineVersion != "test-pipeline" ||
+		job.SourceConfigVersion != 1 || job.RawArtifactID == "" {
 		t.Fatalf("claim ML job: ok=%v job=%+v err=%v", ok, job, err)
 	}
 	if _, err := jobStore.Finish(ctx, job, mljobs.Result{

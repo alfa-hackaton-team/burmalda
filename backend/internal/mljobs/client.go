@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -84,12 +85,15 @@ func (c Client) get(ctx context.Context, job Job) (Result, bool) {
 		return Result{}, true
 	}
 	if status != http.StatusOK {
-		return classifyStatus(status, retryAfter), false
+		return classifyStatus(status, retryAfter, body), false
 	}
 	return decodeOperationWithInterval(body, job, c.settings().ML.StatusPollInterval.Std()), false
 }
 
 func (c Client) post(ctx context.Context, job Job) Result {
+	if job.SourceConfigVersion <= 0 {
+		return Result{Permanent: true, Error: "source config version is missing"}
+	}
 	article := map[string]any{
 		"article_id": job.ArticleID, "article_version_id": job.VersionID,
 		"source_id": job.SourceID, "title": job.Title, "body": job.Body,
@@ -120,7 +124,8 @@ func (c Client) post(ctx context.Context, job Job) Result {
 		"source": map[string]string{
 			"source_id": job.SourceID, "name": job.SourceName,
 			"source_type": job.SourceType, "source_role": job.SourceRole,
-			"trust_level": job.TrustLevel,
+			"trust_level":    job.TrustLevel,
+			"config_version": strconv.FormatInt(job.SourceConfigVersion, 10),
 		},
 		"pipeline_version": job.PipelineVersion,
 		"trace_id":         job.ID,
@@ -140,7 +145,7 @@ func (c Client) post(ctx context.Context, job Job) Result {
 		return Result{Error: "ML submission failed"}
 	}
 	if status != http.StatusAccepted {
-		return classifyStatus(status, retryAfter)
+		return classifyStatus(status, retryAfter, response)
 	}
 	return decodeOperationWithInterval(response, job, c.settings().ML.StatusPollInterval.Std())
 }
@@ -224,8 +229,19 @@ func decodeOperationWithInterval(body []byte, job Job, interval time.Duration) R
 	return result
 }
 
-func classifyStatus(status int, retryAfter time.Duration) Result {
+func classifyStatus(status int, retryAfter time.Duration, body []byte) Result {
 	result := Result{RetryAfter: retryAfter, Error: fmt.Sprintf("ML returned HTTP %d", status)}
+	var remote struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		Retryable *bool  `json:"retryable"`
+	}
+	if json.Unmarshal(body, &remote) == nil && strings.TrimSpace(remote.Code) != "" &&
+		strings.TrimSpace(remote.Message) != "" && remote.Retryable != nil {
+		result.ErrorCode = remote.Code
+		result.Error = remote.Message
+		result.ErrorRetryable = *remote.Retryable
+	}
 	if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable || status >= 500 {
 		return result
 	}
