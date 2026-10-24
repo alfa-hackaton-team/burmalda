@@ -378,53 +378,24 @@ func TestUnverifiedLegacyJobsAreNotSent(t *testing.T) {
 func TestMigrationQuarantinesOnlyPre009Jobs(t *testing.T) {
 	db := emptyIntegrationPool(t)
 	ctx := context.Background()
-	if _, err := db.Exec(ctx, `CREATE TABLE schema_migrations(version bigint PRIMARY KEY,name text NOT NULL,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal(err)
-	}
-	files, err := fs.ReadDir(migrations.Files, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
-			continue
-		}
-		version, err := strconv.Atoi(strings.SplitN(file.Name(), "_", 2)[0])
-		if err != nil {
-			t.Fatal(err)
-		}
-		if version >= 17 {
-			continue
-		}
-		body, err := migrations.Files.ReadFile(file.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err = db.Exec(ctx, string(body)); err != nil {
-			t.Fatal(err)
-		}
-		sum := sha256.Sum256(body)
-		if _, err = db.Exec(ctx, `INSERT INTO schema_migrations(version,name,checksum)VALUES($1,$2,$3)`, version, file.Name(), hex.EncodeToString(sum[:])); err != nil {
-			t.Fatal(err)
-		}
-	}
+	applyMigrationsBefore(t, db, "_ml_delivery_safety.sql")
 	_, version := savedVersion(t, db, "Historical text", false)
 	for _, pipeline := range []string{"before-009", "after-009"} {
-		_, err = db.Exec(ctx, `INSERT INTO processing_jobs(article_version_id,dedupe_key,pipeline_version,source_name,source_type,source_role,source_trust_level,source_config_version,ml_processing_id,created_at)
+		_, err := db.Exec(ctx, `INSERT INTO processing_jobs(article_version_id,dedupe_key,pipeline_version,source_name,source_type,source_role,source_trust_level,source_config_version,ml_processing_id,created_at)
  VALUES($1::uuid,$1::text||':'||$2,$2,'Publisher','news','external','reviewed',1,$2,
  (SELECT applied_at FROM schema_migrations WHERE version=9)+CASE WHEN $2='before-009' THEN -interval '1 minute' ELSE interval '1 minute' END)`, version, pipeline)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err = migrate.Run(ctx, db); err != nil {
+	if _, err := migrate.Run(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	var oldOrigin, newOrigin, operation, code string
-	if err = db.QueryRow(ctx, `SELECT source_snapshot_origin,ml_processing_id,last_error_code FROM processing_jobs WHERE pipeline_version='before-009'`).Scan(&oldOrigin, &operation, &code); err != nil {
+	if err := db.QueryRow(ctx, `SELECT source_snapshot_origin,ml_processing_id,last_error_code FROM processing_jobs WHERE pipeline_version='before-009'`).Scan(&oldOrigin, &operation, &code); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRow(ctx, `SELECT source_snapshot_origin FROM processing_jobs WHERE pipeline_version='after-009'`).Scan(&newOrigin); err != nil {
+	if err := db.QueryRow(ctx, `SELECT source_snapshot_origin FROM processing_jobs WHERE pipeline_version='after-009'`).Scan(&newOrigin); err != nil {
 		t.Fatal(err)
 	}
 	if oldOrigin != "UNVERIFIED_LEGACY" || newOrigin != "CAPTURED_AT_INGEST" || operation != "before-009" || code != "SOURCE_SNAPSHOT_UNVERIFIED" {
@@ -571,13 +542,9 @@ func TestExtractionSnapshotSurvivesVersionChangesAndRetry(t *testing.T) {
 }
 
 func TestExtractionMigrationPreservesAttemptedLegacyRequests(t *testing.T) {
-	db := integrationPool(t)
+	db := emptyIntegrationPool(t)
 	ctx := context.Background()
-	if _, err := db.Exec(ctx, `DROP TRIGGER processing_jobs_extraction_snapshot ON processing_jobs;
- DROP FUNCTION snapshot_ml_extraction(); ALTER TABLE processing_jobs DROP COLUMN delivery_extraction;
- DELETE FROM schema_migrations WHERE version=19;`); err != nil {
-		t.Fatal(err)
-	}
+	applyMigrationsBefore(t, db, "_ml_extraction_snapshot.sql")
 	_, version := savedVersion(t, db, "Legacy body", true)
 	acceptedOperation := "accepted-operation"
 	for _, tc := range []struct {
@@ -602,6 +569,65 @@ func TestExtractionMigrationPreservesAttemptedLegacyRequests(t *testing.T) {
 		}
 		if (pipeline == "unsent") != (len(snapshot) > 0) {
 			t.Fatalf("unsafe backfill %s: %s", pipeline, snapshot)
+		}
+	}
+}
+
+func applyMigrationsBefore(t *testing.T, db *pgxpool.Pool, suffix string) {
+	t.Helper()
+	ctx := context.Background()
+	files, err := fs.ReadDir(migrations.Files, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var targetVersion int
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), suffix) {
+			if targetVersion != 0 {
+				t.Fatal("ambiguous migration suffix")
+			}
+			targetVersion, err = strconv.Atoi(strings.SplitN(file.Name(), "_", 2)[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if targetVersion <= 0 {
+		t.Fatalf("migration %s not found", suffix)
+	}
+	if _, err = db.Exec(ctx, `CREATE TABLE schema_migrations(version bigint PRIMARY KEY,name text NOT NULL,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
+			continue
+		}
+		version, err := strconv.Atoi(strings.SplitN(file.Name(), "_", 2)[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version >= targetVersion {
+			continue
+		}
+		body, err := migrations.Files.ReadFile(file.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(ctx, string(body)); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(body)
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version,name,checksum)VALUES($1,$2,$3)`, version, file.Name(), hex.EncodeToString(sum[:])); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
 		}
 	}
 }
