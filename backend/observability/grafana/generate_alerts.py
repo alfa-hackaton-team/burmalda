@@ -40,6 +40,7 @@ rules = [
     rule("ingestion-ml-backlog", "Очередь ML отстаёт", "ingestion_processing_job_due_age_max_seconds", 900, "5m", "warning", 14),
     rule("ingestion-poll-errors", "Повторяются неудачные опросы", "sum(increase(ingestion_source_polls_total{status=~\"FAILED|PARTIAL\"}[3h])) or vector(0)", 2, "5m", "warning", 7, "OK"),
     rule("ingestion-rate-limits", "Повторяются ответы 429/503", "sum(increase(ingestion_upstream_http_responses_total{status=~\"429|503\"}[30m])) or vector(0)", 5, "5m", "warning", 11, "OK"),
+    rule("ingestion-raw-missing", "Отсутствует оригинал в S3", "ingestion_raw_missing_objects", 0, "5m", "critical", 27, "OK"),
 ]
 
 output = Path(__file__).parent / "provisioning" / "alerting" / "alerts.json"

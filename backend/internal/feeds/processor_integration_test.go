@@ -3,6 +3,8 @@ package feeds
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/migrate"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/mljobs"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -22,6 +25,74 @@ type scriptedFetcher struct {
 	articles  []Response
 	seenLinks []string
 	seenBases []string
+}
+
+type failingRawStore struct{}
+
+func (failingRawStore) Prepare(ctx context.Context, _ string, contentType string, data []byte) (rawartifacts.Artifact, error) {
+	if contentType == "text/html" {
+		return rawartifacts.Artifact{}, fmt.Errorf("object store unavailable")
+	}
+	return (rawartifacts.PostgreSQL{}).Prepare(ctx, "", contentType, data)
+}
+
+func TestProcessorQueuesArticleWhenRawStorageFails(t *testing.T) {
+	feed := []byte(`<rss><channel><item><guid>one</guid><link>https://example.com/one</link></item></channel></rss>`)
+	fetcher := &scriptedFetcher{responses: []Response{{Status: 200, Body: feed}},
+		articles: []Response{{Status: 200, ContentType: "text/html", Body: []byte("<article>Full text</article>")}}}
+	outcome, err := (Processor{Fetcher: fetcher, RawStore: failingRawStore{}}).Poll(context.Background(), polling.Lease{
+		Endpoint: "https://example.com/feed.xml", AdapterType: "rss", AdapterConfig: []byte(`{"article_html":true}`),
+	})
+	if err != nil || outcome.Success || len(outcome.EntryFailures) != 1 || !outcome.EntryFailures[0].Retryable ||
+		!outcome.EntryFailures[0].Queue || outcome.EntryFailures[0].ErrorCode != "RAW_STORAGE_FAILED" {
+		t.Fatalf("outcome=%+v err=%v", outcome, err)
+	}
+}
+
+func TestPreparedS3ArtifactPersistsObjectReference(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := migrate.Run(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	var sourceID string
+	if err := tx.QueryRow(ctx, `INSERT INTO sources
+		(name, source_type, source_role, trust_level, adapter_type, endpoint, polling_interval_seconds)
+		VALUES ('s3-test', 'news', 'external', 'reviewed', 'rss', 'https://example.com/rss', 60)
+		RETURNING id::text`).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("raw content")
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
+	uri := "s3://private-originals/raw/" + sourceID + "/" + hash
+	id, err := savePreparedArtifact(ctx, tx, sourceID, rawartifacts.Artifact{
+		SHA256: hash, ContentType: "text/html", Size: int64(len(data)), ObjectURI: uri,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var storedURI string
+	var content []byte
+	if err := tx.QueryRow(ctx, `SELECT object_uri, content FROM raw_artifacts WHERE id=$1::uuid`, id).Scan(&storedURI, &content); err != nil {
+		t.Fatal(err)
+	}
+	if storedURI != uri || content != nil {
+		t.Fatalf("stored uri=%q content=%v", storedURI, content)
+	}
 }
 
 func TestProcessorUsesConfiguredArticleLimit(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/mljobs"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 )
 
 type dynamicProcessor struct {
@@ -24,6 +25,7 @@ type dynamicProcessor struct {
 	maxTextBytes    int
 	fetcher         *feeds.SafeFetcher
 	feedSettings    config.Runtime
+	rawStore        rawartifacts.Store
 }
 
 type dynamicArticleProcessor struct {
@@ -32,10 +34,14 @@ type dynamicArticleProcessor struct {
 	maxTextBytes    int
 	fetcher         *feeds.SafeFetcher
 	feedSettings    config.Runtime
+	rawStore        rawartifacts.Store
 }
 
 func (p *dynamicArticleProcessor) Process(ctx context.Context, job feeds.ArticleJob) feeds.ArticleOutcome {
 	settings := p.manager.Current()
+	if store, ok := p.rawStore.(*rawartifacts.S3); ok {
+		store.SetRequestTimeout(settings.RawStorage.RequestTimeout.Std())
+	}
 	if p.fetcher == nil || settings.Feeds != p.feedSettings.Feeds {
 		if p.fetcher != nil {
 			p.fetcher.CloseIdleConnections()
@@ -44,7 +50,7 @@ func (p *dynamicArticleProcessor) Process(ctx context.Context, job feeds.Article
 		p.feedSettings = settings
 	}
 	return (feeds.ArticleJobProcessor{Fetcher: p.fetcher, Limits: settings,
-		PipelineVersion: p.pipelineVersion, MaxTextBytes: p.maxTextBytes}).Process(ctx, job)
+		PipelineVersion: p.pipelineVersion, MaxTextBytes: p.maxTextBytes, RawStore: p.rawStore}).Process(ctx, job)
 }
 
 func (p *dynamicArticleProcessor) Close() {
@@ -55,6 +61,9 @@ func (p *dynamicArticleProcessor) Close() {
 
 func (p *dynamicProcessor) Poll(ctx context.Context, lease polling.Lease) (polling.Outcome, error) {
 	settings := p.manager.Current()
+	if store, ok := p.rawStore.(*rawartifacts.S3); ok {
+		store.SetRequestTimeout(settings.RawStorage.RequestTimeout.Std())
+	}
 	if p.fetcher == nil || settings.Feeds != p.feedSettings.Feeds {
 		if p.fetcher != nil {
 			p.fetcher.CloseIdleConnections()
@@ -65,7 +74,8 @@ func (p *dynamicProcessor) Poll(ctx context.Context, lease polling.Lease) (polli
 	return (feeds.Processor{
 		Fetcher:         p.fetcher,
 		PipelineVersion: p.pipelineVersion, MaxTextBytes: p.maxTextBytes,
-		Limits: &settings,
+		Limits:   &settings,
+		RawStore: p.rawStore,
 	}).Poll(ctx, lease)
 }
 
@@ -120,10 +130,17 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	var rawStore rawartifacts.Store = rawartifacts.PostgreSQL{}
+	if cfg.RawStorageBackend == "s3" {
+		rawStore, err = rawartifacts.NewS3(ctx, cfg)
+		if err != nil {
+			return err
+		}
+	}
 
-	processor := &dynamicProcessor{manager: manager, pipelineVersion: cfg.MLPipelineVersion, maxTextBytes: cfg.MLMaxTextBytes}
+	processor := &dynamicProcessor{manager: manager, pipelineVersion: cfg.MLPipelineVersion, maxTextBytes: cfg.MLMaxTextBytes, rawStore: rawStore}
 	defer processor.Close()
-	articleProcessor := &dynamicArticleProcessor{manager: manager, pipelineVersion: cfg.MLPipelineVersion, maxTextBytes: cfg.MLMaxTextBytes}
+	articleProcessor := &dynamicArticleProcessor{manager: manager, pipelineVersion: cfg.MLPipelineVersion, maxTextBytes: cfg.MLMaxTextBytes, rawStore: rawStore}
 	defer articleProcessor.Close()
 	pollStore := polling.NewStore(pool)
 	pollStore.Settings = manager.Current

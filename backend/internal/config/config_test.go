@@ -49,3 +49,23 @@ func TestLoadRejectsInvalidConfiguration(t *testing.T) {
 		t.Fatal("expected invalid DB_MAX_CONNS to fail")
 	}
 }
+
+func TestLoadS3Storage(t *testing.T) {
+	t.Setenv("BACKEND_CONFIG_FILE", "")
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("RAW_STORAGE_BACKEND", "s3")
+	t.Setenv("S3_BUCKET", "private-originals")
+	t.Setenv("S3_REGION", "eu-central-1")
+	t.Setenv("S3_ENDPOINT", "http://127.0.0.1:9000")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.S3Bucket != "private-originals" || cfg.Runtime.RawStorage.RequestTimeout.Std() != 30*time.Second {
+		t.Fatalf("unexpected S3 configuration: %+v", cfg)
+	}
+	t.Setenv("S3_ENDPOINT", "https://example.com/path")
+	if _, err := Load(); err == nil {
+		t.Fatal("endpoint with path was accepted")
+	}
+}
