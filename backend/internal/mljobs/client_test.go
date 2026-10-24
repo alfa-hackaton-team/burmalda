@@ -50,7 +50,7 @@ func TestProcessUsesStableKeyAndRecoversMissingGET(t *testing.T) {
 			if gets == 1 {
 				return response(http.StatusNotFound, "", nil), nil
 			}
-			return response(http.StatusOK, `{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","trace_id":"trace","created_at":"2026-10-24T12:00:00Z","state":"SUCCEEDED","document_version_id":"doc","event_ids":[]}`, nil), nil
+			return response(http.StatusOK, `{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","trace_id":"trace","created_at":"2026-10-24T12:00:00Z","state":"SUCCEEDED","document_version_id":"version","event_ids":[]}`, nil), nil
 		default:
 			t.Errorf("unexpected method: %s", r.Method)
 			return response(http.StatusMethodNotAllowed, "", nil), nil
@@ -71,7 +71,7 @@ func TestProcessUsesStableKeyAndRecoversMissingGET(t *testing.T) {
 		t.Fatalf("recovery: %+v, posts=%d gets=%d", second, posts, gets)
 	}
 	third := client.Process(context.Background(), job)
-	if !third.Succeeded || third.DocumentVersionID != "doc" || third.EventIDs == nil || posts != 2 {
+	if !third.Succeeded || third.DocumentVersionID != "version" || third.EventIDs == nil || posts != 2 {
 		t.Fatalf("success: %+v, posts=%d", third, posts)
 	}
 }
@@ -136,24 +136,25 @@ func TestBodyLimitCountsUTF8BytesWithoutTitle(t *testing.T) {
 }
 
 func TestDecodeRejectsInvalidOperationSchema(t *testing.T) {
-	valid := map[string]any{"processing_id": "op", "article_version_id": "version", "pipeline_version": "pipe", "trace_id": "trace", "created_at": "2026-10-24T12:00:00Z", "state": "SUCCEEDED", "document_version_id": "doc", "event_ids": []string{}}
+	valid := map[string]any{"processing_id": "op", "article_version_id": "version", "pipeline_version": "pipe", "trace_id": "trace", "created_at": "2026-10-24T12:00:00Z", "state": "SUCCEEDED", "document_version_id": "version", "event_ids": []string{}}
 	cases := map[string]func(map[string]any){
 		"null_error": func(m map[string]any) { m["error"] = nil },
 		"invalid_optional_error": func(m map[string]any) {
 			m["error"] = map[string]any{"code": "UNEXPECTED_CODE", "message": "bad", "retryable": false}
 		},
-		"missing_trace":   func(m map[string]any) { delete(m, "trace_id") },
-		"missing_created": func(m map[string]any) { delete(m, "created_at") },
-		"null_created":    func(m map[string]any) { m["created_at"] = nil },
-		"invalid_date":    func(m map[string]any) { m["created_at"] = "yesterday" },
-		"wrong_version":   func(m map[string]any) { m["article_version_id"] = "other" },
-		"wrong_pipeline":  func(m map[string]any) { m["pipeline_version"] = "other" },
-		"missing_result":  func(m map[string]any) { delete(m, "document_version_id") },
-		"missing_events":  func(m map[string]any) { delete(m, "event_ids") },
-		"null_events":     func(m map[string]any) { m["event_ids"] = nil },
-		"blank_event":     func(m map[string]any) { m["event_ids"] = []string{" "} },
-		"unknown_field":   func(m map[string]any) { m["unknown"] = true },
-		"unknown_state":   func(m map[string]any) { m["state"] = "PASS" },
+		"missing_trace":          func(m map[string]any) { delete(m, "trace_id") },
+		"missing_created":        func(m map[string]any) { delete(m, "created_at") },
+		"null_created":           func(m map[string]any) { m["created_at"] = nil },
+		"invalid_date":           func(m map[string]any) { m["created_at"] = "yesterday" },
+		"wrong_version":          func(m map[string]any) { m["article_version_id"] = "other" },
+		"wrong_pipeline":         func(m map[string]any) { m["pipeline_version"] = "other" },
+		"wrong_document_version": func(m map[string]any) { m["document_version_id"] = "other" },
+		"missing_result":         func(m map[string]any) { delete(m, "document_version_id") },
+		"missing_events":         func(m map[string]any) { delete(m, "event_ids") },
+		"null_events":            func(m map[string]any) { m["event_ids"] = nil },
+		"blank_event":            func(m map[string]any) { m["event_ids"] = []string{" "} },
+		"unknown_field":          func(m map[string]any) { m["unknown"] = true },
+		"unknown_state":          func(m map[string]any) { m["state"] = "PASS" },
 	}
 	for name, change := range cases {
 		t.Run(name, func(t *testing.T) {

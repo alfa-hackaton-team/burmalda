@@ -83,6 +83,9 @@ func (v Validator) validate(ctx context.Context, cfg *Config, resolveHost bool) 
 			return fmt.Errorf("%w: %s must be nonempty and at most 512 bytes", ErrInvalid, field.name)
 		}
 	}
+	if err := ValidateCategories(cfg.SourceType, cfg.TrustLevel); err != nil {
+		return err
+	}
 	if cfg.SourceRole != "external" && cfg.SourceRole != "bank" && cfg.SourceRole != "expert" {
 		return fmt.Errorf("%w: unsupported source_role", ErrInvalid)
 	}
