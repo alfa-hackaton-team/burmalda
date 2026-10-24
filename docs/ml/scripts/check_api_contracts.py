@@ -80,6 +80,38 @@ def main():
         must_reject(schemas_uri, '/components/schemas/AnalysisOperation', bad)
         bad['state'] = 'FAILED' if state == 'SUCCEEDED' else 'SUCCEEDED'
         must_reject(schemas_uri, '/components/schemas/AnalysisOperation', bad)
+    article_path = '/paths/~1internal~1v0.1~1article-processings/post'
+    article_request = article_path + '/requestBody/content/application~1json/schema'
+    article = {
+        'article': {
+            'article_id': 'article', 'article_version_id': 'version', 'source_id': 'source',
+            'title': '', 'body': 'Full text', 'fetched_at': '2026-10-24T12:00:00Z',
+            'raw_ref': 'raw-artifact:raw', 'content_hash': 'a' * 64, 'metadata': {},
+        },
+        'source': {
+            'source_id': 'source', 'name': 'Example', 'source_role': 'external',
+            'source_type': 'news', 'trust_level': 'standard', 'config_version': '7',
+        },
+        'pipeline_version': 'test-pipeline', 'trace_id': 'trace',
+    }
+    validate(api_uri, article_request, article)
+    for path in [('pipeline_version',), ('source', 'config_version')]:
+        bad = copy.deepcopy(article)
+        target = bad
+        for part in path[:-1]:
+            target = target[part]
+        del target[path[-1]]
+        must_reject(api_uri, article_request, bad)
+    processing = {
+        'processing_id': 'processing', 'article_version_id': 'version',
+        'pipeline_version': 'test-pipeline', 'state': 'SUCCEEDED', 'trace_id': 'trace',
+        'created_at': '2026-10-24T12:00:00Z', 'document_version_id': 'document',
+        'event_ids': [],
+    }
+    validate(schemas_uri, '/components/schemas/ArticleProcessingOperation', processing)
+    bad = copy.deepcopy(processing)
+    del bad['pipeline_version']
+    must_reject(schemas_uri, '/components/schemas/ArticleProcessingOperation', bad)
     for file, definition in [('feed.json', 'FeedPage'), ('insight-limited.json', 'Insight'),
                              ('evidence-package.json', 'EvidencePackage'), ('insight-ml-v1.json', 'Insight')]:
         example = json.loads((DOCS / 'api/examples' / file).read_text())
@@ -92,7 +124,7 @@ def main():
         require(internal[origin] == public[target], f'public projection mismatch: {target}')
     require(internal['claim_type'] == 'action' and public['claim_type'] == 'AI_INFERENCE', 'claim axes were conflated')
     require(any(s['section_type'] == 'SCENARIOS_ACTIONS' and internal['id'] in s['claim_ids'] for s in projection['response']['sections']), 'action section missing')
-    print(f'OK: {refs} local references, HTTP request/response schemas, operation states, 4 public fixtures and claim projection.')
+    print(f'OK: {refs} local references, analysis and article HTTP schemas, operation states, 4 public fixtures and claim projection.')
 
 
 if __name__ == '__main__':

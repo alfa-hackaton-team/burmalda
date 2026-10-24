@@ -1238,6 +1238,8 @@ components:
           type: string
           minLength: 1
           description: Непустой извлечённый текст; пробельный текст отклоняется ML.
+            Предел ML_MAX_TEXT_BYTES относится к размеру этого поля в байтах UTF-8,
+            без заголовка. Превышение отклоняется без обрезания.
         published_at:
           type:
           - string

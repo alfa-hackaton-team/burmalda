@@ -15,7 +15,7 @@ API связывает пользовательский интерфейс, се
 
 Внутренние `/analyses` и `/follow-ups` принимают `AnalysisRequest v1` и возвращают `AnalysisResponse v1`. Go проверяет и сохраняет результат, затем формирует публичные `AgentResponse` и `Insight`; внутренние операции не выставляются наружу вместе с клиентскими. `Idempotency-Key` этих вызовов равен `request_operation_id` в теле.
 
-Для `/article-processings` Go использует пару `(article_version_id, pipeline_version)`. Эта версия фиксирует конфигурации ML1 для чанков и индекса и ML2 для событий. ML сохраняет соответствие `article_version_id → document_version_id`; внутренний ключ ML2 `(document_version_id, event_pipeline_config_version)` не заменяет ключ операции Go. `SUCCEEDED` означает, что индекс доступен для поиска и результат обработки событий сохранён. Ответ операции всегда возвращает исходную `pipeline_version`.
+Для `/article-processings` Go использует пару `(article_version_id, pipeline_version)`. Эта версия фиксирует конфигурации ML1 для чанков и индекса и ML2 для событий. ML сохраняет соответствие `article_version_id → document_version_id`; внутренний ключ ML2 `(document_version_id, event_pipeline_config_version)` не заменяет ключ операции Go. Go сохраняет безопасный снимок источника, включая `source.config_version`, в задании и повторяет его без чтения текущей конфигурации источника. `SUCCEEDED` означает, что индекс доступен для поиска и результат обработки событий сохранён. Ответ операции всегда возвращает исходную `pipeline_version`.
 
 ## Контекст доступа и получение результата
 
