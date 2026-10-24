@@ -11,16 +11,44 @@ import (
 	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/jackc/pgx/v5"
 )
 
-type Processor struct{ Fetcher Fetcher }
+type Processor struct {
+	Fetcher         Fetcher
+	PipelineVersion string
+	MaxTextBytes    int
+}
+
+type ArticleFetcher interface {
+	FetchArticle(context.Context, string, string) (Response, error)
+}
+
+type material struct {
+	Entry
+	Raw         []byte
+	ContentType string
+}
+
+const MaxArticleEntries = 20
 
 func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outcome, error) {
 	if p.Fetcher == nil {
 		return polling.Outcome{}, fmt.Errorf("feed fetcher is not configured")
 	}
-	response, err := p.Fetcher.Fetch(ctx, lease)
+	if (p.PipelineVersion == "") != (p.MaxTextBytes == 0) || p.MaxTextBytes < 0 {
+		return polling.Outcome{}, fmt.Errorf("ML pipeline version and text limit must be configured together")
+	}
+	adapterConfig, err := sources.ParseFeedAdapterConfig(lease.AdapterConfig)
+	if err != nil {
+		return polling.Outcome{}, err
+	}
+	fetchLease := lease
+	if adapterConfig.ArticleHTML {
+		fetchLease.HTTPETag, fetchLease.LastModified = nil, nil
+	}
+	response, err := p.Fetcher.Fetch(ctx, fetchLease)
 	result := polling.Outcome{RetryAfter: response.RetryAfter}
 	if response.Status != 0 {
 		result.HTTPStatus = &response.Status
@@ -30,6 +58,9 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	}
 	switch response.Status {
 	case http.StatusNotModified:
+		if adapterConfig.ArticleHTML {
+			return result, fmt.Errorf("unexpected 304 for HTML article source")
+		}
 		if lease.HTTPETag == nil && lease.LastModified == nil {
 			return result, fmt.Errorf("unexpected 304 without stored HTTP validators")
 		}
@@ -52,9 +83,46 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	default:
 		return result, fmt.Errorf("source returned HTTP %d", response.Status)
 	}
-	entries, err := Parse(response.Body, lease.Endpoint, lease.AdapterType)
+	entries, err := ParseWithOptions(response.Body, lease.Endpoint, lease.AdapterType, adapterConfig.ArticleHTML)
 	if err != nil {
 		return result, err
+	}
+	materials := make([]material, 0, len(entries))
+	if adapterConfig.ArticleHTML {
+		articleFetcher, ok := p.Fetcher.(ArticleFetcher)
+		if !ok {
+			return result, fmt.Errorf("article HTML fetcher is not configured")
+		}
+		if len(entries) > MaxArticleEntries {
+			return result, fmt.Errorf("HTML feed exceeds %d article links", MaxArticleEntries)
+		}
+		for _, entry := range entries {
+			if entry.CanonicalURL == "" {
+				return result, fmt.Errorf("HTML feed entry has no article URL")
+			}
+			articleResponse, err := articleFetcher.FetchArticle(ctx, lease.Endpoint, entry.CanonicalURL)
+			if err != nil {
+				return result, err
+			}
+			body, err := ExtractArticleHTML(articleResponse.Body, articleResponse.ContentType)
+			if err != nil {
+				return result, err
+			}
+			entry.Body = body
+			materials = append(materials, material{Entry: entry, Raw: articleResponse.Body,
+				ContentType: articleResponse.ContentType})
+		}
+	} else {
+		for _, entry := range entries {
+			materials = append(materials, material{Entry: entry})
+		}
+	}
+	if p.MaxTextBytes > 0 {
+		for _, item := range materials {
+			if len(item.Body) > p.MaxTextBytes {
+				return result, fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes)
+			}
+		}
 	}
 	if len(response.ETag) > 1024 || len(response.LastModified) > 1024 {
 		return result, fmt.Errorf("source HTTP validator is too large")
@@ -63,8 +131,11 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	result.DiscoveredCount = len(entries)
 	fetchedAt := time.Now().UTC()
 	parserVersion := lease.AdapterType + "-" + ParserVersion
+	if adapterConfig.ArticleHTML {
+		parserVersion = ArticleHTMLParserVersion
+	}
 	result.Persist = func(ctx context.Context, tx pgx.Tx) (int, int, error) {
-		artifactID, err := saveFeedSnapshot(ctx, tx, lease.SourceID, lease.AdapterType, response.Body)
+		feedArtifactID, err := saveFeedSnapshot(ctx, tx, lease.SourceID, lease.AdapterType, response.Body)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -75,8 +146,8 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 			return 0, 0, fmt.Errorf("save feed HTTP validators: %w", err)
 		}
 		var newArticles, newVersions int
-		for _, entry := range entries {
-			createdArticle, createdVersion, err := saveEntry(ctx, tx, lease.SourceID, artifactID, fetchedAt, parserVersion, entry)
+		for _, item := range materials {
+			createdArticle, createdVersion, err := saveEntry(ctx, tx, lease, feedArtifactID, fetchedAt, parserVersion, item, p.PipelineVersion)
 			if err != nil {
 				return 0, 0, err
 			}
@@ -93,12 +164,16 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 }
 
 func saveFeedSnapshot(ctx context.Context, tx pgx.Tx, sourceID, adapterType string, data []byte) (string, error) {
-	sum := sha256.Sum256(data)
-	hash := hex.EncodeToString(sum[:])
 	contentType := "application/rss+xml"
 	if adapterType == "atom" {
 		contentType = "application/atom+xml"
 	}
+	return saveRawArtifact(ctx, tx, sourceID, contentType, data)
+}
+
+func saveRawArtifact(ctx context.Context, tx pgx.Tx, sourceID, contentType string, data []byte) (string, error) {
+	sum := sha256.Sum256(data)
+	hash := hex.EncodeToString(sum[:])
 	var id string
 	err := tx.QueryRow(ctx, `INSERT INTO raw_artifacts
 		(source_id, sha256, content_type, size_bytes, content)
@@ -115,7 +190,9 @@ func saveFeedSnapshot(ctx context.Context, tx pgx.Tx, sourceID, adapterType stri
 	return id, nil
 }
 
-func saveEntry(ctx context.Context, tx pgx.Tx, sourceID, artifactID string, fetchedAt time.Time, parserVersion string, entry Entry) (bool, bool, error) {
+func saveEntry(ctx context.Context, tx pgx.Tx, lease polling.Lease, feedArtifactID string, fetchedAt time.Time, parserVersion string, item material, pipelineVersion string) (bool, bool, error) {
+	entry := item.Entry
+	sourceID := lease.SourceID
 	kind, key := entry.Identity()
 	var articleID string
 	err := tx.QueryRow(ctx, `INSERT INTO articles
@@ -158,6 +235,13 @@ func saveEntry(ctx context.Context, tx pgx.Tx, sourceID, artifactID string, fetc
 		versionNo = latestNo + 1
 	}
 	var versionID string
+	artifactID := feedArtifactID
+	if item.Raw != nil {
+		artifactID, err = saveRawArtifact(ctx, tx, sourceID, item.ContentType, item.Raw)
+		if err != nil {
+			return false, false, err
+		}
+	}
 	err = tx.QueryRow(ctx, `INSERT INTO article_versions
 		(source_id, article_id, version_no, content_hash, parser_version,
 		 title, body_text, published_at, fetched_at, raw_artifact_id)
@@ -173,6 +257,17 @@ func saveEntry(ctx context.Context, tx pgx.Tx, sourceID, artifactID string, fetc
 		nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL))
 	if err != nil {
 		return false, false, fmt.Errorf("set latest article version: %w", err)
+	}
+	if pipelineVersion != "" {
+		_, err = tx.Exec(ctx, `INSERT INTO processing_jobs
+			(article_version_id, dedupe_key, pipeline_version, source_name,
+			 source_type, source_role, source_trust_level, external_id, canonical_url)
+			VALUES ($1::uuid, $1::text || ':' || $2, $2, $3, $4, $5, $6, $7, $8)`,
+			versionID, pipelineVersion, lease.Name, lease.SourceType, lease.SourceRole,
+			lease.TrustLevel, nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL))
+		if err != nil {
+			return false, false, fmt.Errorf("queue article processing: %w", err)
+		}
 	}
 	return createdArticle, true, nil
 }

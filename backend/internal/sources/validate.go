@@ -1,6 +1,7 @@
 package sources
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -17,6 +18,27 @@ type Resolver interface {
 
 type Validator struct {
 	Resolver Resolver
+}
+
+type FeedAdapterConfig struct {
+	ArticleHTML bool `json:"article_html"`
+}
+
+func ParseFeedAdapterConfig(raw json.RawMessage) (FeedAdapterConfig, error) {
+	if len(raw) == 0 {
+		return FeedAdapterConfig{}, nil
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.DisallowUnknownFields()
+	var cfg FeedAdapterConfig
+	if err := decoder.Decode(&cfg); err != nil || !bytes.HasPrefix(bytes.TrimSpace(raw), []byte("{")) {
+		return FeedAdapterConfig{}, fmt.Errorf("%w: invalid rss/atom adapter_config", ErrInvalid)
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil || fields["article_html"] != nil && bytes.Equal(bytes.TrimSpace(fields["article_html"]), []byte("null")) {
+		return FeedAdapterConfig{}, fmt.Errorf("%w: invalid rss/atom adapter_config", ErrInvalid)
+	}
+	return cfg, nil
 }
 
 func (v Validator) Validate(ctx context.Context, cfg *Config) error {
@@ -47,9 +69,8 @@ func (v Validator) validate(ctx context.Context, cfg *Config, resolveHost bool) 
 	if len(cfg.AdapterConfig) == 0 {
 		cfg.AdapterConfig = json.RawMessage(`{}`)
 	}
-	var adapterConfig map[string]json.RawMessage
-	if err := json.Unmarshal(cfg.AdapterConfig, &adapterConfig); err != nil || adapterConfig == nil || len(adapterConfig) != 0 {
-		return fmt.Errorf("%w: rss/atom adapter_config must be an empty object", ErrInvalid)
+	if _, err := ParseFeedAdapterConfig(cfg.AdapterConfig); err != nil {
+		return err
 	}
 	if err := v.validateEndpoint(ctx, cfg.Endpoint, resolveHost); err != nil {
 		return err
@@ -106,7 +127,6 @@ var blockedPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("2001:db8::/32"),
 }
 
-// PublicIP applies the same address policy at configuration time and at dial time.
 func PublicIP(ip netip.Addr) bool {
 	ip = ip.Unmap()
 	if !ip.IsValid() || !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() {

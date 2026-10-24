@@ -17,6 +17,7 @@ import (
 )
 
 const MaxFeedBytes int64 = 4 << 20
+const MaxArticleBytes int64 = 4 << 20
 
 type Response struct {
 	Status       int
@@ -71,19 +72,57 @@ func (f *SafeFetcher) Fetch(ctx context.Context, lease polling.Lease) (Response,
 	if err != nil || validateURL(u) != nil {
 		return Response{}, fmt.Errorf("invalid source endpoint")
 	}
+	return f.fetch(ctx, u, "application/rss+xml, application/atom+xml, application/xml, text/xml", f.maxBytes, lease.HTTPETag, lease.LastModified, "")
+}
+
+func (f *SafeFetcher) FetchArticle(ctx context.Context, feedURL, articleURL string) (Response, error) {
+	feed, feedErr := url.Parse(feedURL)
+	u, err := url.Parse(articleURL)
+	if feedErr != nil || err != nil || validateURL(feed) != nil || validateURL(u) != nil || !sameHost(feed, u) ||
+		(feed.Scheme == "https" && u.Scheme != "https") {
+		return Response{}, fmt.Errorf("article URL is outside the source host")
+	}
+	response, err := f.fetch(ctx, u, "text/html, application/xhtml+xml", MaxArticleBytes, nil, nil, feed.Host)
+	if err != nil {
+		return response, err
+	}
+	if response.Status != http.StatusOK {
+		return response, fmt.Errorf("article returned HTTP %d", response.Status)
+	}
+	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(response.ContentType, ";", 2)[0]))
+	if mediaType != "text/html" && mediaType != "application/xhtml+xml" {
+		return response, fmt.Errorf("article is not HTML")
+	}
+	return response, nil
+}
+
+func sameHost(a, b *url.URL) bool {
+	return strings.EqualFold(a.Host, b.Host)
+}
+
+func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxBytes int64, etag, modified *string, allowedHost string) (Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return Response{}, fmt.Errorf("build source request: %w", err)
 	}
-	req.Header.Set("Accept", "application/rss+xml, application/atom+xml, application/xml, text/xml")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("User-Agent", "Burmalda/0.1 (+source-polling)")
-	if lease.HTTPETag != nil {
-		req.Header.Set("If-None-Match", *lease.HTTPETag)
+	if etag != nil {
+		req.Header.Set("If-None-Match", *etag)
 	}
-	if lease.LastModified != nil {
-		req.Header.Set("If-Modified-Since", *lease.LastModified)
+	if modified != nil {
+		req.Header.Set("If-Modified-Since", *modified)
 	}
-	resp, err := f.client.Do(req)
+	client := *f.client
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) >= 5 || validateURL(req.URL) != nil ||
+			(allowedHost != "" && (!strings.EqualFold(req.URL.Host, allowedHost) ||
+				(u.Scheme == "https" && req.URL.Scheme != "https"))) {
+			return fmt.Errorf("unsafe source redirect")
+		}
+		return nil
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return Response{}, fmt.Errorf("source request failed")
 	}
@@ -100,15 +139,15 @@ func (f *SafeFetcher) Fetch(ctx context.Context, lease polling.Lease) (Response,
 	if resp.StatusCode != http.StatusOK {
 		return result, nil
 	}
-	if resp.ContentLength > f.maxBytes {
-		return result, fmt.Errorf("source feed exceeds %d bytes", f.maxBytes)
+	if resp.ContentLength > maxBytes {
+		return result, fmt.Errorf("source response exceeds %d bytes", maxBytes)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, f.maxBytes+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxBytes+1))
 	if err != nil {
 		return result, fmt.Errorf("source body read failed")
 	}
-	if int64(len(data)) > f.maxBytes {
-		return result, fmt.Errorf("source feed exceeds %d bytes", f.maxBytes)
+	if int64(len(data)) > maxBytes {
+		return result, fmt.Errorf("source response exceeds %d bytes", maxBytes)
 	}
 	result.Body = data
 	return result, nil

@@ -2,8 +2,10 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -17,6 +19,10 @@ type Config struct {
 	SourcePollLease        time.Duration
 	SourcePollIdle         time.Duration
 	SourcePollReapBatch    int
+	MLPipelineVersion      string
+	MLMaxTextBytes         int
+	MLBaseURL              string
+	MLServiceToken         string
 }
 
 func Load() (Config, error) {
@@ -62,6 +68,29 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("SOURCE_POLL_REAP_BATCH must be between 1 and 1000")
 	}
 	cfg.SourcePollReapBatch = reapBatch
+	cfg.MLPipelineVersion = strings.TrimSpace(os.Getenv("ML_PIPELINE_VERSION"))
+	limitRaw := strings.TrimSpace(os.Getenv("ML_MAX_TEXT_BYTES"))
+	if (cfg.MLPipelineVersion == "") != (limitRaw == "") {
+		return Config{}, fmt.Errorf("ML_PIPELINE_VERSION and ML_MAX_TEXT_BYTES must be set together")
+	}
+	if limitRaw != "" {
+		limit, err := strconv.Atoi(limitRaw)
+		if err != nil || limit < 1 {
+			return Config{}, fmt.Errorf("ML_MAX_TEXT_BYTES must be a positive integer")
+		}
+		cfg.MLMaxTextBytes = limit
+	}
+	cfg.MLBaseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("ML_BASE_URL")), "/")
+	cfg.MLServiceToken = os.Getenv("ML_SERVICE_TOKEN")
+	if (cfg.MLBaseURL == "") != (cfg.MLServiceToken == "") {
+		return Config{}, fmt.Errorf("ML_BASE_URL and ML_SERVICE_TOKEN must be set together")
+	}
+	if cfg.MLBaseURL != "" {
+		u, err := url.Parse(cfg.MLBaseURL)
+		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil || u.Fragment != "" || u.RawQuery != "" || u.Path != "" || cfg.MLPipelineVersion == "" {
+			return Config{}, fmt.Errorf("ML_BASE_URL must be an http(s) origin and ML pipeline must be configured")
+		}
+	}
 
 	return cfg, nil
 }

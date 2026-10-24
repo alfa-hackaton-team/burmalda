@@ -21,6 +21,7 @@ type Lease struct {
 	SourceRole    string
 	TrustLevel    string
 	AdapterType   string
+	AdapterConfig []byte
 	Endpoint      string
 	ConfigVersion int64
 	HTTPETag      *string
@@ -56,7 +57,7 @@ func (s *Store) Claim(ctx context.Context, leaseDuration time.Duration) (Lease, 
 
 	var lease Lease
 	err = tx.QueryRow(ctx, `SELECT id::text, name, source_type, source_role, trust_level,
-		adapter_type, endpoint, config_version,
+		adapter_type, adapter_config, endpoint, config_version,
 		http_etag, http_last_modified, source_cursor
 		FROM sources
 		WHERE enabled AND next_poll_at <= clock_timestamp()
@@ -64,7 +65,7 @@ func (s *Store) Claim(ctx context.Context, leaseDuration time.Duration) (Lease, 
 		ORDER BY next_poll_at, id
 		FOR UPDATE SKIP LOCKED LIMIT 1`).Scan(
 		&lease.SourceID, &lease.Name, &lease.SourceType, &lease.SourceRole,
-		&lease.TrustLevel, &lease.AdapterType, &lease.Endpoint, &lease.ConfigVersion,
+		&lease.TrustLevel, &lease.AdapterType, &lease.AdapterConfig, &lease.Endpoint, &lease.ConfigVersion,
 		&lease.HTTPETag, &lease.LastModified, &lease.Cursor)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Lease{}, false, nil
@@ -163,7 +164,6 @@ func (s *Store) Finish(ctx context.Context, lease Lease, result Outcome) error {
 			return fmt.Errorf("persist returned negative counts")
 		}
 	}
-	// A long transaction must not publish after the lease expires.
 	if err := tx.QueryRow(ctx, `SELECT COALESCE(lease_until > clock_timestamp(), false)
 		FROM sources WHERE id=$1::uuid`, lease.SourceID).Scan(&valid); err != nil {
 		return fmt.Errorf("recheck source lease: %w", err)

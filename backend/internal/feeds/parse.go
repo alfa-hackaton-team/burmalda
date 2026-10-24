@@ -94,6 +94,10 @@ func (t atomText) value() string {
 }
 
 func Parse(data []byte, feedURL, adapterType string) ([]Entry, error) {
+	return ParseWithOptions(data, feedURL, adapterType, false)
+}
+
+func ParseWithOptions(data []byte, feedURL, adapterType string, allowEmptyBody bool) ([]Entry, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	decoder.CharsetReader = charset.NewReaderLabel
 	var root xml.StartElement
@@ -131,7 +135,7 @@ func Parse(data []byte, feedURL, adapterType string) ([]Entry, error) {
 			if strings.TrimSpace(body) == "" {
 				body = item.Description
 			}
-			entry, err := makeEntry(feedURL, item.GUID, item.Link, item.Title, body, item.PubDate)
+			entry, err := makeEntry(feedURL, item.GUID, item.Link, item.Title, body, item.PubDate, allowEmptyBody)
 			if err != nil {
 				return nil, fmt.Errorf("RSS item %d: %w", i+1, err)
 			}
@@ -167,7 +171,7 @@ func Parse(data []byte, feedURL, adapterType string) ([]Entry, error) {
 			if published == "" {
 				published = item.Updated
 			}
-			entry, err := makeEntry(feedURL, item.ID, link, item.Title.value(), body, published)
+			entry, err := makeEntry(feedURL, item.ID, link, item.Title.value(), body, published, allowEmptyBody)
 			if err != nil {
 				return nil, fmt.Errorf("Atom entry %d: %w", i+1, err)
 			}
@@ -193,7 +197,7 @@ func Parse(data []byte, feedURL, adapterType string) ([]Entry, error) {
 	return unique, nil
 }
 
-func makeEntry(feedURL, id, link, title, rawBody, date string) (Entry, error) {
+func makeEntry(feedURL, id, link, title, rawBody, date string, allowEmptyBody bool) (Entry, error) {
 	title, err := plainText(title)
 	if err != nil {
 		return Entry{}, fmt.Errorf("normalize title: %w", err)
@@ -202,7 +206,7 @@ func makeEntry(feedURL, id, link, title, rawBody, date string) (Entry, error) {
 	if err != nil {
 		return Entry{}, fmt.Errorf("normalize body: %w", err)
 	}
-	if body == "" {
+	if body == "" && !allowEmptyBody {
 		return Entry{}, fmt.Errorf("article text is empty")
 	}
 	canonical, err := articleURL(feedURL, link)
@@ -227,7 +231,7 @@ func articleURL(feedURL, link string) (string, error) {
 	}
 	reference, err := url.Parse(strings.TrimSpace(link))
 	if err != nil {
-		return "", fmt.Errorf("invalid article URL: %w", err)
+		return "", fmt.Errorf("invalid article URL")
 	}
 	resolved := base.ResolveReference(reference)
 	resolved.Fragment = ""

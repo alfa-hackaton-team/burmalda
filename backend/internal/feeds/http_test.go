@@ -59,3 +59,19 @@ func TestSafeDialRejectsPrivateResolution(t *testing.T) {
 		}
 	}
 }
+
+func TestFetchArticleRestrictsHostAndContentType(t *testing.T) {
+	fetcher := &SafeFetcher{client: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/html; charset=utf-8"}},
+			Body: io.NopCloser(strings.NewReader("<article>Story</article>"))}, nil
+	})}, maxBytes: MaxFeedBytes}
+	for _, link := range []string{"https://other.example/story", "http://example.com/story", "http://127.0.0.1/story"} {
+		if _, err := fetcher.FetchArticle(context.Background(), "https://example.com/feed", link); err == nil {
+			t.Fatalf("unsafe article link accepted: %s", link)
+		}
+	}
+	response, err := fetcher.FetchArticle(context.Background(), "https://example.com/feed", "https://example.com/story")
+	if err != nil || string(response.Body) != "<article>Story</article>" {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
+}
