@@ -813,6 +813,7 @@ components:
           type: string
         source_type:
           type: string
+          enum: [news, bank_analytics, expert, regulator, financial_press]
         source_role:
           type: string
           enum:
@@ -821,6 +822,7 @@ components:
           - expert
         trust_level:
           type: string
+          enum: [primary, trusted, standard, unknown, reviewed]
         adapter_type:
           type: string
         endpoint:
@@ -858,6 +860,7 @@ components:
           type: string
         source_type:
           type: string
+          enum: [news, bank_analytics, expert, regulator, financial_press]
         source_role:
           type: string
           enum:
@@ -866,6 +869,7 @@ components:
           - expert
         trust_level:
           type: string
+          enum: [primary, trusted, standard, unknown, reviewed]
         adapter_type:
           type: string
         endpoint:
@@ -1261,8 +1265,18 @@ components:
         metadata:
           type: object
           additionalProperties: false
-          description: Для прототипа передаётся пустой объект. Новые поля добавляются
-            после согласования с ML1, без произвольных метаданных источника.
+          properties:
+            extraction_method:
+              type: string
+              enum: [full_article, rss_summary, pdf_extracted]
+            extraction_errors:
+              type: array
+              uniqueItems: true
+              items:
+                type: string
+                enum: [TEXT_TRUNCATED, MISSING_PAGES, MISSING_TABLES, MISSING_FOOTNOTES, EXTRACTION_FAILED, LAYOUT_LOSS, READING_ORDER_UNCERTAIN]
+          required: [extraction_method, extraction_errors]
+          description: Сохранённый способ получения текста и известные проблемы извлечения; пустой список не гарантирует полноту.
       additionalProperties: false
       required:
       - article_id

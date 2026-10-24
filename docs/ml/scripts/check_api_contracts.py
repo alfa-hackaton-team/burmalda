@@ -86,7 +86,7 @@ def main():
         'article': {
             'article_id': 'article', 'article_version_id': 'version', 'source_id': 'source',
             'title': '', 'body': 'Full text', 'fetched_at': '2026-10-24T12:00:00Z',
-            'raw_ref': 'raw-artifact:raw', 'content_hash': 'a' * 64, 'metadata': {},
+            'raw_ref': 'raw-artifact:raw', 'content_hash': 'a' * 64, 'metadata': {'extraction_method': 'full_article', 'extraction_errors': []},
         },
         'source': {
             'source_id': 'source', 'name': 'Example', 'source_role': 'external',

@@ -109,7 +109,7 @@ func (c Client) post(ctx context.Context, job Job) Result {
 	}
 	body, err := RequestPayload(job)
 	if err != nil {
-		return Result{Permanent: true, Error: "cannot encode ML request", ErrorCode: "INVALID_ML_REQUEST"}
+		return Result{Permanent: true, Error: err.Error(), ErrorCode: "INVALID_ML_REQUEST"}
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
@@ -130,6 +130,13 @@ func (c Client) post(ctx context.Context, job Job) Result {
 }
 
 func RequestPayload(job Job) ([]byte, error) {
+	if len(job.DeliveryExtraction) != 0 {
+		metadata, err := deliveryMetadata(job)
+		if err != nil {
+			return nil, err
+		}
+		job.Metadata = metadata
+	}
 	article := map[string]any{
 		"article_id": job.ArticleID, "article_version_id": job.VersionID,
 		"source_id": job.SourceID, "title": job.Title, "body": job.Body,
@@ -259,6 +266,9 @@ func decodeOperationWithInterval(body []byte, job Job, interval time.Duration) R
 	case "SUCCEEDED":
 		if strings.TrimSpace(op.DocumentVersionID) == "" || op.EventIDs == nil {
 			return protocolError("ML success is missing document_version_id or event_ids")
+		}
+		if op.DocumentVersionID != job.VersionID {
+			return protocolError("ML document_version_id does not match article_version_id")
 		}
 		result.Succeeded = true
 		result.DocumentVersionID = op.DocumentVersionID

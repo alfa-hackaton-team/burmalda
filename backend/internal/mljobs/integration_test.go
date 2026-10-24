@@ -85,6 +85,15 @@ func savedVersion(t *testing.T, db *pgxpool.Pool, body string, snapshot bool) (s
 			t.Fatal(err)
 		}
 	}
+	var hasOrigin bool
+	if err := db.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='article_versions' AND column_name='text_origin')`).Scan(&hasOrigin); err != nil {
+		t.Fatal(err)
+	}
+	if hasOrigin {
+		if _, err := db.Exec(ctx, `UPDATE article_versions SET text_origin='full_article' WHERE id=$1`, version); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if snapshot {
 		if _, err := db.Exec(ctx, `INSERT INTO article_version_source_snapshots(article_version_id,source_name,source_type,source_role,source_trust_level,source_config_version) VALUES($1,'Publisher','news','external','reviewed',1)`, version); err != nil {
 			t.Fatal(err)
@@ -208,7 +217,7 @@ func TestLostResponseAndMissingGETRecoverSameOperationThroughDB(t *testing.T) {
 		if gets == 1 {
 			return response(404, "", nil), nil
 		}
-		return response(200, operationBody(current, "SUCCEEDED", `,"document_version_id":"ml-document-1","event_ids":[]`), nil), nil
+		return response(200, operationBody(current, "SUCCEEDED", fmt.Sprintf(`,"document_version_id":%q,"event_ids":[]`, current.VersionID)), nil), nil
 	})}}
 	for attempt := 0; attempt < 4; attempt++ {
 		current = claimJob(t, s)
@@ -234,7 +243,7 @@ func TestLostResponseAndMissingGETRecoverSameOperationThroughDB(t *testing.T) {
 	if err := db.QueryRow(ctx, `SELECT ml_processing_id,document_version_id,event_ids FROM processing_jobs`).Scan(&operation, &document, &events); err != nil {
 		t.Fatal(err)
 	}
-	if operation != "operation-1" || document != "ml-document-1" || string(events) != "[]" {
+	if operation != "operation-1" || document != version || string(events) != "[]" {
 		t.Fatalf("wrong stored success %s %s %s", operation, document, events)
 	}
 	if _, ok, err := s.Claim(ctx); err != nil || ok {
@@ -243,7 +252,7 @@ func TestLostResponseAndMissingGETRecoverSameOperationThroughDB(t *testing.T) {
 }
 
 func TestQualityRejectionAndProtocolFailureRemainTerminal(t *testing.T) {
-	for _, mode := range []string{"quality", "invalid-response", "http-422"} {
+	for _, mode := range []string{"quality", "invalid-response", "http-422", "wrong-document-post", "wrong-document-get"} {
 		t.Run(mode, func(t *testing.T) {
 			db := integrationPool(t)
 			s := NewStore(db)
@@ -251,8 +260,15 @@ func TestQualityRejectionAndProtocolFailureRemainTerminal(t *testing.T) {
 			_, version := savedVersion(t, db, "Saved body", true)
 			queueVersion(t, s, version)
 			job := claimJob(t, s)
+			if mode == "wrong-document-get" {
+				id := "operation-1"
+				job.ProcessingID = &id
+				if _, err := db.Exec(ctx, `UPDATE processing_jobs SET ml_processing_id=$2 WHERE id=$1`, job.ID, id); err != nil {
+					t.Fatal(err)
+				}
+			}
 			requests := 0
-			client := Client{BaseURL: "http://ml.example", HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			client := Client{BaseURL: "http://ml.example", HTTP: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 				requests++
 				if mode == "http-422" {
 					return response(422, `{"code":"VALIDATION_ERROR","message":"Invalid material","retryable":false}`, nil), nil
@@ -260,6 +276,15 @@ func TestQualityRejectionAndProtocolFailureRemainTerminal(t *testing.T) {
 				body := operationBody(job, "FAILED", `,"error":{"code":"INSUFFICIENT_EVIDENCE","message":"No usable text","retryable":true}`)
 				if mode == "invalid-response" {
 					body = `{"processing_id":"bad","state":"SUCCEEDED"}`
+				}
+				if mode == "wrong-document-post" || mode == "wrong-document-get" {
+					body = operationBody(job, "SUCCEEDED", `,"document_version_id":"another-version","event_ids":[]`)
+					if mode == "wrong-document-get" {
+						if req.Method != http.MethodGet {
+							t.Fatalf("expected GET, got %s", req.Method)
+						}
+						return response(200, body, nil), nil
+					}
 				}
 				return response(202, body, nil), nil
 			})}}
@@ -283,6 +308,10 @@ func TestQualityRejectionAndProtocolFailureRemainTerminal(t *testing.T) {
 				}
 			} else if code != "INVALID_ML_RESPONSE" {
 				t.Fatalf("protocol code %s", code)
+			}
+			var hasResults bool
+			if err = db.QueryRow(ctx, `SELECT document_version_id IS NOT NULL OR event_ids IS NOT NULL FROM processing_jobs WHERE id=$1`, job.ID).Scan(&hasResults); err != nil || hasResults {
+				t.Fatalf("invalid result was persisted: %v %v", hasResults, err)
 			}
 			makeDue(t, db)
 			again, err := s.Enqueue(ctx, EnqueueOptions{VersionID: version, PipelineVersion: "test-pipeline", Limit: 10, MaxTextBytes: 131072})
@@ -349,53 +378,24 @@ func TestUnverifiedLegacyJobsAreNotSent(t *testing.T) {
 func TestMigrationQuarantinesOnlyPre009Jobs(t *testing.T) {
 	db := emptyIntegrationPool(t)
 	ctx := context.Background()
-	if _, err := db.Exec(ctx, `CREATE TABLE schema_migrations(version bigint PRIMARY KEY,name text NOT NULL,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
-		t.Fatal(err)
-	}
-	files, err := fs.ReadDir(migrations.Files, ".")
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, file := range files {
-		if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
-			continue
-		}
-		version, err := strconv.Atoi(strings.SplitN(file.Name(), "_", 2)[0])
-		if err != nil {
-			t.Fatal(err)
-		}
-		if version >= 17 {
-			continue
-		}
-		body, err := migrations.Files.ReadFile(file.Name())
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err = db.Exec(ctx, string(body)); err != nil {
-			t.Fatal(err)
-		}
-		sum := sha256.Sum256(body)
-		if _, err = db.Exec(ctx, `INSERT INTO schema_migrations(version,name,checksum)VALUES($1,$2,$3)`, version, file.Name(), hex.EncodeToString(sum[:])); err != nil {
-			t.Fatal(err)
-		}
-	}
+	applyMigrationsBefore(t, db, "_ml_delivery_safety.sql")
 	_, version := savedVersion(t, db, "Historical text", false)
 	for _, pipeline := range []string{"before-009", "after-009"} {
-		_, err = db.Exec(ctx, `INSERT INTO processing_jobs(article_version_id,dedupe_key,pipeline_version,source_name,source_type,source_role,source_trust_level,source_config_version,ml_processing_id,created_at)
+		_, err := db.Exec(ctx, `INSERT INTO processing_jobs(article_version_id,dedupe_key,pipeline_version,source_name,source_type,source_role,source_trust_level,source_config_version,ml_processing_id,created_at)
  VALUES($1::uuid,$1::text||':'||$2,$2,'Publisher','news','external','reviewed',1,$2,
  (SELECT applied_at FROM schema_migrations WHERE version=9)+CASE WHEN $2='before-009' THEN -interval '1 minute' ELSE interval '1 minute' END)`, version, pipeline)
 		if err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, err = migrate.Run(ctx, db); err != nil {
+	if _, err := migrate.Run(ctx, db); err != nil {
 		t.Fatal(err)
 	}
 	var oldOrigin, newOrigin, operation, code string
-	if err = db.QueryRow(ctx, `SELECT source_snapshot_origin,ml_processing_id,last_error_code FROM processing_jobs WHERE pipeline_version='before-009'`).Scan(&oldOrigin, &operation, &code); err != nil {
+	if err := db.QueryRow(ctx, `SELECT source_snapshot_origin,ml_processing_id,last_error_code FROM processing_jobs WHERE pipeline_version='before-009'`).Scan(&oldOrigin, &operation, &code); err != nil {
 		t.Fatal(err)
 	}
-	if err = db.QueryRow(ctx, `SELECT source_snapshot_origin FROM processing_jobs WHERE pipeline_version='after-009'`).Scan(&newOrigin); err != nil {
+	if err := db.QueryRow(ctx, `SELECT source_snapshot_origin FROM processing_jobs WHERE pipeline_version='after-009'`).Scan(&newOrigin); err != nil {
 		t.Fatal(err)
 	}
 	if oldOrigin != "UNVERIFIED_LEGACY" || newOrigin != "CAPTURED_AT_INGEST" || operation != "before-009" || code != "SOURCE_SNAPSHOT_UNVERIFIED" {
@@ -505,4 +505,129 @@ func TestExportMatchesActualClientRequestAndExcludesSecrets(t *testing.T) {
 		t.Fatal("oversized POST payload exported")
 	}
 
+}
+
+func TestExtractionSnapshotSurvivesVersionChangesAndRetry(t *testing.T) {
+	db := integrationPool(t)
+	_, version := savedVersion(t, db, "Saved body", true)
+	store := NewStore(db)
+	queueVersion(t, store, version)
+	first := claimJob(t, store)
+	original, err := RequestPayload(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = db.Exec(context.Background(), `UPDATE article_versions SET text_origin='rss_summary',extraction_issues='["MISSING_TABLES"]' WHERE id=$1`, version); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = store.Finish(context.Background(), first, Result{Error: "lost response", ErrorCode: "ML_TRANSPORT_ERROR", ErrorRetryable: true, RetryAfter: time.Nanosecond}); err != nil {
+		t.Fatal(err)
+	}
+	second := claimJob(t, store)
+	replay, err := RequestPayload(second)
+	if err != nil || string(original) != string(replay) {
+		t.Fatalf("request changed: %v\n%s\n%s", err, original, replay)
+	}
+	var request struct {
+		Article struct {
+			Metadata struct {
+				Method string   `json:"extraction_method"`
+				Errors []string `json:"extraction_errors"`
+			} `json:"metadata"`
+		} `json:"article"`
+	}
+	if err = json.Unmarshal(replay, &request); err != nil || request.Article.Metadata.Method != "full_article" || len(request.Article.Metadata.Errors) != 0 {
+		t.Fatalf("unexpected request %s %v", replay, err)
+	}
+}
+
+func TestExtractionMigrationPreservesAttemptedLegacyRequests(t *testing.T) {
+	db := emptyIntegrationPool(t)
+	ctx := context.Background()
+	applyMigrationsBefore(t, db, "_ml_extraction_snapshot.sql")
+	_, version := savedVersion(t, db, "Legacy body", true)
+	acceptedOperation := "accepted-operation"
+	for _, tc := range []struct {
+		pipeline  string
+		attempts  int
+		operation *string
+	}{
+		{"unsent", 0, nil}, {"lost-response", 1, nil}, {"accepted", 0, &acceptedOperation},
+	} {
+		if _, err := db.Exec(ctx, `INSERT INTO processing_jobs(article_version_id,dedupe_key,pipeline_version,source_name,source_type,source_role,source_trust_level,source_config_version,attempts,ml_processing_id)
+ VALUES($1::uuid,$1::text||':'||$2,$2,'Publisher','news','external','reviewed',1,$3,$4)`, version, tc.pipeline, tc.attempts, tc.operation); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := migrate.Run(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, pipeline := range []string{"unsent", "lost-response", "accepted"} {
+		var snapshot json.RawMessage
+		if err := db.QueryRow(ctx, `SELECT delivery_extraction FROM processing_jobs WHERE pipeline_version=$1`, pipeline).Scan(&snapshot); err != nil {
+			t.Fatal(err)
+		}
+		if (pipeline == "unsent") != (len(snapshot) > 0) {
+			t.Fatalf("unsafe backfill %s: %s", pipeline, snapshot)
+		}
+	}
+}
+
+func applyMigrationsBefore(t *testing.T, db *pgxpool.Pool, suffix string) {
+	t.Helper()
+	ctx := context.Background()
+	files, err := fs.ReadDir(migrations.Files, ".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var targetVersion int
+	for _, file := range files {
+		if strings.HasSuffix(file.Name(), suffix) {
+			if targetVersion != 0 {
+				t.Fatal("ambiguous migration suffix")
+			}
+			targetVersion, err = strconv.Atoi(strings.SplitN(file.Name(), "_", 2)[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	if targetVersion <= 0 {
+		t.Fatalf("migration %s not found", suffix)
+	}
+	if _, err = db.Exec(ctx, `CREATE TABLE schema_migrations(version bigint PRIMARY KEY,name text NOT NULL,checksum text NOT NULL,applied_at timestamptz NOT NULL DEFAULT now())`); err != nil {
+		t.Fatal(err)
+	}
+	for _, file := range files {
+		if file.IsDir() || !strings.HasSuffix(file.Name(), ".sql") {
+			continue
+		}
+		version, err := strconv.Atoi(strings.SplitN(file.Name(), "_", 2)[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if version >= targetVersion {
+			continue
+		}
+		body, err := migrations.Files.ReadFile(file.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		tx, err := db.Begin(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err = tx.Exec(ctx, string(body)); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		sum := sha256.Sum256(body)
+		if _, err = tx.Exec(ctx, `INSERT INTO schema_migrations(version,name,checksum)VALUES($1,$2,$3)`, version, file.Name(), hex.EncodeToString(sum[:])); err != nil {
+			_ = tx.Rollback(ctx)
+			t.Fatal(err)
+		}
+		if err = tx.Commit(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
 }

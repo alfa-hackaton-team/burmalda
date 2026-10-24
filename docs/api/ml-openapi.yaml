@@ -674,10 +674,10 @@ paths:
                       - expert
                     source_type:
                       type: string
-                      minLength: 1
+                      enum: [news, bank_analytics, expert, regulator, financial_press]
                     trust_level:
                       type: string
-                      minLength: 1
+                      enum: [primary, trusted, standard, unknown, reviewed]
                     config_version:
                       type: string
                       pattern: '^[1-9][0-9]*$'
