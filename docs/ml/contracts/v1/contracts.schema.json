@@ -599,7 +599,8 @@
             "consequence",
             "action",
             "bank_view"
-          ]
+          ],
+          "description": "Назначение утверждения в разборе; не заменяет knowledge_type."
         },
         "claim_text": {
           "type": "string",
@@ -627,6 +628,38 @@
             "$ref": "#/$defs/Evidence"
           },
           "minItems": 1
+        },
+        "knowledge_type": {
+          "enum": [
+            "FACT",
+            "ALFA_ANALYTICS",
+            "AI_INFERENCE",
+            "FORECAST"
+          ]
+        },
+        "verification_status": {
+          "enum": [
+            "SUPPORTED",
+            "PARTIALLY_SUPPORTED"
+          ]
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "time_horizon": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -635,7 +668,11 @@
         "claim_text",
         "position",
         "confidence",
-        "evidence"
+        "evidence",
+        "knowledge_type",
+        "verification_status",
+        "assumptions",
+        "time_horizon"
       ],
       "additionalProperties": false
     },
@@ -984,24 +1021,82 @@
               "role": {
                 "enum": [
                   "user",
-                  "assistant",
-                  "tool",
-                  "system"
+                  "assistant"
                 ]
               },
               "content": {
                 "type": "string",
                 "minLength": 1
+              },
+              "claims": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Claim"
+                },
+                "minItems": 0
+              },
+              "citations": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "citation_order": {
+                      "type": "integer",
+                      "minimum": 1
+                    },
+                    "chunk_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "claim_id": {
+                      "anyOf": [
+                        {
+                          "type": "string",
+                          "format": "uuid"
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "citation_order",
+                    "chunk_id",
+                    "claim_id"
+                  ],
+                  "additionalProperties": false
+                },
+                "minItems": 0
+              },
+              "chunks": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/$defs/Chunk"
+                }
               }
             },
             "required": [
               "id",
               "role",
-              "content"
+              "content",
+              "claims",
+              "citations",
+              "chunks"
             ],
             "additionalProperties": false
           },
-          "minItems": 0
+          "minItems": 1
+        },
+        "initial_insight": {
+          "$ref": "#/$defs/InsightSnapshot"
         }
       },
       "required": [
@@ -1010,7 +1105,8 @@
         "question",
         "history_through_message_id",
         "initial_insight_id",
-        "history"
+        "history",
+        "initial_insight"
       ],
       "additionalProperties": false
     },
@@ -1485,6 +1581,17 @@
         "processing_config_version": {
           "type": "string",
           "minLength": 1
+        },
+        "parent_trace_id": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -1495,17 +1602,28 @@
         "context",
         "event",
         "follow_up",
-        "processing_config_version"
+        "processing_config_version",
+        "parent_trace_id"
       ],
       "additionalProperties": false,
       "oneOf": [
         {
           "properties": {
             "request_type": {
-              "enum": [
-                "initial",
-                "reanalyze"
-              ]
+              "const": "initial"
+            },
+            "follow_up": {
+              "type": "null"
+            },
+            "parent_trace_id": {
+              "type": "null"
+            }
+          }
+        },
+        {
+          "properties": {
+            "request_type": {
+              "const": "reanalyze"
             },
             "follow_up": {
               "type": "null"
@@ -1519,6 +1637,10 @@
             },
             "follow_up": {
               "$ref": "#/$defs/FollowUp"
+            },
+            "parent_trace_id": {
+              "type": "string",
+              "format": "uuid"
             }
           }
         }
@@ -1706,6 +1828,34 @@
           }
         }
       ]
+    },
+    "InsightSnapshot": {
+      "type": "object",
+      "properties": {
+        "context": {
+          "$ref": "#/$defs/Context"
+        },
+        "event": {
+          "$ref": "#/$defs/Event"
+        },
+        "insight": {
+          "$ref": "#/$defs/Insight"
+        },
+        "chunks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Chunk"
+          }
+        }
+      },
+      "required": [
+        "context",
+        "event",
+        "insight",
+        "chunks"
+      ],
+      "additionalProperties": false
     }
-  }
+  },
+  "description": "Внутренние логические контракты ML v1, редакция 1.1 до первого выпуска. Публичный API v0.1 использует отдельные DTO; правила преобразования — api-compatibility.md."
 }

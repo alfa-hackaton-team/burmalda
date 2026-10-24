@@ -23,7 +23,15 @@
         "feature_value": true,
         "source_type": "company_field",
         "source_ref": {
-          "field": "companies.has_loan"
+          "field": "companies.has_loan",
+          "source_snapshot_id": "synthetic-company-data-v1",
+          "record_refs": [
+            "synthetic-company-8"
+          ],
+          "derivation_version": "profile-v1",
+          "contributing_company_ids": [
+            "00000000-0000-4000-8000-000000000008"
+          ]
         }
       }
     ]
@@ -42,5 +50,6 @@
     "confidence": null
   },
   "follow_up": null,
-  "processing_config_version": "processing-v1"
+  "processing_config_version": "processing-v1",
+  "parent_trace_id": null
 }

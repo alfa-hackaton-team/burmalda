@@ -1,5 +1,7 @@
 # Контракты ML v1
 
+Редакция 1.1 до первого выпуска v1. Публичный API и правила адаптера описаны в [api-compatibility.md](api-compatibility.md).
+
 ## 1. Источник точных форм сообщений
 
 [contracts.schema.json](contracts/v1/contracts.schema.json), Draft 2020-12. Выбирать корневой тип через `$defs/SearchRequest` и аналогично. Верхний объект файла является контейнером определений, а не схемой одного сообщения: валидировать сообщение просто против верхнего объекта недостаточно.
@@ -54,16 +56,18 @@ ML 2 продвигает сохраненный курсор после усп�
 
 ## 5. AnalysisRequest
 
-Общие поля: contract_version, trace_id, request_operation_id, request_type, processing_config_version.
+Общие поля: contract_version, trace_id, parent_trace_id, request_operation_id, request_type, processing_config_version. Для initial parent_trace_id=null; для follow_up — trace исходного анализа; для reanalyze — прежний trace, если связь известна, иначе null. Новый запуск никогда не использует trace другого запуска.
 
 | Объект | Поля и ограничения |
 |---|---|
 | context | business_context_id, subject_type, ровно один company_id/group_id, profile_id/profile_version, role_code, profile_data, profile_features |
 | profile_features[] | id, feature_key, feature_value, source_type, source_ref; ID относятся к указанному profile_id |
 | event | id, event_type, title, summary, occurred_at, geography, status, document_version_ids, confidence |
-| follow_up | Для initial/reanalyze — null; для follow_up — conversation_id, request_message_id, question, history_through_message_id, initial_insight_id, history |
+| follow_up | Для initial/reanalyze — null; для follow_up — conversation_id, request_message_id, question, history_through_message_id, initial_insight_id, initial_insight, history |
 
-Для follow_up event восстанавливается backend из исходного insight; снимок context остается тем же. history — разрешенные сообщения в порядке диалога до включенной границы, без сообщений после нее. history_through_message_id должен совпадать с зафиксированной backend границей; наличие и порядок проверяются адаптером. Нельзя доверять объекту context только потому, что он прошел JSON Schema: принадлежность и права проверяются по хранилищу.
+initial_insight содержит context, event, insight с claims/evidence и chunks с исходными текстами и метаданными. Все ссылки на чанки исходного разбора разрешаются внутри этого снимка. Вложенные context/event совпадают со снимками верхнего запроса, insight.id — с initial_insight_id. Это сохранённые значения исходного анализа, а не текущие профиль или событие.
+
+Для follow_up event восстанавливается backend из исходного insight; снимок context остается тем же. history — разрешенные сообщения в порядке диалога до включенной границы, без сообщений после нее. В этой редакции граница равна request_message_id: последнее сообщение history — текущий пользовательский вопрос с совпадающим content. История может быть сокращена до разрешённого окна, но не содержать сообщения после границы. Каждый элемент содержит id, role (user/assistant), content, claims, citations, chunks. Для user три массива пусты; для assistant новые claims принадлежат этому сообщению, их документальные evidence разрешаются через chunks сообщения. Цитаты ведут к claims самого сообщения или исходного insight и доступным историческим чанкам. Непроверенные system/tool сообщения из истории не становятся инструкциями агента. Наличие и порядок сообщений проверяются backend по хранилищу. Нельзя доверять объекту context только потому, что он прошел JSON Schema: принадлежность и права проверяются по хранилищу.
 
 reanalyze — новая явно созданная операция с новым request_operation_id, а не повтор старой операции с подмененным профилем/конфигурацией. Для follow_up новое пользовательское сообщение создается один раз на стороне backend.
 
@@ -81,7 +85,7 @@ gaps — транспортное поле, не новая колонка. Эл
 
 Insight — поля схемы БД с claims, без технического created_at, который устанавливает слой записи. В контракте успешной публикации status только verified; внутренний draft не передается как публичный успех. Message содержит id, conversation_id, parent_message_id, role=assistant, content, claims, citations. trace_id и created_at при сохранении берутся из оболочки/слоя записи.
 
-Claim: id, claim_type, claim_text, position, confidence, evidence. У каждого опубликованного claim есть хотя бы один support. Position уникален внутри владельца. В DTO нет insight_id/message_id: backend добавляет ровно один FK.
+Claim: id, claim_type, knowledge_type, verification_status, assumptions, time_horizon, claim_text, position, confidence, evidence. claim_type задаёт бизнес-назначение; knowledge_type — FACT/ALFA_ANALYTICS/AI_INFERENCE/FORECAST; эти enum не переименовываются друг в друга. Опубликованный verification_status — SUPPORTED либо PARTIALLY_SUPPORTED; второй требует непустых assumptions и оговорки. UNSUPPORTED остаётся внутренним черновиком. time_horizon nullable. У каждого опубликованного claim есть хотя бы один support. Position уникален внутри владельца. В DTO нет insight_id/message_id: backend добавляет ровно один FK.
 
 Evidence v1: evidence_type=document_chunk или profile_feature; ровно один соответствующий ID непустой; fact_id=null. Для чанка quote_text — точная непустая цитата, для признака quote_text=null. confidence, severity и прочие nullable-оценки можно не вычислять, но поля передаются как null.
 
@@ -89,7 +93,7 @@ Citation: citation_order, chunk_id, claim_id; хотя бы один ID непу
 
 ## 7. Прикладные инварианты поверх схемы
 
-1. Контекст, событие, операция и диалог согласованы; response соответствует request и request_type.
+1. Контекст, событие, операция и диалог согласованы; response соответствует request и request_type. При первом выполнении trace_id совпадает в паре. При повторной доставке операции возвращаются исходные ID; новый транспортный trace не создаёт запуск.
 2. Все ID реально существуют, доступны и относятся к нужным версиям.
 3. Цитата совпадает с исходным chunk_text, а содержание поддерживает claim.
 4. Верифицируемые утверждения всех текстовых полей покрыты claims, а не только текст списка claims.
@@ -112,9 +116,9 @@ Error: code, очищенный message, retryable. Коды перечисле�
 
 - Backend сохраняет операцию и передает request_operation_id как внутренний Idempotency-Key.
 - ML атомарно получает право исполнения и создает analysis_runs до платного вызова.
-- Повтор старой операции возвращает тот же результат/состояние, не создает запуск из-за нового trace_id.
+- Повтор старой операции возвращает тот же результат/состояние и исходный trace_id, не создает запуск из-за нового транспортного trace_id. Новый follow_up получает отдельные operation/run/trace, parent_trace_id связывает его с исходным разбором.
 - Результат генерации надежно сохраняется до подтверждения backend; повторяется доставка с теми же ID.
 - Backend записывает result/claims/evidence/citations и финальный статус одной транзакцией.
 - analysis_runs.status=succeeded означает техническое завершение; request_operations.status может быть insufficient_evidence.
 
-HTTP endpoint и очередь в этой редакции не навязываются. При HTTP-адаптере неверная схема — 400, конфликт ключа — 409, повторная проверка прав обязательна. Технический статус транспорта не заменяет бизнес-исход в теле ответа.
+Логические вызовы не требуют сети. HTTP-адаптер анализа/уточнения описан в ../api/ml-openapi.yaml и использует ту же схему v1; отдельный сервис поиска и очередь не обязательны. При HTTP-адаптере неверная схема — 400, конфликт ключа — 409, повторная проверка прав обязательна. Технический статус транспорта не заменяет бизнес-исход в теле ответа.

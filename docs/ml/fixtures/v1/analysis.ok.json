@@ -53,7 +53,13 @@
             "evidence_role": "context",
             "quote_text": null
           }
-        ]
+        ],
+        "knowledge_type": "AI_INFERENCE",
+        "verification_status": "SUPPORTED",
+        "assumptions": [
+          "Рекомендация применима при планировании нового договора продукта X."
+        ],
+        "time_horizon": null
       }
     ]
   },

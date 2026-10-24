@@ -1,6 +1,6 @@
 {
   "contract_version": "v1",
-  "trace_id": "00000000-0000-4000-8000-000000000001",
+  "trace_id": "00000000-0000-4000-8000-000000000021",
   "request_operation_id": "00000000-0000-4000-8000-000000000019",
   "request_type": "follow_up",
   "context": {
@@ -23,7 +23,15 @@
         "feature_value": true,
         "source_type": "company_field",
         "source_ref": {
-          "field": "companies.has_loan"
+          "field": "companies.has_loan",
+          "source_snapshot_id": "synthetic-company-data-v1",
+          "record_refs": [
+            "synthetic-company-8"
+          ],
+          "derivation_version": "profile-v1",
+          "contributing_company_ids": [
+            "00000000-0000-4000-8000-000000000008"
+          ]
         }
       }
     ]
@@ -44,16 +52,144 @@
   "follow_up": {
     "conversation_id": "00000000-0000-4000-8000-000000000015",
     "request_message_id": "00000000-0000-4000-8000-000000000016",
-    "question": "Что проверить перед новым договором?",
+    "question": "Почему в исходном разборе ты предложил проверить условия нового договора, но не сделал вывод о росте текущего платежа?",
     "history_through_message_id": "00000000-0000-4000-8000-000000000016",
     "initial_insight_id": "00000000-0000-4000-8000-000000000013",
     "history": [
       {
         "id": "00000000-0000-4000-8000-000000000016",
         "role": "user",
-        "content": "Что проверить перед новым договором?"
+        "content": "Почему в исходном разборе ты предложил проверить условия нового договора, но не сделал вывод о росте текущего платежа?",
+        "claims": [],
+        "citations": [],
+        "chunks": []
       }
-    ]
+    ],
+    "initial_insight": {
+      "context": {
+        "business_context_id": "00000000-0000-4000-8000-000000000002",
+        "subject_type": "company",
+        "company_id": "00000000-0000-4000-8000-000000000008",
+        "group_id": null,
+        "profile_id": "00000000-0000-4000-8000-000000000009",
+        "profile_version": 1,
+        "role_code": "cfo",
+        "profile_data": {
+          "products": [
+            "loan"
+          ]
+        },
+        "profile_features": [
+          {
+            "id": "00000000-0000-4000-8000-000000000007",
+            "feature_key": "has_loan",
+            "feature_value": true,
+            "source_type": "company_field",
+            "source_ref": {
+              "field": "companies.has_loan",
+              "source_snapshot_id": "synthetic-company-data-v1",
+              "record_refs": [
+                "synthetic-company-8"
+              ],
+              "derivation_version": "profile-v1",
+              "contributing_company_ids": [
+                "00000000-0000-4000-8000-000000000008"
+              ]
+            }
+          }
+        ]
+      },
+      "event": {
+        "id": "00000000-0000-4000-8000-000000000010",
+        "event_type": "credit_terms_change",
+        "title": "Учебное изменение условий продукта X",
+        "summary": "С 1 ноября новые договоры продукта X заключаются по обновленным условиям.",
+        "occurred_at": null,
+        "geography": [],
+        "status": "confirmed",
+        "document_version_ids": [
+          "00000000-0000-4000-8000-000000000005"
+        ],
+        "confidence": null
+      },
+      "insight": {
+        "id": "00000000-0000-4000-8000-000000000013",
+        "business_context_id": "00000000-0000-4000-8000-000000000002",
+        "event_id": "00000000-0000-4000-8000-000000000010",
+        "analysis_run_id": "00000000-0000-4000-8000-000000000014",
+        "version": 1,
+        "status": "verified",
+        "impact_kind": "neutral",
+        "relevance_score": null,
+        "impact_score": null,
+        "confidence": null,
+        "severity": null,
+        "time_horizon": null,
+        "summary": "Перед новым договором продукта X проверьте условия, действующие с 1 ноября. Наличие действующего кредита не доказывает изменение платежей по нему.",
+        "consequences": [],
+        "recommended_actions": [
+          {
+            "action": "Проверить условия перед заключением нового договора продукта X",
+            "priority": "medium",
+            "reason": "С 1 ноября условия новых договоров обновлены"
+          }
+        ],
+        "score_components": {},
+        "bank_view": null,
+        "bank_view_document_version_id": null,
+        "claims": [
+          {
+            "id": "00000000-0000-4000-8000-000000000012",
+            "claim_type": "action",
+            "claim_text": "Перед новым договором продукта X проверьте условия, действующие с 1 ноября. Наличие действующего кредита не доказывает изменение платежей по нему.",
+            "position": 1,
+            "confidence": null,
+            "evidence": [
+              {
+                "evidence_type": "document_chunk",
+                "chunk_id": "00000000-0000-4000-8000-000000000003",
+                "fact_id": null,
+                "profile_feature_id": null,
+                "evidence_role": "support",
+                "quote_text": "С 1 ноября новые договоры продукта X заключаются по обновленным условиям."
+              },
+              {
+                "evidence_type": "profile_feature",
+                "chunk_id": null,
+                "fact_id": null,
+                "profile_feature_id": "00000000-0000-4000-8000-000000000007",
+                "evidence_role": "context",
+                "quote_text": null
+              }
+            ],
+            "knowledge_type": "AI_INFERENCE",
+            "verification_status": "SUPPORTED",
+            "assumptions": [
+              "Рекомендация применима при планировании нового договора продукта X."
+            ],
+            "time_horizon": null
+          }
+        ]
+      },
+      "chunks": [
+        {
+          "chunk_id": "00000000-0000-4000-8000-000000000003",
+          "document_id": "00000000-0000-4000-8000-000000000004",
+          "document_version_id": "00000000-0000-4000-8000-000000000005",
+          "chunk_text": "С 1 ноября новые договоры продукта X заключаются по обновленным условиям.",
+          "title": "Учебное изменение условий продукта X",
+          "canonical_url": "https://example.org/credit",
+          "published_at": "2026-10-20T09:00:00Z",
+          "retrieved_at": "2026-10-20T10:00:00Z",
+          "source_id": "00000000-0000-4000-8000-000000000006",
+          "source_name": "Учебный источник",
+          "source_type": "regulator",
+          "source_role": "external",
+          "trust_level": "primary"
+        }
+      ]
+    }
   },
-  "processing_config_version": "processing-v1"
+  "processing_config_version": "processing-v1",
+  "parent_trace_id": "00000000-0000-4000-8000-000000000001"
 }
