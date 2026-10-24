@@ -107,3 +107,19 @@ func TestFetchArticleAcceptsPDF(t *testing.T) {
 		t.Fatalf("response=%+v err=%v", response, err)
 	}
 }
+
+func TestArticleFetchErrorClassification(t *testing.T) {
+	for _, status := range []int{0, 408, 429, 500, 503} {
+		if !RetryableArticleFetch(status, io.ErrUnexpectedEOF) {
+			t.Fatalf("HTTP %d was not retryable", status)
+		}
+	}
+	for _, status := range []int{400, 403, 404, 413} {
+		if RetryableArticleFetch(status, io.ErrUnexpectedEOF) {
+			t.Fatalf("HTTP %d was retryable", status)
+		}
+	}
+	if RetryableArticleFetch(0, ErrUnsafeArticleURL) {
+		t.Fatal("unsafe URL was retryable")
+	}
+}

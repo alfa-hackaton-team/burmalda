@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Runner struct {
@@ -41,10 +45,14 @@ func (r Runner) Run(ctx context.Context) error {
 			}
 			continue
 		}
-		result := r.Client.Process(ctx, job)
+		started := time.Now()
+		jobCtx, span := otel.Tracer("ingestion/mljobs").Start(ctx, "ml.process_job",
+			trace.WithAttributes(attribute.String("source.id", job.SourceID), attribute.String("ml_job.id", job.ID)))
+		result := r.Client.Process(jobCtx, job)
 		finishCtx, cancel := context.WithTimeout(context.Background(), finishTimeout)
 		err = r.Store.Finish(finishCtx, job, result)
 		cancel()
+		span.End()
 		if errors.Is(err, ErrLostLease) {
 			slog.Warn("discarded stale ML job result", "job_id", job.ID)
 			continue
@@ -52,8 +60,16 @@ func (r Runner) Run(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
+		status := "RETRY"
+		if result.Succeeded {
+			status = "SUCCEEDED"
+		} else if result.Permanent || (job.Attempts >= r.Store.settings().ML.MaxAttempts && !result.Pending) {
+			status = "FAILED"
+		}
+		observability.ML(status, time.Since(started))
 		slog.Info("ML job updated", "job_id", job.ID, "succeeded", result.Succeeded,
-			"permanent", result.Permanent)
+			"permanent", result.Permanent, "status", status, "source_id", job.SourceID,
+			"duration_ms", time.Since(started).Milliseconds(), "trace_id", span.SpanContext().TraceID().String())
 	}
 	return nil
 }

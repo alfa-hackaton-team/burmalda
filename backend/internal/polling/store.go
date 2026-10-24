@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -46,11 +47,21 @@ type Outcome struct {
 type EntryFailure struct {
 	EntryNo      int
 	ArticleURL   string
+	ExternalID   string
+	Title        string
+	PublishedAt  *time.Time
 	ErrorCode    string
 	ErrorMessage string
+	HTTPStatus   *int
+	RetryAfter   time.Duration
+	Retryable    bool
+	Queue        bool
 }
 
-type Store struct{ db *pgxpool.Pool }
+type Store struct {
+	db       *pgxpool.Pool
+	Settings func() config.Runtime
+}
 
 func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 
@@ -111,6 +122,19 @@ func (s *Store) Claim(ctx context.Context, leaseDuration time.Duration) (Lease, 
 	return lease, true, nil
 }
 
+func (s *Store) SetTraceID(ctx context.Context, lease Lease, traceID string) error {
+	command, err := s.db.Exec(ctx, `UPDATE source_polls AS p SET trace_id=$3
+		FROM sources AS s WHERE p.id=$1::uuid AND p.source_id=s.id
+		AND s.lease_token=$2::uuid AND p.status='RUNNING'`, lease.PollID, lease.Token, traceID)
+	if err != nil {
+		return fmt.Errorf("save poll trace ID: %w", err)
+	}
+	if command.RowsAffected() != 1 {
+		return ErrLostLease
+	}
+	return nil
+}
+
 func (s *Store) Renew(ctx context.Context, lease Lease, leaseDuration time.Duration) error {
 	if leaseDuration <= 0 {
 		return fmt.Errorf("lease duration must be positive")
@@ -130,6 +154,19 @@ func (s *Store) Renew(ctx context.Context, lease Lease, leaseDuration time.Durat
 }
 
 func (s *Store) Finish(ctx context.Context, lease Lease, result Outcome) error {
+	return s.finish(ctx, lease, &result)
+}
+
+func (s *Store) FinishResult(ctx context.Context, lease Lease, result Outcome) (Outcome, error) {
+	err := s.finish(ctx, lease, &result)
+	return result, err
+}
+
+func (s *Store) finish(ctx context.Context, lease Lease, result *Outcome) error {
+	settings := config.DefaultRuntime()
+	if s.Settings != nil {
+		settings = s.Settings()
+	}
 	if result.DiscoveredCount < 0 || result.NewArticleCount < 0 || result.NewVersionCount < 0 {
 		return fmt.Errorf("poll counts must not be negative")
 	}
@@ -195,6 +232,37 @@ func (s *Store) Finish(ctx context.Context, lease Lease, result Outcome) error {
 			VALUES ($1::uuid, $2, $3, $4, $5)`, lease.PollID, failure.EntryNo,
 			failure.ArticleURL, failure.ErrorCode, failure.ErrorMessage); err != nil {
 			return fmt.Errorf("save source entry failure: %w", err)
+		}
+		if failure.Queue {
+			if failure.ArticleURL == "" {
+				return fmt.Errorf("queued article failure needs a URL")
+			}
+			jobStatus := "DEAD"
+			delay := time.Duration(0)
+			if failure.Retryable && settings.ArticleRetry.MaxAttempts > 1 {
+				jobStatus = "RETRY"
+				delay = RetryDelay(1, failure.RetryAfter, settings)
+			}
+			_, err := tx.Exec(ctx, `INSERT INTO article_fetch_jobs
+				(source_id, article_url, external_id, title, published_at, status,
+				 attempts, next_attempt_at, last_error, last_error_code, last_http_status, completed_at)
+				VALUES ($1::uuid, $2, $3, $4, $5, $6, 1,
+				 clock_timestamp()+($7::double precision*interval '1 second'), $8, $9, $10,
+				 CASE WHEN $6='DEAD' THEN clock_timestamp() ELSE NULL END)
+				ON CONFLICT (source_id, article_url) DO UPDATE SET
+				 external_id=EXCLUDED.external_id, title=EXCLUDED.title,
+				 published_at=EXCLUDED.published_at, status=EXCLUDED.status,
+				 attempts=1, next_attempt_at=EXCLUDED.next_attempt_at,
+				 lease_token=NULL, lease_until=NULL, last_error=EXCLUDED.last_error,
+				 last_error_code=EXCLUDED.last_error_code, last_http_status=EXCLUDED.last_http_status,
+				 completed_at=EXCLUDED.completed_at, updated_at=clock_timestamp()
+				WHERE article_fetch_jobs.status='SUCCEEDED'`,
+				lease.SourceID, failure.ArticleURL, failure.ExternalID, failure.Title,
+				failure.PublishedAt, jobStatus, delay.Seconds(), failure.ErrorMessage,
+				failure.ErrorCode, failure.HTTPStatus)
+			if err != nil {
+				return fmt.Errorf("queue failed article: %w", err)
+			}
 		}
 	}
 	status := "FAILED"

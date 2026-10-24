@@ -12,6 +12,11 @@ import (
 	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 type Result struct {
@@ -134,6 +139,9 @@ func (c Client) post(ctx context.Context, job Job) Result {
 }
 
 func (c Client) do(req *http.Request) (int, []byte, time.Duration, error) {
+	ctx, span := otel.Tracer("ingestion/mljobs").Start(req.Context(), "http.ml")
+	defer span.End()
+	req = req.WithContext(ctx)
 	settings := c.settings()
 	client := c.HTTP
 	if client == nil {
@@ -144,11 +152,16 @@ func (c Client) do(req *http.Request) (int, []byte, time.Duration, error) {
 		return fmt.Errorf("ML redirect is not allowed")
 	}
 	req.Header.Set("Authorization", "Bearer "+c.Token)
+	otel.GetTextMapPropagator().Inject(ctx, propagation.HeaderCarrier(req.Header))
 	resp, err := copyClient.Do(req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "ML request failed")
 		return 0, nil, 0, err
 	}
 	defer resp.Body.Close()
+	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
+	observability.Upstream("ml", resp.StatusCode)
 	body, err := io.ReadAll(io.LimitReader(resp.Body, settings.ML.MaxResponseBytes+1))
 	if err != nil || int64(len(body)) > settings.ML.MaxResponseBytes {
 		return 0, nil, 0, fmt.Errorf("ML response is unreadable or too large")

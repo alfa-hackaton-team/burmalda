@@ -8,6 +8,10 @@ import (
 	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 type Processor interface {
@@ -37,6 +41,7 @@ func (r Runner) Run(ctx context.Context) error {
 			return err
 		}
 		if closed > 0 {
+			observability.Recovered(closed)
 			slog.Warn("recovered abandoned source polls", "count", closed)
 		}
 		lease, ok, err := r.Store.Claim(ctx, leaseDuration)
@@ -69,6 +74,17 @@ func (r Runner) settings() (time.Duration, time.Duration, int, time.Duration) {
 }
 
 func (r Runner) processOne(ctx context.Context, lease Lease, leaseDuration, finishTimeout time.Duration) error {
+	started := time.Now()
+	ctx, span := otel.Tracer("ingestion/polling").Start(ctx, "source.poll",
+		trace.WithAttributes(attribute.String("source.id", lease.SourceID), attribute.String("poll.id", lease.PollID)))
+	defer span.End()
+	traceID := ""
+	if span.SpanContext().IsValid() {
+		traceID = span.SpanContext().TraceID().String()
+		if err := r.Store.SetTraceID(ctx, lease, traceID); err != nil {
+			return err
+		}
+	}
 	pollCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	stopped := make(chan struct{})
@@ -106,14 +122,27 @@ func (r Runner) processOne(ctx context.Context, lease Lease, leaseDuration, fini
 	}
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), finishTimeout)
 	defer finishCancel()
-	if err := r.Store.Finish(finishCtx, lease, result); err != nil {
+	finished, err := r.Store.FinishResult(finishCtx, lease, result)
+	if err != nil {
 		if errors.Is(err, ErrLostLease) {
 			slog.Warn("discarded stale poll result", "source_id", lease.SourceID, "poll_id", lease.PollID)
 			return nil
 		}
 		return err
 	}
+	result = finished
+	status := "SUCCEEDED"
+	if result.Partial {
+		status = "PARTIAL"
+	} else if !result.Success {
+		status = "FAILED"
+	}
+	observability.Poll(status, time.Since(started), result.DiscoveredCount, result.NewArticleCount,
+		result.NewVersionCount, len(result.EntryFailures))
 	slog.Info("source poll completed", "source_id", lease.SourceID, "poll_id", lease.PollID,
-		"success", result.Success, "partial", result.Partial, "failed_entries", len(result.EntryFailures))
+		"trace_id", traceID, "status", status, "duration_ms", time.Since(started).Milliseconds(),
+		"http_status", result.HTTPStatus, "discovered", result.DiscoveredCount,
+		"new_articles", result.NewArticleCount, "new_versions", result.NewVersionCount,
+		"failed_entries", len(result.EntryFailures))
 	return nil
 }

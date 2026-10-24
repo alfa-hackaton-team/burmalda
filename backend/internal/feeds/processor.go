@@ -96,10 +96,16 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	}
 	materials := make([]material, 0, len(entries))
 	entryFailures := make([]polling.EntryFailure, 0)
-	addFailure := func(index int, entry Entry, code string, err error) {
+	addFailure := func(index int, entry Entry, code string, err error, response Response, retryable, queue bool) {
+		var status *int
+		if response.Status != 0 {
+			status = &response.Status
+		}
 		entryFailures = append(entryFailures, polling.EntryFailure{
 			EntryNo: index + 1, ArticleURL: entry.CanonicalURL,
-			ErrorCode: code, ErrorMessage: err.Error(),
+			ExternalID: entry.ExternalID, Title: entry.Title, PublishedAt: entry.PublishedAt,
+			ErrorCode: code, ErrorMessage: err.Error(), HTTPStatus: status,
+			RetryAfter: response.RetryAfter, Retryable: retryable, Queue: queue,
 		})
 	}
 	if adapterConfig.ArticleHTML {
@@ -112,12 +118,13 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 		}
 		for index, entry := range entries {
 			if entry.CanonicalURL == "" {
-				addFailure(index, entry, "ARTICLE_URL_MISSING", fmt.Errorf("feed entry has no article URL"))
+				addFailure(index, entry, "ARTICLE_URL_MISSING", fmt.Errorf("feed entry has no article URL"), Response{}, false, false)
 				continue
 			}
 			articleResponse, err := articleFetcher.FetchArticle(ctx, lease.Endpoint, entry.CanonicalURL)
 			if err != nil {
-				addFailure(index, entry, "ARTICLE_FETCH_FAILED", err)
+				addFailure(index, entry, "ARTICLE_FETCH_FAILED", err, articleResponse,
+					RetryableArticleFetch(articleResponse.Status, err), true)
 				continue
 			}
 			mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(articleResponse.ContentType, ";", 2)[0]))
@@ -135,11 +142,11 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 				err = fmt.Errorf("unsupported article media type")
 			}
 			if err != nil {
-				addFailure(index, entry, "ARTICLE_EXTRACTION_FAILED", err)
+				addFailure(index, entry, "ARTICLE_EXTRACTION_FAILED", err, articleResponse, false, true)
 				continue
 			}
 			if p.MaxTextBytes > 0 && len(body) > p.MaxTextBytes {
-				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes))
+				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes), articleResponse, false, true)
 				continue
 			}
 			entry.Body = body
@@ -150,7 +157,7 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 		parserVersion := lease.AdapterType + "-" + ParserVersion
 		for index, entry := range entries {
 			if p.MaxTextBytes > 0 && len(entry.Body) > p.MaxTextBytes {
-				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes))
+				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes), Response{}, false, false)
 				continue
 			}
 			materials = append(materials, material{Entry: entry, ParserVersion: parserVersion})
@@ -191,6 +198,17 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 			}
 			if createdVersion {
 				newVersions++
+			}
+			if adapterConfig.ArticleHTML {
+				_, err = tx.Exec(ctx, `UPDATE article_fetch_jobs SET status='SUCCEEDED',
+					lease_token=NULL, lease_until=NULL, completed_at=clock_timestamp(),
+					last_error=NULL, last_error_code=NULL, last_http_status=NULL,
+					updated_at=clock_timestamp()
+					WHERE source_id=$1::uuid AND article_url=$2 AND status<>'SUCCEEDED'`,
+					lease.SourceID, item.CanonicalURL)
+				if err != nil {
+					return 0, 0, fmt.Errorf("resolve article retry: %w", err)
+				}
 			}
 		}
 		return newArticles, newVersions, nil

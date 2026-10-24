@@ -3,6 +3,7 @@ package feeds
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -49,6 +50,9 @@ func (f *scriptedFetcher) FetchArticle(_ context.Context, _, articleURL string) 
 	f.seenLinks = append(f.seenLinks, articleURL)
 	response := f.articles[0]
 	f.articles = f.articles[1:]
+	if response.Status >= 400 {
+		return response, fmt.Errorf("article returned HTTP %d", response.Status)
+	}
 	return response, nil
 }
 
@@ -76,6 +80,7 @@ func TestFeedVersionsAndConditionalPolls(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM article_fetch_jobs WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM source_polls WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `UPDATE articles SET latest_version_id=NULL WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM processing_jobs WHERE article_version_id IN
@@ -182,6 +187,7 @@ func TestHTMLArticleVersionsAndOriginals(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM article_fetch_jobs WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM source_polls WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `UPDATE articles SET latest_version_id=NULL WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM processing_jobs WHERE article_version_id IN
@@ -297,6 +303,7 @@ func TestPartialArticlePollRetriesFailedEntry(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM article_fetch_jobs WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM source_polls WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `UPDATE articles SET latest_version_id=NULL WHERE source_id=$1::uuid`, sourceID)
 		_, _ = pool.Exec(context.Background(), `DELETE FROM processing_jobs WHERE article_version_id IN

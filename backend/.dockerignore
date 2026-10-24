@@ -1,0 +1,7 @@
+.git
+.env
+.env.*
+config.yaml
+*.log
+test-results/
+observability/grafana/dashboards/

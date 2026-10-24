@@ -3,6 +3,7 @@ package feeds
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -14,12 +15,28 @@ import (
 	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const MaxFeedBytes int64 = 4 << 20
 const MaxArticleBytes int64 = 4 << 20
+
+var ErrUnsafeArticleURL = errors.New("article URL is outside the source host")
+
+func RetryableArticleFetch(status int, err error) bool {
+	if errors.Is(err, ErrUnsafeArticleURL) {
+		return false
+	}
+	if status == 0 {
+		return true
+	}
+	return status == http.StatusRequestTimeout || status == http.StatusTooManyRequests || status >= 500
+}
 
 type Response struct {
 	Status       int
@@ -100,7 +117,7 @@ func (f *SafeFetcher) FetchArticle(ctx context.Context, feedURL, articleURL stri
 	u, err := url.Parse(articleURL)
 	if feedErr != nil || err != nil || validateURL(feed) != nil || validateURL(u) != nil || !sameHost(feed, u) ||
 		(feed.Scheme == "https" && u.Scheme != "https") {
-		return Response{}, fmt.Errorf("article URL is outside the source host")
+		return Response{}, ErrUnsafeArticleURL
 	}
 	response, err := f.fetch(ctx, u, "text/html, application/xhtml+xml, application/pdf", f.options().Feeds.MaxArticleBytes, nil, nil, feed.Host)
 	if err != nil {
@@ -125,6 +142,13 @@ func sameHost(a, b *url.URL) bool {
 }
 
 func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxBytes int64, etag, modified *string, allowedHost string) (Response, error) {
+	upstreamName := "feed"
+	if allowedHost != "" {
+		upstreamName = "article"
+	}
+	ctx, span := otel.Tracer("ingestion/feeds").Start(ctx, "http.fetch."+upstreamName)
+	defer span.End()
+	span.SetAttributes(attribute.String("server.address", u.Hostname()))
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
 	if err != nil {
 		return Response{}, fmt.Errorf("build source request: %w", err)
@@ -142,15 +166,22 @@ func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxB
 		if len(via) >= f.options().Feeds.MaxRedirects || validateURL(req.URL) != nil ||
 			(allowedHost != "" && (!strings.EqualFold(req.URL.Host, allowedHost) ||
 				(u.Scheme == "https" && req.URL.Scheme != "https"))) {
-			return fmt.Errorf("unsafe source redirect")
+			return ErrUnsafeArticleURL
 		}
 		return nil
 	}
 	resp, err := client.Do(req)
 	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "source request failed")
+		if errors.Is(err, ErrUnsafeArticleURL) {
+			return Response{}, ErrUnsafeArticleURL
+		}
 		return Response{}, fmt.Errorf("source request failed")
 	}
 	defer resp.Body.Close()
+	span.SetAttributes(attribute.Int("http.response.status_code", resp.StatusCode))
+	observability.Upstream(upstreamName, resp.StatusCode)
 	result := Response{
 		Status:       resp.StatusCode,
 		ETag:         resp.Header.Get("ETag"),

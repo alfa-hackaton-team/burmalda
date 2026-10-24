@@ -10,6 +10,14 @@ source_poll:
   idle: 5s
   reap_batch: 100
   finish_timeout: 5s
+article_retry:
+  idle: 5s
+  lease: 2m
+  finish_timeout: 5s
+  max_attempts: 5
+  retry_step: 30s
+  retry_max: 15m
+  retry_after_max: 24h
 feeds:
   max_feed_bytes: 4194304
   max_article_bytes: 4194304

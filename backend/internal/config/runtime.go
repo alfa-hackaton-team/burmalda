@@ -47,6 +47,15 @@ type Runtime struct {
 		ReapBatch     int      `yaml:"reap_batch"`
 		FinishTimeout Duration `yaml:"finish_timeout"`
 	} `yaml:"source_poll"`
+	ArticleRetry struct {
+		Idle          Duration `yaml:"idle"`
+		Lease         Duration `yaml:"lease"`
+		FinishTimeout Duration `yaml:"finish_timeout"`
+		MaxAttempts   int      `yaml:"max_attempts"`
+		RetryStep     Duration `yaml:"retry_step"`
+		RetryMax      Duration `yaml:"retry_max"`
+		RetryAfterMax Duration `yaml:"retry_after_max"`
+	} `yaml:"article_retry"`
 	Feeds struct {
 		MaxFeedBytes          int64    `yaml:"max_feed_bytes"`
 		MaxArticleBytes       int64    `yaml:"max_article_bytes"`
@@ -86,6 +95,9 @@ func DefaultRuntime() Runtime {
 	r.Server.ReadHeaderTimeout, r.Server.ReadinessTimeout, r.Server.ShutdownTimeout = Duration(5*time.Second), Duration(2*time.Second), Duration(10*time.Second)
 	r.SourcePoll.Lease, r.SourcePoll.Idle = Duration(2*time.Minute), Duration(5*time.Second)
 	r.SourcePoll.ReapBatch, r.SourcePoll.FinishTimeout = 100, Duration(5*time.Second)
+	r.ArticleRetry.Idle, r.ArticleRetry.Lease, r.ArticleRetry.FinishTimeout = Duration(5*time.Second), Duration(2*time.Minute), Duration(5*time.Second)
+	r.ArticleRetry.MaxAttempts = 5
+	r.ArticleRetry.RetryStep, r.ArticleRetry.RetryMax, r.ArticleRetry.RetryAfterMax = Duration(30*time.Second), Duration(15*time.Minute), Duration(24*time.Hour)
 	r.Feeds.MaxFeedBytes, r.Feeds.MaxArticleBytes = 4<<20, 4<<20
 	r.Feeds.MaxEntries, r.Feeds.MaxArticleEntries = 500, 20
 	r.Feeds.MaxPDFPages, r.Feeds.MaxPDFTextBytes = 100, 4<<20
@@ -112,7 +124,11 @@ func (r Runtime) validate() error {
 		"server.shutdown_timeout":    r.Server.ShutdownTimeout,
 		"source_poll.lease":          r.SourcePoll.Lease, "source_poll.idle": r.SourcePoll.Idle,
 		"source_poll.finish_timeout": r.SourcePoll.FinishTimeout,
-		"feeds.request_timeout":      r.Feeds.RequestTimeout, "feeds.dns_lookup_timeout": r.Feeds.DNSLookupTimeout,
+		"article_retry.idle":         r.ArticleRetry.Idle, "article_retry.lease": r.ArticleRetry.Lease,
+		"article_retry.finish_timeout": r.ArticleRetry.FinishTimeout,
+		"article_retry.retry_step":     r.ArticleRetry.RetryStep, "article_retry.retry_max": r.ArticleRetry.RetryMax,
+		"article_retry.retry_after_max": r.ArticleRetry.RetryAfterMax,
+		"feeds.request_timeout":         r.Feeds.RequestTimeout, "feeds.dns_lookup_timeout": r.Feeds.DNSLookupTimeout,
 		"feeds.dial_timeout": r.Feeds.DialTimeout, "feeds.tls_handshake_timeout": r.Feeds.TLSHandshakeTimeout,
 		"feeds.response_header_timeout": r.Feeds.ResponseHeaderTimeout, "feeds.idle_conn_timeout": r.Feeds.IdleConnTimeout,
 		"feeds.retry_after_max": r.Feeds.RetryAfterMax,
@@ -131,6 +147,12 @@ func (r Runtime) validate() error {
 	if r.SourcePoll.Lease < Duration(3*time.Second) || r.SourcePoll.FinishTimeout >= r.SourcePoll.Lease ||
 		r.SourcePoll.ReapBatch < 1 || r.SourcePoll.ReapBatch > 1000 {
 		return fmt.Errorf("invalid source_poll lease or reap_batch")
+	}
+	if r.ArticleRetry.MaxAttempts < 1 || r.ArticleRetry.MaxAttempts > 10000 ||
+		r.ArticleRetry.RetryMax < r.ArticleRetry.RetryStep ||
+		r.ArticleRetry.RetryAfterMax < r.ArticleRetry.RetryMax ||
+		r.ArticleRetry.Lease <= r.Feeds.RequestTimeout+r.ArticleRetry.FinishTimeout {
+		return fmt.Errorf("invalid article_retry attempts, delay or lease")
 	}
 	if r.Feeds.MaxFeedBytes < 1 || r.Feeds.MaxFeedBytes > 1<<30 ||
 		r.Feeds.MaxArticleBytes < 1 || r.Feeds.MaxArticleBytes > 1<<30 ||

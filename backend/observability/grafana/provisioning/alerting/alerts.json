@@ -1,0 +1,461 @@
+{
+  "apiVersion": 1,
+  "groups": [
+    {
+      "orgId": 1,
+      "name": "Source ingestion",
+      "folder": "Ingestion",
+      "interval": "1m",
+      "rules": [
+        {
+          "uid": "ingestion-worker-down",
+          "title": "Воркер недоступен",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "1 - min(up{job=\"worker\"})",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Error",
+          "for": "2m",
+          "labels": {
+            "severity": "critical",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Воркер недоступен"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 1
+        },
+        {
+          "uid": "ingestion-observer-down",
+          "title": "Не собирается состояние БД",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "1 - ingestion_observer_db_up",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Error",
+          "for": "2m",
+          "labels": {
+            "severity": "critical",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Не собирается состояние БД"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 6
+        },
+        {
+          "uid": "ingestion-sources-stale",
+          "title": "Источники долго не опрашивались",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "ingestion_sources_stale",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Error",
+          "for": "5m",
+          "labels": {
+            "severity": "warning",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Источники долго не опрашивались"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 2
+        },
+        {
+          "uid": "ingestion-articles-dead",
+          "title": "Есть статьи DEAD",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "ingestion_article_fetch_jobs{status=\"DEAD\"}",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 0",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Error",
+          "for": "1m",
+          "labels": {
+            "severity": "warning",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Есть статьи DEAD"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 4
+        },
+        {
+          "uid": "ingestion-article-backlog",
+          "title": "Очередь статей отстаёт",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "ingestion_article_job_due_age_max_seconds",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 900",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Error",
+          "for": "5m",
+          "labels": {
+            "severity": "warning",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Очередь статей отстаёт"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 5
+        },
+        {
+          "uid": "ingestion-ml-backlog",
+          "title": "Очередь ML отстаёт",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "ingestion_processing_job_due_age_max_seconds",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 900",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "Alerting",
+          "execErrState": "Error",
+          "for": "5m",
+          "labels": {
+            "severity": "warning",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Очередь ML отстаёт"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 14
+        },
+        {
+          "uid": "ingestion-poll-errors",
+          "title": "Повторяются неудачные опросы",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "sum(increase(ingestion_source_polls_total{status=~\"FAILED|PARTIAL\"}[3h])) or vector(0)",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 2",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "for": "5m",
+          "labels": {
+            "severity": "warning",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Повторяются неудачные опросы"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 7
+        },
+        {
+          "uid": "ingestion-rate-limits",
+          "title": "Повторяются ответы 429/503",
+          "condition": "B",
+          "data": [
+            {
+              "refId": "A",
+              "datasourceUid": "prometheus",
+              "relativeTimeRange": {
+                "from": 3600,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "prometheus",
+                  "uid": "prometheus"
+                },
+                "expr": "sum(increase(ingestion_upstream_http_responses_total{status=~\"429|503\"}[30m])) or vector(0)",
+                "instant": true,
+                "range": false,
+                "intervalMs": 1000,
+                "maxDataPoints": 43200,
+                "refId": "A"
+              }
+            },
+            {
+              "refId": "B",
+              "datasourceUid": "__expr__",
+              "relativeTimeRange": {
+                "from": 0,
+                "to": 0
+              },
+              "model": {
+                "datasource": {
+                  "type": "__expr__",
+                  "uid": "__expr__"
+                },
+                "expression": "$A > 5",
+                "type": "math",
+                "refId": "B"
+              }
+            }
+          ],
+          "noDataState": "OK",
+          "execErrState": "Error",
+          "for": "5m",
+          "labels": {
+            "severity": "warning",
+            "component": "ingestion"
+          },
+          "annotations": {
+            "summary": "Повторяются ответы 429/503"
+          },
+          "dashboardUid": "ingestion-overview",
+          "panelId": 11
+        }
+      ]
+    }
+  ]
+}

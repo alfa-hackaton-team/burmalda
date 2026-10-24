@@ -53,6 +53,8 @@ func TestRuntimeYAMLRejectsUnknownAndMalformedValues(t *testing.T) {
 		"feeds:\n  request_timeout: 0s\n",
 		"feeds:\n  request_timeout: 10\n",
 		"feeds:\n  max_article_entries: 600\n",
+		"article_retry:\n  max_attempts: 0\n",
+		"article_retry:\n  lease: 10s\n",
 		"feeds:\n  max_entries: 3\n---\nfeeds:\n  max_entries: 4\n",
 	} {
 		if err := os.WriteFile(path, []byte(data), 0600); err != nil {
