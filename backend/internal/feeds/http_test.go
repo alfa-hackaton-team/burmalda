@@ -9,8 +9,26 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
 )
+
+func TestSafeFetcherUsesConfiguredLimitAndUserAgent(t *testing.T) {
+	settings := config.DefaultRuntime()
+	settings.Feeds.MaxFeedBytes = 5
+	settings.Feeds.UserAgent = "test-agent"
+	fetcher := NewSafeFetcherWithSettings(nil, settings)
+	fetcher.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.Header.Get("User-Agent") != "test-agent" {
+			t.Fatalf("user agent=%q", req.Header.Get("User-Agent"))
+		}
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader("123456"))}, nil
+	})
+	defer fetcher.CloseIdleConnections()
+	if _, err := fetcher.Fetch(context.Background(), polling.Lease{Endpoint: "https://example.com/feed"}); err == nil {
+		t.Fatal("configured feed byte limit ignored")
+	}
+}
 
 type fakeResolver struct{ addresses []net.IPAddr }
 
@@ -72,6 +90,20 @@ func TestFetchArticleRestrictsHostAndContentType(t *testing.T) {
 	}
 	response, err := fetcher.FetchArticle(context.Background(), "https://example.com/feed", "https://example.com/story")
 	if err != nil || string(response.Body) != "<article>Story</article>" {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
+}
+
+func TestFetchArticleAcceptsPDF(t *testing.T) {
+	fetcher := &SafeFetcher{client: &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if !strings.Contains(req.Header.Get("Accept"), "application/pdf") {
+			t.Fatalf("PDF accept header missing: %q", req.Header.Get("Accept"))
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/pdf"}},
+			Body: io.NopCloser(strings.NewReader("%PDF-sample"))}, nil
+	})}, maxBytes: MaxFeedBytes}
+	response, err := fetcher.FetchArticle(context.Background(), "https://example.com/feed", "https://example.com/story.pdf")
+	if err != nil || response.ContentType != "application/pdf" {
 		t.Fatalf("response=%+v err=%v", response, err)
 	}
 }

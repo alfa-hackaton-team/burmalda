@@ -6,6 +6,26 @@ import (
 	"testing"
 )
 
+func TestExtractConfiguredArticleBody(t *testing.T) {
+	htmlBody := []byte(`<html><body><nav>Menu text</nav><div id="article">
+		<div class="heading"><h3>Repeated title</h3></div>
+		<div class="col-xs-12 col-sm-4"></div>
+		<div class="col-xs-12 col-sm-8"><p>Full release body with details.</p></div>
+		</div><footer>Footer text</footer></body></html>`)
+	body, err := ExtractArticleHTMLWithOptions(htmlBody, "text/html", "article", []string{"heading"})
+	if err != nil || body != "Full release body with details." {
+		t.Fatalf("body=%q err=%v", body, err)
+	}
+	if _, err := ExtractArticleHTMLWithOptions(htmlBody, "text/html", "missing", nil); err == nil {
+		t.Fatal("missing configured container accepted")
+	}
+	first := ArticleHTMLParserVersionForOptions("article", []string{"heading", "share"})
+	if first == ArticleHTMLParserVersion || first != ArticleHTMLParserVersionForOptions("article", []string{"share", "heading"}) ||
+		first == ArticleHTMLParserVersionForOptions("story", []string{"heading", "share"}) {
+		t.Fatalf("unexpected parser version %q", first)
+	}
+}
+
 func TestExtractArticleHTMLIgnoresNavigation(t *testing.T) {
 	original, err := os.ReadFile("testdata/article.html")
 	if err != nil {

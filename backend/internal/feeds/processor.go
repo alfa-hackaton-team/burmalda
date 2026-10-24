@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/jackc/pgx/v5"
@@ -19,6 +20,7 @@ type Processor struct {
 	Fetcher         Fetcher
 	PipelineVersion string
 	MaxTextBytes    int
+	Limits          *config.Runtime
 }
 
 type ArticleFetcher interface {
@@ -27,13 +29,18 @@ type ArticleFetcher interface {
 
 type material struct {
 	Entry
-	Raw         []byte
-	ContentType string
+	Raw           []byte
+	ContentType   string
+	ParserVersion string
 }
 
 const MaxArticleEntries = 20
 
 func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outcome, error) {
+	limits := config.DefaultRuntime()
+	if p.Limits != nil {
+		limits = *p.Limits
+	}
 	if p.Fetcher == nil {
 		return polling.Outcome{}, fmt.Errorf("feed fetcher is not configured")
 	}
@@ -83,71 +90,99 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	default:
 		return result, fmt.Errorf("source returned HTTP %d", response.Status)
 	}
-	entries, err := ParseWithOptions(response.Body, lease.Endpoint, lease.AdapterType, adapterConfig.ArticleHTML)
+	entries, err := ParseWithLimit(response.Body, lease.Endpoint, lease.AdapterType, adapterConfig.ArticleHTML, limits.Feeds.MaxEntries)
 	if err != nil {
 		return result, err
 	}
 	materials := make([]material, 0, len(entries))
+	entryFailures := make([]polling.EntryFailure, 0)
+	addFailure := func(index int, entry Entry, code string, err error) {
+		entryFailures = append(entryFailures, polling.EntryFailure{
+			EntryNo: index + 1, ArticleURL: entry.CanonicalURL,
+			ErrorCode: code, ErrorMessage: err.Error(),
+		})
+	}
 	if adapterConfig.ArticleHTML {
 		articleFetcher, ok := p.Fetcher.(ArticleFetcher)
 		if !ok {
 			return result, fmt.Errorf("article HTML fetcher is not configured")
 		}
-		if len(entries) > MaxArticleEntries {
-			return result, fmt.Errorf("HTML feed exceeds %d article links", MaxArticleEntries)
+		if len(entries) > limits.Feeds.MaxArticleEntries {
+			return result, fmt.Errorf("HTML feed exceeds %d article links", limits.Feeds.MaxArticleEntries)
 		}
-		for _, entry := range entries {
+		for index, entry := range entries {
 			if entry.CanonicalURL == "" {
-				return result, fmt.Errorf("HTML feed entry has no article URL")
+				addFailure(index, entry, "ARTICLE_URL_MISSING", fmt.Errorf("feed entry has no article URL"))
+				continue
 			}
 			articleResponse, err := articleFetcher.FetchArticle(ctx, lease.Endpoint, entry.CanonicalURL)
 			if err != nil {
-				return result, err
+				addFailure(index, entry, "ARTICLE_FETCH_FAILED", err)
+				continue
 			}
-			body, err := ExtractArticleHTML(articleResponse.Body, articleResponse.ContentType)
+			mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(articleResponse.ContentType, ";", 2)[0]))
+			var body, parserVersion string
+			switch mediaType {
+			case "text/html", "application/xhtml+xml":
+				body, err = ExtractArticleHTMLWithOptions(articleResponse.Body, articleResponse.ContentType,
+					adapterConfig.ArticleContainerID, adapterConfig.ArticleExcludeClasses)
+				parserVersion = ArticleHTMLParserVersionForOptions(adapterConfig.ArticleContainerID,
+					adapterConfig.ArticleExcludeClasses)
+			case "application/pdf":
+				body, err = ExtractArticlePDFWithLimits(articleResponse.Body, limits.Feeds.MaxPDFPages, limits.Feeds.MaxPDFTextBytes)
+				parserVersion = ArticlePDFParserVersion
+			default:
+				err = fmt.Errorf("unsupported article media type")
+			}
 			if err != nil {
-				return result, err
+				addFailure(index, entry, "ARTICLE_EXTRACTION_FAILED", err)
+				continue
+			}
+			if p.MaxTextBytes > 0 && len(body) > p.MaxTextBytes {
+				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes))
+				continue
 			}
 			entry.Body = body
 			materials = append(materials, material{Entry: entry, Raw: articleResponse.Body,
-				ContentType: articleResponse.ContentType})
+				ContentType: articleResponse.ContentType, ParserVersion: parserVersion})
 		}
 	} else {
-		for _, entry := range entries {
-			materials = append(materials, material{Entry: entry})
-		}
-	}
-	if p.MaxTextBytes > 0 {
-		for _, item := range materials {
-			if len(item.Body) > p.MaxTextBytes {
-				return result, fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes)
+		parserVersion := lease.AdapterType + "-" + ParserVersion
+		for index, entry := range entries {
+			if p.MaxTextBytes > 0 && len(entry.Body) > p.MaxTextBytes {
+				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes))
+				continue
 			}
+			materials = append(materials, material{Entry: entry, ParserVersion: parserVersion})
 		}
 	}
 	if len(response.ETag) > 1024 || len(response.LastModified) > 1024 {
 		return result, fmt.Errorf("source HTTP validator is too large")
 	}
-	result.Success = true
+	result.Success = len(entryFailures) == 0 || len(materials) > 0
+	result.Partial = len(entryFailures) > 0 && len(materials) > 0
+	result.EntryFailures = entryFailures
+	if len(entryFailures) > 0 {
+		result.Error = fmt.Sprintf("%d of %d feed entries failed", len(entryFailures), len(entries))
+	}
 	result.DiscoveredCount = len(entries)
 	fetchedAt := time.Now().UTC()
-	parserVersion := lease.AdapterType + "-" + ParserVersion
-	if adapterConfig.ArticleHTML {
-		parserVersion = ArticleHTMLParserVersion
-	}
 	result.Persist = func(ctx context.Context, tx pgx.Tx) (int, int, error) {
 		feedArtifactID, err := saveFeedSnapshot(ctx, tx, lease.SourceID, lease.AdapterType, response.Body)
 		if err != nil {
 			return 0, 0, err
 		}
-		_, err = tx.Exec(ctx, `UPDATE sources SET http_etag=$2, http_last_modified=$3
-			WHERE id=$1::uuid`, lease.SourceID,
-			nullIfEmpty(response.ETag), nullIfEmpty(response.LastModified))
-		if err != nil {
-			return 0, 0, fmt.Errorf("save feed HTTP validators: %w", err)
+		if len(entryFailures) == 0 {
+			_, err = tx.Exec(ctx, `UPDATE sources SET http_etag=$2, http_last_modified=$3
+				WHERE id=$1::uuid`, lease.SourceID,
+				nullIfEmpty(response.ETag), nullIfEmpty(response.LastModified))
+			if err != nil {
+				return 0, 0, fmt.Errorf("save feed HTTP validators: %w", err)
+			}
 		}
 		var newArticles, newVersions int
 		for _, item := range materials {
-			createdArticle, createdVersion, err := saveEntry(ctx, tx, lease, feedArtifactID, fetchedAt, parserVersion, item, p.PipelineVersion)
+			createdArticle, createdVersion, err := saveEntry(ctx, tx, lease, feedArtifactID, fetchedAt, item.ParserVersion, item, p.PipelineVersion)
 			if err != nil {
 				return 0, 0, err
 			}

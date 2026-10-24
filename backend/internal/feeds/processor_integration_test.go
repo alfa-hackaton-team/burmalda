@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/migrate"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/mljobs"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
@@ -19,6 +20,22 @@ type scriptedFetcher struct {
 	seen      []polling.Lease
 	articles  []Response
 	seenLinks []string
+}
+
+func TestProcessorUsesConfiguredArticleLimit(t *testing.T) {
+	feed := []byte(`<rss><channel>
+		<item><guid>one</guid><link>https://example.com/one</link></item>
+		<item><guid>two</guid><link>https://example.com/two</link></item>
+		</channel></rss>`)
+	fetcher := &scriptedFetcher{responses: []Response{{Status: 200, Body: feed}}}
+	settings := config.DefaultRuntime()
+	settings.Feeds.MaxArticleEntries = 1
+	_, err := (Processor{Fetcher: fetcher, Limits: &settings}).Poll(context.Background(), polling.Lease{
+		Endpoint: "https://example.com/feed.xml", AdapterType: "rss", AdapterConfig: []byte(`{"article_html":true}`),
+	})
+	if err == nil || !strings.Contains(err.Error(), "exceeds 1 article links") {
+		t.Fatalf("configured limit ignored: %v", err)
+	}
 }
 
 func (f *scriptedFetcher) Fetch(_ context.Context, lease polling.Lease) (Response, error) {
@@ -253,5 +270,122 @@ func TestHTMLArticleVersionsAndOriginals(t *testing.T) {
 	}
 	if status != "SUCCEEDED" || documentID != "document-test" || string(eventIDs) != "[]" {
 		t.Fatalf("job status=%q document=%q events=%s", status, documentID, eventIDs)
+	}
+}
+
+func TestPartialArticlePollRetriesFailedEntry(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := migrate.Run(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	var sourceID string
+	if err := pool.QueryRow(ctx, `INSERT INTO sources
+		(name, source_type, source_role, trust_level, adapter_type, endpoint,
+		 adapter_config, polling_interval_seconds)
+		VALUES ('partial-test', 'news', 'external', 'reviewed', 'rss',
+		'https://example.com/feed.xml', '{"article_html":true,"article_container_id":"story","article_exclude_classes":["heading"]}', 60)
+		RETURNING id::text`).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM source_polls WHERE source_id=$1::uuid`, sourceID)
+		_, _ = pool.Exec(context.Background(), `UPDATE articles SET latest_version_id=NULL WHERE source_id=$1::uuid`, sourceID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM processing_jobs WHERE article_version_id IN
+			(SELECT id FROM article_versions WHERE source_id=$1::uuid)`, sourceID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM article_versions WHERE source_id=$1::uuid`, sourceID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM articles WHERE source_id=$1::uuid`, sourceID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM raw_artifacts WHERE source_id=$1::uuid`, sourceID)
+		_, _ = pool.Exec(context.Background(), `DELETE FROM sources WHERE id=$1::uuid`, sourceID)
+	}()
+	feed := []byte(`<rss><channel>
+		<item><guid>one</guid><link>https://example.com/one</link><title>One</title></item>
+		<item><guid>two</guid><link>https://example.com/two.pdf</link><title>Two</title></item>
+		<item><guid>three</guid><link>https://example.com/three</link><title>Three</title></item>
+		</channel></rss>`)
+	pdfBody, err := os.ReadFile("testdata/article.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	htmlBody := []byte("<html><div id=story><div class=heading>Repeated title</div><p>Complete article text</p></div></html>")
+	fetcher := &scriptedFetcher{
+		responses: []Response{{Status: 200, Body: feed, ETag: `"first"`},
+			{Status: 200, Body: feed, ETag: `"second"`}},
+		articles: []Response{
+			{Status: 200, Body: htmlBody, ContentType: "text/html"},
+			{Status: 200, Body: pdfBody, ContentType: "application/pdf"},
+			{Status: 200, Body: []byte("bad"), ContentType: "image/png"},
+			{Status: 200, Body: htmlBody, ContentType: "text/html"},
+			{Status: 200, Body: pdfBody, ContentType: "application/pdf"},
+			{Status: 200, Body: htmlBody, ContentType: "text/html"},
+		},
+	}
+	store := polling.NewStore(pool)
+	for attempt := 0; attempt < 2; attempt++ {
+		if attempt > 0 {
+			if _, err := pool.Exec(ctx, `UPDATE sources SET next_poll_at=clock_timestamp()-interval '1 second'
+				WHERE id=$1::uuid`, sourceID); err != nil {
+				t.Fatal(err)
+			}
+		}
+		lease, ok, err := store.Claim(ctx, time.Minute)
+		if err != nil || !ok {
+			t.Fatalf("claim %d: ok=%v err=%v", attempt, ok, err)
+		}
+		outcome, err := (Processor{Fetcher: fetcher}).Poll(ctx, lease)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := store.Finish(ctx, lease, outcome); err != nil {
+			t.Fatal(err)
+		}
+		var status, health string
+		var articles, versions, failed int
+		var etag *string
+		if err := pool.QueryRow(ctx, `SELECT p.status, p.new_article_count, p.new_version_count,
+			p.failed_entry_count, s.health, s.http_etag FROM source_polls p
+			JOIN sources s ON s.id=p.source_id WHERE p.id=$1::uuid`, lease.PollID).Scan(
+			&status, &articles, &versions, &failed, &health, &etag); err != nil {
+			t.Fatal(err)
+		}
+		if attempt == 0 {
+			if status != "PARTIAL" || articles != 2 || versions != 2 || failed != 1 || health != "DEGRADED" || etag != nil {
+				t.Fatalf("first poll: status=%s articles=%d versions=%d failed=%d health=%s etag=%v", status, articles, versions, failed, health, etag)
+			}
+			var url, status, code string
+			if err := pool.QueryRow(ctx, `SELECT article_url, status, error_code FROM source_poll_entry_failures
+				WHERE poll_id=$1::uuid`, lease.PollID).Scan(&url, &status, &code); err != nil || url != "https://example.com/three" || status != "FAILED" || code != "ARTICLE_EXTRACTION_FAILED" {
+				t.Fatalf("failed entry: url=%q status=%q code=%q err=%v", url, status, code, err)
+			}
+		} else if status != "SUCCEEDED" || articles != 1 || versions != 1 || failed != 0 || health != "HEALTHY" || etag == nil || *etag != `"second"` {
+			t.Fatalf("second poll: status=%s articles=%d versions=%d failed=%d health=%s etag=%v", status, articles, versions, failed, health, etag)
+		}
+	}
+	var pdfText, contentType, parserVersion string
+	if err := pool.QueryRow(ctx, `SELECT v.body_text, r.content_type, v.parser_version
+		FROM article_versions v JOIN raw_artifacts r ON r.id=v.raw_artifact_id
+		JOIN articles a ON a.id=v.article_id WHERE a.source_id=$1::uuid AND a.identity_key='two'`,
+		sourceID).Scan(&pdfText, &contentType, &parserVersion); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(pdfText, "Sample PDF article text") || contentType != "application/pdf" || parserVersion != ArticlePDFParserVersion {
+		t.Fatalf("PDF was not saved correctly: body=%q type=%q parser=%q", pdfText, contentType, parserVersion)
+	}
+	var htmlText, htmlParser string
+	if err := pool.QueryRow(ctx, `SELECT v.body_text, v.parser_version
+		FROM article_versions v JOIN articles a ON a.id=v.article_id
+		WHERE a.source_id=$1::uuid AND a.identity_key='one'`, sourceID).Scan(&htmlText, &htmlParser); err != nil {
+		t.Fatal(err)
+	}
+	if htmlText != "Complete article text" || htmlParser != ArticleHTMLParserVersionForOptions("story", []string{"heading"}) {
+		t.Fatalf("configured HTML extraction: body=%q parser=%q", htmlText, htmlParser)
 	}
 }

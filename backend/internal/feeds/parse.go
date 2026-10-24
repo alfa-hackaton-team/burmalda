@@ -98,6 +98,10 @@ func Parse(data []byte, feedURL, adapterType string) ([]Entry, error) {
 }
 
 func ParseWithOptions(data []byte, feedURL, adapterType string, allowEmptyBody bool) ([]Entry, error) {
+	return ParseWithLimit(data, feedURL, adapterType, allowEmptyBody, MaxEntries)
+}
+
+func ParseWithLimit(data []byte, feedURL, adapterType string, allowEmptyBody bool, maxEntries int) ([]Entry, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	decoder.CharsetReader = charset.NewReaderLabel
 	var root xml.StartElement
@@ -127,8 +131,8 @@ func ParseWithOptions(data []byte, feedURL, adapterType string, allowEmptyBody b
 		if feed.Channel == nil {
 			return nil, fmt.Errorf("RSS channel is missing")
 		}
-		if len(feed.Channel.Items) > MaxEntries {
-			return nil, fmt.Errorf("RSS feed exceeds %d entries", MaxEntries)
+		if len(feed.Channel.Items) > maxEntries {
+			return nil, fmt.Errorf("RSS feed exceeds %d entries", maxEntries)
 		}
 		for i, item := range feed.Channel.Items {
 			body := item.Content
@@ -149,8 +153,8 @@ func ParseWithOptions(data []byte, feedURL, adapterType string, allowEmptyBody b
 		if err := decoder.DecodeElement(&feed, &root); err != nil {
 			return nil, fmt.Errorf("parse Atom: %w", err)
 		}
-		if len(feed.Entries) > MaxEntries {
-			return nil, fmt.Errorf("Atom feed exceeds %d entries", MaxEntries)
+		if len(feed.Entries) > maxEntries {
+			return nil, fmt.Errorf("Atom feed exceeds %d entries", maxEntries)
 		}
 		for i, item := range feed.Entries {
 			if item.Content.Src != "" {

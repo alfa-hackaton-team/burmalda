@@ -31,6 +31,7 @@ type Lease struct {
 
 type Outcome struct {
 	Success         bool
+	Partial         bool
 	HTTPStatus      *int
 	DiscoveredCount int
 	NewArticleCount int
@@ -38,7 +39,15 @@ type Outcome struct {
 	CursorAfter     *string
 	Error           string
 	RetryAfter      time.Duration
+	EntryFailures   []EntryFailure
 	Persist         func(context.Context, pgx.Tx) (newArticles, newVersions int, err error)
+}
+
+type EntryFailure struct {
+	EntryNo      int
+	ArticleURL   string
+	ErrorCode    string
+	ErrorMessage string
 }
 
 type Store struct{ db *pgxpool.Pool }
@@ -130,6 +139,12 @@ func (s *Store) Finish(ctx context.Context, lease Lease, result Outcome) error {
 	if result.RetryAfter < 0 {
 		return fmt.Errorf("retry delay must not be negative")
 	}
+	if result.Partial && (!result.Success || len(result.EntryFailures) == 0) {
+		return fmt.Errorf("partial poll requires saved entries and entry failures")
+	}
+	if result.Partial && result.Error == "" {
+		return fmt.Errorf("partial poll requires an error summary")
+	}
 	if !result.Success && result.Error == "" {
 		result.Error = "source poll failed"
 	}
@@ -153,7 +168,7 @@ func (s *Store) Finish(ctx context.Context, lease Lease, result Outcome) error {
 	if currentToken == nil || *currentToken != lease.Token || !valid {
 		return ErrLostLease
 	}
-	if result.Success && result.Persist != nil {
+	if result.Persist != nil {
 		newArticles, newVersions, err := result.Persist(ctx, tx)
 		if err != nil {
 			return fmt.Errorf("persist poll results: %w", err)
@@ -171,21 +186,36 @@ func (s *Store) Finish(ctx context.Context, lease Lease, result Outcome) error {
 	if !valid {
 		return ErrLostLease
 	}
+	for _, failure := range result.EntryFailures {
+		if failure.EntryNo < 1 || failure.ErrorCode == "" || failure.ErrorMessage == "" {
+			return fmt.Errorf("invalid source entry failure")
+		}
+		if _, err := tx.Exec(ctx, `INSERT INTO source_poll_entry_failures
+			(poll_id, entry_no, article_url, error_code, error_message)
+			VALUES ($1::uuid, $2, $3, $4, $5)`, lease.PollID, failure.EntryNo,
+			failure.ArticleURL, failure.ErrorCode, failure.ErrorMessage); err != nil {
+			return fmt.Errorf("save source entry failure: %w", err)
+		}
+	}
 	status := "FAILED"
 	var errorMessage *string
 	if result.Success {
 		status = "SUCCEEDED"
+		if result.Partial {
+			status = "PARTIAL"
+			errorMessage = &result.Error
+		}
 	} else {
 		errorMessage = &result.Error
 	}
 	command, err := tx.Exec(ctx, `UPDATE source_polls SET
 		status=$3, finished_at=clock_timestamp(), http_status=$4,
 		discovered_count=$5, new_article_count=$6, new_version_count=$7,
-		cursor_after=$8, error_message=$9
+		cursor_after=$8, error_message=$9, failed_entry_count=$10
 		WHERE id=$1::uuid AND source_id=$2::uuid AND status='RUNNING'`,
 		lease.PollID, lease.SourceID, status, result.HTTPStatus,
 		result.DiscoveredCount, result.NewArticleCount, result.NewVersionCount,
-		result.CursorAfter, errorMessage)
+		result.CursorAfter, errorMessage, len(result.EntryFailures))
 	if err != nil {
 		return fmt.Errorf("finish poll record: %w", err)
 	}
@@ -197,13 +227,13 @@ func (s *Store) Finish(ctx context.Context, lease Lease, result Outcome) error {
 		next_poll_at=clock_timestamp() +
 			(GREATEST(polling_interval_seconds::double precision, $5::double precision) * interval '1 second'),
 		last_sync_at=clock_timestamp(),
-		last_success_at=CASE WHEN $2::boolean THEN clock_timestamp() ELSE last_success_at END,
-		health=CASE WHEN $2::boolean THEN 'HEALTHY' ELSE 'DEGRADED' END,
+		last_success_at=CASE WHEN $2::boolean AND NOT $6::boolean THEN clock_timestamp() ELSE last_success_at END,
+		health=CASE WHEN $2::boolean AND NOT $6::boolean THEN 'HEALTHY' ELSE 'DEGRADED' END,
 		last_error=$3,
-		source_cursor=CASE WHEN $2::boolean AND $4::text IS NOT NULL
+		source_cursor=CASE WHEN $2::boolean AND NOT $6::boolean AND $4::text IS NOT NULL
 			THEN $4::text ELSE source_cursor END
 		WHERE id=$1::uuid`, lease.SourceID, result.Success, errorMessage,
-		result.CursorAfter, result.RetryAfter.Seconds())
+		result.CursorAfter, result.RetryAfter.Seconds(), result.Partial)
 	if err != nil {
 		return fmt.Errorf("finish source poll: %w", err)
 	}

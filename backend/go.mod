@@ -4,7 +4,9 @@ go 1.25.0
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0
+	github.com/ledongthuc/pdf v0.0.0-20261020125853-5e46805f718e
 	golang.org/x/net v0.38.0
+	gopkg.in/yaml.v3 v3.0.1
 )
 
 require (

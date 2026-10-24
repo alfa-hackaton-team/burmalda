@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/netip"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -17,12 +18,17 @@ type Resolver interface {
 }
 
 type Validator struct {
-	Resolver Resolver
+	Resolver      Resolver
+	LookupTimeout time.Duration
 }
 
 type FeedAdapterConfig struct {
-	ArticleHTML bool `json:"article_html"`
+	ArticleHTML           bool     `json:"article_html"`
+	ArticleContainerID    string   `json:"article_container_id,omitempty"`
+	ArticleExcludeClasses []string `json:"article_exclude_classes,omitempty"`
 }
+
+var htmlIdentifierPattern = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_-]{0,63}$`)
 
 func ParseFeedAdapterConfig(raw json.RawMessage) (FeedAdapterConfig, error) {
 	if len(raw) == 0 {
@@ -35,8 +41,31 @@ func ParseFeedAdapterConfig(raw json.RawMessage) (FeedAdapterConfig, error) {
 		return FeedAdapterConfig{}, fmt.Errorf("%w: invalid rss/atom adapter_config", ErrInvalid)
 	}
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil || fields["article_html"] != nil && bytes.Equal(bytes.TrimSpace(fields["article_html"]), []byte("null")) {
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return FeedAdapterConfig{}, fmt.Errorf("%w: invalid rss/atom adapter_config", ErrInvalid)
+	}
+	for _, name := range []string{"article_html", "article_container_id", "article_exclude_classes"} {
+		if value, ok := fields[name]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
+			return FeedAdapterConfig{}, fmt.Errorf("%w: %s must not be null", ErrInvalid, name)
+		}
+	}
+	if _, ok := fields["article_container_id"]; ok && cfg.ArticleContainerID == "" {
+		return FeedAdapterConfig{}, fmt.Errorf("%w: article_container_id must not be empty", ErrInvalid)
+	}
+	if cfg.ArticleContainerID != "" && !htmlIdentifierPattern.MatchString(cfg.ArticleContainerID) {
+		return FeedAdapterConfig{}, fmt.Errorf("%w: invalid article_container_id", ErrInvalid)
+	}
+	if len(cfg.ArticleExcludeClasses) > 16 {
+		return FeedAdapterConfig{}, fmt.Errorf("%w: too many article_exclude_classes", ErrInvalid)
+	}
+	for _, class := range cfg.ArticleExcludeClasses {
+		if !htmlIdentifierPattern.MatchString(class) {
+			return FeedAdapterConfig{}, fmt.Errorf("%w: invalid article_exclude_classes", ErrInvalid)
+		}
+	}
+	if !cfg.ArticleHTML && (cfg.ArticleContainerID != "" || len(cfg.ArticleExcludeClasses) > 0) ||
+		cfg.ArticleContainerID == "" && len(cfg.ArticleExcludeClasses) > 0 {
+		return FeedAdapterConfig{}, fmt.Errorf("%w: article extraction options require article_html and article_container_id", ErrInvalid)
 	}
 	return cfg, nil
 }
@@ -100,7 +129,11 @@ func (v Validator) validateEndpoint(ctx context.Context, raw string, resolveHost
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
-	lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	timeout := v.LookupTimeout
+	if timeout <= 0 {
+		timeout = 3 * time.Second
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	addresses, err := resolver.LookupIPAddr(lookupCtx, host)
 	if err != nil || len(addresses) == 0 {

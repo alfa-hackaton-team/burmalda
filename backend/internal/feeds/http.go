@@ -1,6 +1,7 @@
 package feeds
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 )
@@ -38,41 +40,59 @@ type Resolver interface {
 
 type SafeFetcher struct {
 	client   *http.Client
+	settings config.Runtime
 	maxBytes int64
 }
 
+func (f *SafeFetcher) options() config.Runtime {
+	if f.settings.Feeds.MaxFeedBytes == 0 {
+		return config.DefaultRuntime()
+	}
+	return f.settings
+}
+
 func NewSafeFetcher(resolver Resolver) *SafeFetcher {
+	return NewSafeFetcherWithSettings(resolver, config.DefaultRuntime())
+}
+
+func NewSafeFetcherWithSettings(resolver Resolver, settings config.Runtime) *SafeFetcher {
 	if resolver == nil {
 		resolver = net.DefaultResolver
 	}
 	transport := &http.Transport{
 		Proxy:                 nil,
-		MaxIdleConns:          10,
-		MaxConnsPerHost:       2,
-		IdleConnTimeout:       30 * time.Second,
-		TLSHandshakeTimeout:   5 * time.Second,
-		ResponseHeaderTimeout: 10 * time.Second,
-		DialContext:           secureDial(resolver),
+		MaxIdleConns:          settings.Feeds.MaxIdleConns,
+		MaxConnsPerHost:       settings.Feeds.MaxConnsPerHost,
+		IdleConnTimeout:       settings.Feeds.IdleConnTimeout.Std(),
+		TLSHandshakeTimeout:   settings.Feeds.TLSHandshakeTimeout.Std(),
+		ResponseHeaderTimeout: settings.Feeds.ResponseHeaderTimeout.Std(),
+		DialContext:           secureDialWithSettings(resolver, settings),
 	}
 	client := &http.Client{
 		Transport: transport,
-		Timeout:   20 * time.Second,
+		Timeout:   settings.Feeds.RequestTimeout.Std(),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
-			if len(via) >= 5 {
+			if len(via) >= settings.Feeds.MaxRedirects {
 				return fmt.Errorf("too many source redirects")
 			}
 			return validateURL(req.URL)
 		},
 	}
-	return &SafeFetcher{client: client, maxBytes: MaxFeedBytes}
+	return &SafeFetcher{client: client, settings: settings, maxBytes: settings.Feeds.MaxFeedBytes}
 }
+
+func (f *SafeFetcher) CloseIdleConnections() { f.client.CloseIdleConnections() }
 
 func (f *SafeFetcher) Fetch(ctx context.Context, lease polling.Lease) (Response, error) {
 	u, err := url.Parse(lease.Endpoint)
 	if err != nil || validateURL(u) != nil {
 		return Response{}, fmt.Errorf("invalid source endpoint")
 	}
-	return f.fetch(ctx, u, "application/rss+xml, application/atom+xml, application/xml, text/xml", f.maxBytes, lease.HTTPETag, lease.LastModified, "")
+	maxBytes := f.maxBytes
+	if maxBytes == 0 {
+		maxBytes = f.options().Feeds.MaxFeedBytes
+	}
+	return f.fetch(ctx, u, "application/rss+xml, application/atom+xml, application/xml, text/xml", maxBytes, lease.HTTPETag, lease.LastModified, "")
 }
 
 func (f *SafeFetcher) FetchArticle(ctx context.Context, feedURL, articleURL string) (Response, error) {
@@ -82,7 +102,7 @@ func (f *SafeFetcher) FetchArticle(ctx context.Context, feedURL, articleURL stri
 		(feed.Scheme == "https" && u.Scheme != "https") {
 		return Response{}, fmt.Errorf("article URL is outside the source host")
 	}
-	response, err := f.fetch(ctx, u, "text/html, application/xhtml+xml", MaxArticleBytes, nil, nil, feed.Host)
+	response, err := f.fetch(ctx, u, "text/html, application/xhtml+xml, application/pdf", f.options().Feeds.MaxArticleBytes, nil, nil, feed.Host)
 	if err != nil {
 		return response, err
 	}
@@ -90,8 +110,12 @@ func (f *SafeFetcher) FetchArticle(ctx context.Context, feedURL, articleURL stri
 		return response, fmt.Errorf("article returned HTTP %d", response.Status)
 	}
 	mediaType := strings.ToLower(strings.TrimSpace(strings.SplitN(response.ContentType, ";", 2)[0]))
-	if mediaType != "text/html" && mediaType != "application/xhtml+xml" {
-		return response, fmt.Errorf("article is not HTML")
+	if mediaType == "application/octet-stream" && bytes.HasPrefix(response.Body, []byte("%PDF-")) {
+		response.ContentType = "application/pdf"
+		mediaType = "application/pdf"
+	}
+	if mediaType != "text/html" && mediaType != "application/xhtml+xml" && mediaType != "application/pdf" {
+		return response, fmt.Errorf("unsupported article media type")
 	}
 	return response, nil
 }
@@ -106,7 +130,7 @@ func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxB
 		return Response{}, fmt.Errorf("build source request: %w", err)
 	}
 	req.Header.Set("Accept", accept)
-	req.Header.Set("User-Agent", "Burmalda/0.1 (+source-polling)")
+	req.Header.Set("User-Agent", f.options().Feeds.UserAgent)
 	if etag != nil {
 		req.Header.Set("If-None-Match", *etag)
 	}
@@ -115,7 +139,7 @@ func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxB
 	}
 	client := *f.client
 	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-		if len(via) >= 5 || validateURL(req.URL) != nil ||
+		if len(via) >= f.options().Feeds.MaxRedirects || validateURL(req.URL) != nil ||
 			(allowedHost != "" && (!strings.EqualFold(req.URL.Host, allowedHost) ||
 				(u.Scheme == "https" && req.URL.Scheme != "https"))) {
 			return fmt.Errorf("unsafe source redirect")
@@ -134,7 +158,7 @@ func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxB
 		ContentType:  resp.Header.Get("Content-Type"),
 	}
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-		result.RetryAfter = parseRetryAfter(resp.Header.Get("Retry-After"))
+		result.RetryAfter = parseRetryAfterWithMax(resp.Header.Get("Retry-After"), f.options().Feeds.RetryAfterMax.Std())
 	}
 	if resp.StatusCode != http.StatusOK {
 		return result, nil
@@ -171,6 +195,10 @@ func validateURL(u *url.URL) error {
 }
 
 func secureDial(resolver Resolver) func(context.Context, string, string) (net.Conn, error) {
+	return secureDialWithSettings(resolver, config.DefaultRuntime())
+}
+
+func secureDialWithSettings(resolver Resolver, settings config.Runtime) func(context.Context, string, string) (net.Conn, error) {
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, port, err := net.SplitHostPort(address)
 		if err != nil {
@@ -186,7 +214,7 @@ func secureDial(resolver Resolver) func(context.Context, string, string) (net.Co
 		if ip, err := netip.ParseAddr(host); err == nil {
 			addresses = []net.IPAddr{{IP: net.IP(ip.AsSlice())}}
 		} else {
-			lookupCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			lookupCtx, cancel := context.WithTimeout(ctx, settings.Feeds.DNSLookupTimeout.Std())
 			defer cancel()
 			addresses, err = resolver.LookupIPAddr(lookupCtx, host)
 			if err != nil || len(addresses) == 0 {
@@ -199,7 +227,7 @@ func secureDial(resolver Resolver) func(context.Context, string, string) (net.Co
 				return nil, fmt.Errorf("source resolves to a non-public IP")
 			}
 		}
-		dialer := &net.Dialer{Timeout: 5 * time.Second}
+		dialer := &net.Dialer{Timeout: settings.Feeds.DialTimeout.Std()}
 		var lastErr error
 		for _, address := range addresses {
 			conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(address.IP.String(), port))
@@ -213,14 +241,18 @@ func secureDial(resolver Resolver) func(context.Context, string, string) (net.Co
 }
 
 func parseRetryAfter(raw string) time.Duration {
+	return parseRetryAfterWithMax(raw, 24*time.Hour)
+}
+
+func parseRetryAfterWithMax(raw string, maxDelay time.Duration) time.Duration {
 	if seconds, err := strconv.ParseInt(strings.TrimSpace(raw), 10, 64); err == nil {
 		if seconds < 0 {
 			return 0
 		}
-		return time.Duration(min(seconds, int64((24*time.Hour)/time.Second))) * time.Second
+		return time.Duration(min(seconds, int64(maxDelay/time.Second))) * time.Second
 	}
 	if when, err := http.ParseTime(raw); err == nil {
-		return min(max(time.Until(when), 0), 24*time.Hour)
+		return min(max(time.Until(when), 0), maxDelay)
 	}
 	return 0
 }
