@@ -45,7 +45,20 @@ python3 scripts/check_ml_contracts.py
 
 ML 1 начинает с `SearchRequest/SearchResponse` и fixtures `search.*`, затем `GetChunks*`. ML 2 начинает с `AnalysisRequest/AnalysisResponse`, используя `search.ok.json` и `chunks.ok.json` как ответы заглушки. Оба используют один синтетический профиль и событие из `analysis.request.json`.
 
-Реализован R01: [Python retrieval на fixtures/in-memory](../../ml/README.md), `search` и `get_chunks`, DTO, валидация и контрактные тесты. Парсеры, реальный индекс, модельный агент, API, миграции и backend-адаптеры ещё не реализованы. Команда выше проверяет контракты, но не запускает сервис.
+В `ml_runtime/` находится локальный Python-каркас ML2: валидация AnalysisRequest/Response, адаптер Retriever, ограниченный поиск, evidence-bound drafting и проверка ссылок. `AnalysisService` проводит запрос через Retriever и model client; для follow_up использует исходный снимок evidence. Model client соблюдает оставшийся deadline анализа, использует OpenAI-совместимый gateway организаторов и разрешает только точные model ID из приложения 3. По умолчанию выбрана `z-ai/glm-5.3-flash`. Ключ берётся только из `ML_LLM_API_KEY`; реальный запрос не запускался. HTTP API, production-персистентность и независимая семантическая проверка ещё не реализованы. Это локальный каркас, не запущенный ML-сервис.
+
+Для одного платного smoke-прогона синтетического fixture из корня репозитория нужен Python 3.10+. Пример для macOS/Linux с Python 3.12:
+
+```bash
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r ml_runtime/requirements.txt
+# ML_LLM_API_KEY должен быть безопасно задан в окружении этого shell.
+export ML_LLM_BASE_URL='https://changellenge.up.railway.app/v1'
+export ML_LLM_MODEL='z-ai/glm-5.3-flash'
+.venv/bin/python -m ml_runtime.run_agent_fixture
+```
+
+Не коммитьте и не публикуйте ключ. Runtime читает его только из переменной процесса. Для запасного gateway вручную задайте его Base URL в `ML_LLM_BASE_URL`; автоматического переключения нет.
 
 Изменения относительно PR №6: [review-changes.md](review-changes.md).
 

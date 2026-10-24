@@ -1,0 +1,3 @@
+# Runtime dependency for validating every Go -> ML AnalysisRequest against v1.
+jsonschema[format]>=4.18,<5
+openai>=1.30,<3
