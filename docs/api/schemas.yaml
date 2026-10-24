@@ -653,6 +653,8 @@ components:
           - CONFLICT
           - PROFILE_NOT_READY
           - UNSUPPORTED_ADAPTER
+          - UNSUPPORTED_PIPELINE_VERSION
+          - PAYLOAD_TOO_LARGE
           - INTERNAL_ERROR
           - UNAUTHENTICATED
           - FORBIDDEN
@@ -828,12 +830,14 @@ components:
           type: boolean
         polling_interval_seconds:
           type: integer
-          minimum: 1
+          minimum: 60
+          maximum: 86400
         credential_ref:
           type: string
         adapter_config:
           type: object
           additionalProperties: true
+          description: Для rss/atom поддерживаются article_html boolean и при его включении article_container_id со списком article_exclude_classes. Без контейнера HTML-режим ищет article/main. Ссылки статей должны вести на тот же host.
       additionalProperties: false
       required:
       - name
@@ -871,12 +875,16 @@ components:
           type: boolean
         polling_interval_seconds:
           type: integer
-          minimum: 1
+          minimum: 60
+          maximum: 86400
         credential_ref:
-          type: string
+          type:
+          - string
+          - 'null'
         adapter_config:
           type: object
           additionalProperties: true
+          description: Для rss/atom поддерживаются article_html boolean и при его включении article_container_id со списком article_exclude_classes.
       additionalProperties: false
       description: PATCH принимает только разрешённые поля. При одновременном изменении
         проверяется config_version; уровень доверия не меняется без соответствующих
@@ -941,6 +949,7 @@ components:
           - QUEUED
           - RUNNING
           - SUCCEEDED
+          - PARTIAL
           - FAILED
         trace_id:
           type: string
@@ -1224,8 +1233,13 @@ components:
           format: uri
         title:
           type: string
+          description: Может быть пустым, если источник не содержит заголовка.
         body:
           type: string
+          minLength: 1
+          description: Непустой извлечённый текст; пробельный текст отклоняется ML.
+            Предел ML_MAX_TEXT_BYTES относится к размеру этого поля в байтах UTF-8,
+            без заголовка. Превышение отклоняется без обрезания.
         published_at:
           type:
           - string
@@ -1240,11 +1254,15 @@ components:
           type: string
         raw_ref:
           type: string
+          minLength: 1
         content_hash:
           type: string
+          pattern: '^[0-9a-f]{64}$'
         metadata:
           type: object
-          additionalProperties: true
+          additionalProperties: false
+          description: Для прототипа передаётся пустой объект. Новые поля добавляются
+            после согласования с ML1, без произвольных метаданных источника.
       additionalProperties: false
       required:
       - article_id
@@ -1252,15 +1270,16 @@ components:
       - source_id
       - title
       - body
-      - published_at
       - fetched_at
       - raw_ref
       - content_hash
       - metadata
       description: Материал, загруженный, сохранённый, нормализованный и технически
-        дедуплицированный Go-воркером. ML выполняет смысловую обработку. raw_ref обозначает
-        сохранённую версию, а не произвольный адрес для сетевой загрузки; учётные
-        данные источника в metadata не передаются.
+        дедуплицированный Go-воркером. Go извлекает текст из PDF/HTML. ML выполняет
+        смысловую обработку и не скачивает оригинал по raw_ref; это ссылка на
+        сохранённые исходные байты для происхождения материала. Дата публикации,
+        язык и автор могут отсутствовать. Текст сверх согласованного лимита
+        отклоняется явно, без незаметного обрезания.
     AnalysisOperation:
       type: object
       properties:
@@ -1295,15 +1314,16 @@ components:
       - state
       - trace_id
       - created_at
-      description: 'Внутреннее выполнение: QUEUED/RUNNING не содержат response.
-        Терминальные SUCCEEDED/INSUFFICIENT_EVIDENCE/FAILED содержат AnalysisResponse
-        с соответствующим status. analysis_id равен analysis_run_id результата.
-        Публичный успех Go фиксирует только после сохранения; generation_id — ID операции Go.'
+      description: Внутренняя операция анализа. QUEUED и RUNNING не содержат response;
+        терминальные состояния содержат AnalysisResponse v1 с соответствующим status.
+        analysis_id совпадает с analysis_run_id результата. Go сохраняет публичный
+        ответ до завершения своей операции; generation_id принадлежит Go.
       allOf:
       - if:
           properties:
             state:
               enum: [QUEUED, RUNNING]
+          required: [state]
         then:
           not:
             required: [response]
@@ -1311,12 +1331,14 @@ components:
           properties:
             state:
               enum: [SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED]
+          required: [state]
         then:
           required: [response]
       - if:
           properties:
             state:
               const: SUCCEEDED
+          required: [state]
         then:
           properties:
             response:
@@ -1327,6 +1349,7 @@ components:
           properties:
             state:
               const: INSUFFICIENT_EVIDENCE
+          required: [state]
         then:
           properties:
             response:
@@ -1337,6 +1360,7 @@ components:
           properties:
             state:
               const: FAILED
+          required: [state]
         then:
           properties:
             response:
@@ -1484,9 +1508,9 @@ components:
       required:
       - items
       - next_cursor
-      description: Курсор связан с зафиксированной выдачей, параметрами запроса и
-        версиями профиля и конфигурации. Изменение контекста или фильтров начинает
-        новый проход; срок действия контролируется сервером.
+      description: Курсор продолжает выдачу по устойчивому порядку создания источников
+        (created_at, source_id). Новые источники после первой страницы попадут в
+        следующий проход списка.
     ConversationPage:
       type: object
       properties:
@@ -1532,6 +1556,11 @@ components:
         article_version_id:
           type: string
           minLength: 1
+        pipeline_version:
+          type: string
+          minLength: 1
+          description: Версия набора правил, переданная Go при создании операции.
+            ML возвращает то же значение при каждом POST и GET, включая повторы.
         state:
           type: string
           enum:
@@ -1559,10 +1588,33 @@ components:
       required:
       - processing_id
       - article_version_id
+      - pipeline_version
       - state
       - trace_id
       - created_at
+      allOf:
+      - if:
+          properties:
+            state:
+              const: SUCCEEDED
+          required:
+          - state
+        then:
+          required:
+          - document_version_id
+          - event_ids
+      - if:
+          properties:
+            state:
+              const: FAILED
+          required:
+          - state
+        then:
+          required:
+          - error
       description: Вычислительная обработка материала от Go; не синхронизация источника.
+        SUCCEEDED означает доступность чанков и embeddings для поиска и сохранённый
+        результат обработки событий. event_ids может быть пустым.
         SUCCEEDED содержит document_version_id и event_ids, включая пустой список,
         если событие не выделено. FAILED содержит безопасную ошибку. Повтор с тем
         же ключом возвращает ту же операцию.
