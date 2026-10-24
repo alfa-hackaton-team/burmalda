@@ -53,3 +53,5 @@ retention:
   source_poll_days: 30
   batch_size: 1000
   interval: 24h
+raw_storage:
+  request_timeout: 30s

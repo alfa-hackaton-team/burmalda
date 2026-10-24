@@ -1211,6 +1211,164 @@
     },
     {
       "id": 27,
+      "title": "Отсутствуют оригиналы в S3",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 53,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "ingestion_raw_missing_objects",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 28,
+      "title": "Объекты S3 без ссылки",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 53,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "ingestion_raw_orphan_objects",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 29,
+      "title": "Ошибки сверки S3 · за сутки",
+      "description": "",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 53,
+        "w": 8,
+        "h": 6
+      },
+      "targets": [
+        {
+          "expr": "increase(ingestion_raw_reconciliation_errors_total[24h]) or vector(0)",
+          "legendFormat": "",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 30,
       "title": "Источники",
       "description": "Первые 50 включённых источников, начиная с проблемных. Нулевая просрочка означает, что время следующего опроса ещё не наступило.",
       "type": "table",
@@ -1220,7 +1378,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 53,
+        "y": 59,
         "w": 24,
         "h": 9
       },
@@ -1240,7 +1398,7 @@
       }
     },
     {
-      "id": 28,
+      "id": 31,
       "title": "Логи воркера",
       "description": "JSON-логи с идентификаторами poll_id, article_job_id, job_id и trace_id.",
       "type": "logs",
@@ -1250,7 +1408,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 62,
+        "y": 68,
         "w": 18,
         "h": 9
       },
@@ -1271,12 +1429,12 @@
       }
     },
     {
-      "id": 29,
+      "id": 32,
       "title": "Трейсы",
       "type": "text",
       "gridPos": {
         "x": 18,
-        "y": 62,
+        "y": 68,
         "w": 6,
         "h": 9
       },
