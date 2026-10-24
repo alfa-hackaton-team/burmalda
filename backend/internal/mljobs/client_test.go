@@ -44,13 +44,13 @@ func TestProcessUsesStableKeyAndRecoversMissingGET(t *testing.T) {
 				body.Source["endpoint"] != nil {
 				t.Errorf("unexpected ML request: %+v", body)
 			}
-			return response(http.StatusAccepted, `{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","state":"RUNNING"}`, nil), nil
+			return response(http.StatusAccepted, `{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","trace_id":"trace","created_at":"2026-10-24T12:00:00Z","state":"RUNNING"}`, nil), nil
 		case http.MethodGet:
 			gets++
 			if gets == 1 {
 				return response(http.StatusNotFound, "", nil), nil
 			}
-			return response(http.StatusOK, `{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","state":"SUCCEEDED","document_version_id":"doc","event_ids":[]}`, nil), nil
+			return response(http.StatusOK, `{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","trace_id":"trace","created_at":"2026-10-24T12:00:00Z","state":"SUCCEEDED","document_version_id":"doc","event_ids":[]}`, nil), nil
 		default:
 			t.Errorf("unexpected method: %s", r.Method)
 			return response(http.StatusMethodNotAllowed, "", nil), nil
@@ -100,15 +100,83 @@ func TestProcessPreservesPermanentMLError(t *testing.T) {
 }
 
 func TestDecodeFailedOperationPreservesStructuredError(t *testing.T) {
-	result := decodeOperation([]byte(`{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","state":"FAILED","error":{"code":"INSUFFICIENT_EVIDENCE","message":"No usable evidence","retryable":false}}`),
+	result := decodeOperation([]byte(`{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","trace_id":"trace","created_at":"2026-10-24T12:00:00Z","state":"FAILED","error":{"code":"INSUFFICIENT_EVIDENCE","message":"No usable evidence","retryable":false}}`),
 		Job{VersionID: "version", PipelineVersion: "pipe"})
 	if !result.Permanent || result.ErrorCode != "INSUFFICIENT_EVIDENCE" ||
 		result.Error != "No usable evidence" || result.ErrorRetryable {
 		t.Fatalf("result=%+v", result)
 	}
-	missing := decodeOperation([]byte(`{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","state":"FAILED"}`),
+	missing := decodeOperation([]byte(`{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","trace_id":"trace","created_at":"2026-10-24T12:00:00Z","state":"FAILED"}`),
 		Job{VersionID: "version", PipelineVersion: "pipe"})
 	if missing.ErrorCode != "INVALID_ML_RESPONSE" {
 		t.Fatalf("missing error=%+v", missing)
+	}
+}
+
+func TestBodyLimitCountsUTF8BytesWithoutTitle(t *testing.T) {
+	for _, unit := range []string{"a", "я", "😀"} {
+		t.Run(unit, func(t *testing.T) {
+			requests := 0
+			job := Job{ID: "trace", VersionID: "v", PipelineVersion: "p", SourceConfigVersion: 1, Title: strings.Repeat("T", 200000), Body: strings.Repeat(unit, 131072/len(unit))}
+			client := Client{BaseURL: "http://ml.example", HTTP: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+				requests++
+				return response(202, `{"processing_id":"op","article_version_id":"v","pipeline_version":"p","trace_id":"trace","created_at":"2026-10-24T12:00:00Z","state":"RUNNING"}`, nil), nil
+			})}}
+			result := client.Process(context.Background(), job)
+			if !result.Pending || requests != 1 {
+				t.Fatalf("131072 bytes rejected: %+v", result)
+			}
+			job.Body += "a"
+			result = client.Process(context.Background(), job)
+			if !result.Permanent || result.ErrorCode != "PAYLOAD_TOO_LARGE" || requests != 1 {
+				t.Fatalf("131073 bytes sent: %+v requests=%d", result, requests)
+			}
+		})
+	}
+}
+
+func TestDecodeRejectsInvalidOperationSchema(t *testing.T) {
+	valid := map[string]any{"processing_id": "op", "article_version_id": "version", "pipeline_version": "pipe", "trace_id": "trace", "created_at": "2026-10-24T12:00:00Z", "state": "SUCCEEDED", "document_version_id": "doc", "event_ids": []string{}}
+	cases := map[string]func(map[string]any){
+		"null_error": func(m map[string]any) { m["error"] = nil },
+		"invalid_optional_error": func(m map[string]any) {
+			m["error"] = map[string]any{"code": "UNEXPECTED_CODE", "message": "bad", "retryable": false}
+		},
+		"missing_trace":   func(m map[string]any) { delete(m, "trace_id") },
+		"missing_created": func(m map[string]any) { delete(m, "created_at") },
+		"null_created":    func(m map[string]any) { m["created_at"] = nil },
+		"invalid_date":    func(m map[string]any) { m["created_at"] = "yesterday" },
+		"wrong_version":   func(m map[string]any) { m["article_version_id"] = "other" },
+		"wrong_pipeline":  func(m map[string]any) { m["pipeline_version"] = "other" },
+		"missing_result":  func(m map[string]any) { delete(m, "document_version_id") },
+		"missing_events":  func(m map[string]any) { delete(m, "event_ids") },
+		"null_events":     func(m map[string]any) { m["event_ids"] = nil },
+		"blank_event":     func(m map[string]any) { m["event_ids"] = []string{" "} },
+		"unknown_field":   func(m map[string]any) { m["unknown"] = true },
+		"unknown_state":   func(m map[string]any) { m["state"] = "PASS" },
+	}
+	for name, change := range cases {
+		t.Run(name, func(t *testing.T) {
+			m := map[string]any{}
+			for k, v := range valid {
+				m[k] = v
+			}
+			change(m)
+			data, _ := json.Marshal(m)
+			r := decodeOperation(data, Job{VersionID: "version", PipelineVersion: "pipe"})
+			if r.Succeeded || !r.Permanent || r.ErrorCode != "INVALID_ML_RESPONSE" {
+				t.Fatalf("invalid response accepted: %+v", r)
+			}
+		})
+	}
+	data, _ := json.Marshal(valid)
+	op := "confirmed"
+	result := decodeOperation(data, Job{VersionID: "version", PipelineVersion: "pipe", ProcessingID: &op})
+	if result.ErrorCode != "INVALID_ML_RESPONSE" {
+		t.Fatalf("processing id changed: %+v", result)
+	}
+	result = decodeOperation(append(data, []byte(` {}`)...), Job{VersionID: "version", PipelineVersion: "pipe"})
+	if result.ErrorCode != "INVALID_ML_RESPONSE" {
+		t.Fatal("trailing response accepted")
 	}
 }

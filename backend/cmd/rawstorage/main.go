@@ -190,7 +190,9 @@ func migrate(ctx context.Context, db *pgxpool.Pool, store *rawartifacts.S3, dryR
 }
 
 func reconcile(ctx context.Context, db *pgxpool.Pool, store *rawartifacts.S3, grace time.Duration) error {
-	rows, err := db.Query(ctx, `SELECT object_uri, sha256, content_type, size_bytes FROM raw_artifacts WHERE object_uri IS NOT NULL`)
+	rows, err := db.Query(ctx, `SELECT object_uri, sha256, content_type, size_bytes FROM raw_artifacts WHERE object_uri IS NOT NULL
+		UNION ALL
+		SELECT object_uri, sha256, 'application/pdf', size_bytes FROM dataset_bank_reports WHERE object_uri IS NOT NULL`)
 	if err != nil {
 		return err
 	}

@@ -180,7 +180,7 @@ func TestArticleIdentityMatchesURLWhenGUIDAppears(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lease := polling.Lease{SourceID: sourceID}
+	lease := polling.Lease{SourceID: sourceID, Name: "identity-test", SourceType: "news", SourceRole: "external", TrustLevel: "reviewed", ConfigVersion: 1}
 	first := material{Entry: Entry{CanonicalURL: "https://example.com/article", Body: "Article text"}}
 	created, version, err := saveEntry(ctx, tx, lease, artifactID, time.Now(), "rss-v1", first, "")
 	if err != nil || !created || !version {
@@ -401,6 +401,10 @@ func TestHTMLArticleVersionsAndOriginals(t *testing.T) {
 	}
 	if !bytes.Equal(raw, changed) || contentType != "text/html" || !strings.Contains(body, "opened lower") {
 		t.Fatalf("wrong latest original or text: content_type=%q body=%q", contentType, body)
+	}
+	var origin, method string
+	if err := pool.QueryRow(ctx, `SELECT text_origin,extraction_method FROM article_versions WHERE source_id=$1 ORDER BY version_no DESC LIMIT 1`, sourceID).Scan(&origin, &method); err != nil || origin != "full_article" || method == "unknown" {
+		t.Fatalf("missing HTML extraction provenance %s %s %v", origin, method, err)
 	}
 	var jobs int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM processing_jobs WHERE article_version_id IN

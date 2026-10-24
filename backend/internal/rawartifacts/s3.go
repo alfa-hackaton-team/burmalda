@@ -140,6 +140,10 @@ func (s *S3) checkHead(ctx context.Context, object Artifact) error {
 	return nil
 }
 
+func (s *S3) VerifyMetadata(ctx context.Context, object Artifact) error {
+	return s.checkHead(ctx, object)
+}
+
 func (s *S3) Verify(ctx context.Context, object Artifact) error {
 	key, err := s.key(object.ObjectURI)
 	if err != nil {

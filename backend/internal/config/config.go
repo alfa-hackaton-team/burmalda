@@ -9,6 +9,8 @@ import (
 	"time"
 )
 
+const MLTextByteLimit = 131072
+
 type Config struct {
 	ConfigFile             string
 	Runtime                Runtime
@@ -92,13 +94,13 @@ func Load() (Config, error) {
 	cfg.DatabaseConnectTimeout = cfg.Runtime.Database.ConnectTimeout.Std()
 	cfg.MLPipelineVersion = strings.TrimSpace(os.Getenv("ML_PIPELINE_VERSION"))
 	limitRaw := strings.TrimSpace(os.Getenv("ML_MAX_TEXT_BYTES"))
-	if (cfg.MLPipelineVersion == "") != (limitRaw == "") {
-		return Config{}, fmt.Errorf("ML_PIPELINE_VERSION and ML_MAX_TEXT_BYTES must be set together")
+	if limitRaw == "" {
+		limitRaw = strconv.Itoa(MLTextByteLimit)
 	}
 	if limitRaw != "" {
 		limit, err := strconv.Atoi(limitRaw)
-		if err != nil || limit < 1 {
-			return Config{}, fmt.Errorf("ML_MAX_TEXT_BYTES must be a positive integer")
+		if err != nil || limit < 1 || limit > MLTextByteLimit {
+			return Config{}, fmt.Errorf("ML_MAX_TEXT_BYTES must be between 1 and %d", MLTextByteLimit)
 		}
 		cfg.MLMaxTextBytes = limit
 	}

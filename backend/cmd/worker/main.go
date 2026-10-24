@@ -12,6 +12,7 @@ import (
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/database"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/dataset"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/feeds"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/mljobs"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
@@ -130,6 +131,11 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	if os.Getenv("DATASET_REQUIRED") == "true" {
+		if err := dataset.RequireActive(ctx, pool); err != nil {
+			return err
+		}
+	}
 	var rawStore rawartifacts.Store = rawartifacts.PostgreSQL{}
 	if cfg.RawStorageBackend == "s3" {
 		rawStore, err = rawartifacts.NewS3(ctx, cfg)
@@ -189,7 +195,7 @@ func run() error {
 			jobStore.Settings = manager.Current
 			runErrors <- (mljobs.Runner{
 				Store:    jobStore,
-				Client:   mljobs.Client{BaseURL: cfg.MLBaseURL, Token: cfg.MLServiceToken, Settings: manager.Current},
+				Client:   mljobs.Client{BaseURL: cfg.MLBaseURL, Token: cfg.MLServiceToken, MaxTextBytes: cfg.MLMaxTextBytes, Settings: manager.Current},
 				Settings: manager.Current,
 			}).Run(workerCtx)
 		}()

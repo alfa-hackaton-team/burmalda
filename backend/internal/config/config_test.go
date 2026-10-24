@@ -29,15 +29,16 @@ func TestLoad(t *testing.T) {
 	}
 }
 
-func TestLoadRejectsIncompleteMLConfiguration(t *testing.T) {
+func TestLoadUsesConfirmedTextLimitWithoutPipeline(t *testing.T) {
 	t.Setenv("BACKEND_CONFIG_FILE", "")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
-	t.Setenv("ML_PIPELINE_VERSION", "test-v1")
+	t.Setenv("ML_PIPELINE_VERSION", "")
 	t.Setenv("ML_MAX_TEXT_BYTES", "")
 	t.Setenv("ML_BASE_URL", "")
 	t.Setenv("ML_SERVICE_TOKEN", "")
-	if _, err := Load(); err == nil {
-		t.Fatal("pipeline without text limit was accepted")
+	cfg, err := Load()
+	if err != nil || cfg.MLMaxTextBytes != 131072 || cfg.MLPipelineVersion != "" {
+		t.Fatalf("unexpected default limit: %+v, %v", cfg, err)
 	}
 }
 
@@ -67,5 +68,14 @@ func TestLoadS3Storage(t *testing.T) {
 	t.Setenv("S3_ENDPOINT", "https://example.com/path")
 	if _, err := Load(); err == nil {
 		t.Fatal("endpoint with path was accepted")
+	}
+}
+
+func TestLoadRejectsLimitAboveMLContract(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://localhost/test")
+	t.Setenv("BACKEND_CONFIG_FILE", "")
+	t.Setenv("ML_MAX_TEXT_BYTES", "131073")
+	if _, err := Load(); err == nil {
+		t.Fatal("limit above agreed ML contract accepted")
 	}
 }
