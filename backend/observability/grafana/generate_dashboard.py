@@ -63,13 +63,17 @@ metric("Все ответы внешних сервисов · в минуту",
 metric("Попытки загрузки статей · в минуту", "sum by(status)(rate(ingestion_article_jobs_total[$__rate_interval])) * 60", 8, 40, 8, 7, legend="{{status}}")
 metric("Попытки ML · в минуту", "sum by(status)(rate(ingestion_ml_jobs_total[$__rate_interval])) * 60", 16, 40, 8, 7, legend="{{status}}")
 
+metric("Удалено опросов · за сутки", "increase(ingestion_retention_source_polls_deleted_total[24h]) or vector(0)", 0, 47, 8, 6, "stat", legend="")
+metric("Возраст последней очистки", "time() - ingestion_retention_last_success_timestamp_seconds", 8, 47, 8, 6, "stat", "s", legend="", thresholds=172800)
+metric("Ошибки очистки · за сутки", "increase(ingestion_retention_errors_total[24h]) or vector(0)", 16, 47, 8, 6, "stat", legend="", thresholds=1)
+
 panels.append({
     "id": len(panels) + 1,
     "title": "Источники",
     "description": "Первые 50 включённых источников, начиная с проблемных. Нулевая просрочка означает, что время следующего опроса ещё не наступило.",
     "type": "table",
     "datasource": POSTGRES,
-    "gridPos": {"x": 0, "y": 47, "w": 24, "h": 9},
+    "gridPos": {"x": 0, "y": 53, "w": 24, "h": 9},
     "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT name AS \"Источник\", health AS \"Состояние\", round(extract(epoch from now()-coalesce(last_success_at,created_at)))::bigint AS \"Секунд без успеха\", greatest(round(extract(epoch from now()-next_poll_at))::bigint,0) AS \"Просрочено, с\", coalesce(last_error,'') AS \"Последняя ошибка\", id::text AS \"ID\" FROM sources WHERE enabled ORDER BY CASE WHEN health='HEALTHY' THEN 1 ELSE 0 END, last_success_at NULLS FIRST LIMIT 50"}],
     "fieldConfig": {"defaults": {}, "overrides": []},
     "options": {"showHeader": True},
@@ -81,7 +85,7 @@ panels.append({
     "description": "JSON-логи с идентификаторами poll_id, article_job_id, job_id и trace_id.",
     "type": "logs",
     "datasource": LOKI,
-    "gridPos": {"x": 0, "y": 56, "w": 18, "h": 9},
+    "gridPos": {"x": 0, "y": 62, "w": 18, "h": 9},
     "targets": [{"refId": "A", "expr": "{service_name=\"ingestion-worker\"}", "queryType": "range"}],
     "options": {"showTime": True, "showLabels": False, "showCommonLabels": False, "wrapLogMessage": True, "prettifyLogMessage": True, "enableLogDetails": True},
 })
@@ -90,7 +94,7 @@ panels.append({
     "id": len(panels) + 1,
     "title": "Трейсы",
     "type": "text",
-    "gridPos": {"x": 18, "y": 56, "w": 6, "h": 9},
+    "gridPos": {"x": 18, "y": 62, "w": 6, "h": 9},
     "options": {"mode": "markdown", "content": "### Где задержка?\n\nОткройте **Explore → Tempo** и найдите трассу по `trace_id` из лога или записи опроса.\n\nОпрос: `source.poll` → `http.fetch.feed` / `http.fetch.article`. Повтор статьи: `article.fetch_job`. ML: `ml.process_job` → `http.ml`. Это отдельные операции.\n\n[Открыть Explore](/explore)"},
 })
 

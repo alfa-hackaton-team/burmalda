@@ -12,3 +12,6 @@ scrape_configs:
   - job_name: observer
     static_configs:
       - targets: ["observer:19091"]
+  - job_name: retention
+    static_configs:
+      - targets: ["retention:19093"]

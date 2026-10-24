@@ -41,6 +41,18 @@ services:
         condition: service_completed_successfully
     restart: unless-stopped
 
+  retention:
+    build: .
+    command: ["/app/retention"]
+    environment:
+      DATABASE_URL: postgres://burmalda:burmalda@db:5432/burmalda?sslmode=disable
+      BACKEND_CONFIG_FILE: /app/config.yaml
+      METRICS_ADDR: :19093
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus:v3.5.0
     command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=15d"]
