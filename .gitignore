@@ -94,6 +94,7 @@ activemq-data/
 /backend/config.yaml
 .envrc
 .venv
+.venv-contracts/
 env/
 venv/
 ENV/

@@ -1,0 +1,20 @@
+{
+  "contract_version": "v1",
+  "trace_id": "00000000-0000-4000-8000-000000000001",
+  "request_operation_id": "00000000-0000-4000-8000-000000000011",
+  "analysis_run_id": "00000000-0000-4000-8000-000000000014",
+  "status": "insufficient_evidence",
+  "insight": null,
+  "message": null,
+  "warnings": [
+    "Условия действующего кредита неизвестны"
+  ],
+  "gaps": [
+    {
+      "code": "MISSING_PROFILE_FEATURE",
+      "description": "Неизвестны условия действующего кредитного договора",
+      "required_feature_key": "loan_terms"
+    }
+  ],
+  "error": null
+}

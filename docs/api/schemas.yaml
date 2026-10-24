@@ -267,7 +267,8 @@ components:
       - verification_status
       - evidence_links
       - assumptions
-      description: Общий внутренний DTO включает UNSUPPORTED для проверки. Клиентское
+      description: Публичный DTO; claim_type соответствует knowledge_type ML v1, а не
+        бизнес-назначению claim_type ML v1. UNSUPPORTED доступен для проверки. Клиентское
         представление исключает неподтверждённые факты; существенные утверждения должны
         иметь ссылки на поддерживающие доказательства. Обязательные смысловые правила
         проверяет приложение, не только JSON Schema.
