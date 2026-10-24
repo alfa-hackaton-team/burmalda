@@ -15,8 +15,11 @@ ml/
   contracts.md          описание интерфейсов и инвариантов
   development.md        задачи, зависимости и приемка
   api-compatibility.md  границы API, преобразование DTO и хранение
+  article-processing.md вход Go, единый словарь, операции и ожидаемые доработки
+  document-quality.md   объём R02, правила качества и открытые решения
   ml1/                  подробное ТЗ и локальный AGENTS.md для ML 1
-  contracts/v1/         JSON Schema и инструкция
+  contracts/v1/         неизменённые retrieval/analysis DTO
+  contracts/quality/v1/ целевой вход и результат R02
   fixtures/v1/          16 примеров и manifest.json
   scripts/              проверка примеров без зависимостей
   reference/            снимки схемы БД и подробного RFC
@@ -29,9 +32,12 @@ ml/
 3. [План разработки](development.md): задачи, зависимости, приемка и первая интеграция.
 4. [JSON Schema](contracts/v1/contracts.schema.json): точные формы сообщений; нужный тип выбирается из `$defs`.
 5. [Примеры](fixtures/v1/manifest.json): 16 синтетических запросов и ответов.
+6. [Приём материалов Go → ML](article-processing.md): отображение article/document, лимит, происхождение и lifecycle.
+7. [R02: качество документов](document-quality.md): проверки, PASS/FAIL и приёмка.
+
 Локальная папка `ml1/` содержит ТЗ и контекст агента для ML 1; эти материалы не входят в репозиторий. Инструкция подключения R01 для команды — в [ml/README.md](../../ml/README.md).
 
-Актуальные требования хранения — в [целевой схеме БД](../rfc/database_scheme.md). Файлы reference — исторические снимки, их не редактируют вслед за рабочей схемой. Разделение логического ML v1, публичного API v0.1 и отображение полей описаны в [совместимости API](api-compatibility.md). Новые поля claims требуют миграции до интеграции; наличие документа не означает, что миграция выполнена.
+Фактическое ingestion-хранение — articles/article_versions/raw_artifacts в Go; [целевая схема ML](../rfc/database_scheme.md) не означает наличие этих ML-таблиц в backend. [Отображение](article-processing.md) сохраняет исходные ID. Файлы reference — исторические снимки, их не редактируют вслед за рабочей схемой. Разделение логического ML v1, публичного API v0.1 и отображение полей описаны в [совместимости API](api-compatibility.md). Новые поля claims требуют миграции до интеграции; наличие документа не означает, что миграция выполнена.
 
 ## Начать сейчас
 
@@ -45,7 +51,7 @@ python3 scripts/check_ml_contracts.py
 
 ML 1 начинает с `SearchRequest/SearchResponse` и fixtures `search.*`, затем `GetChunks*`. ML 2 начинает с `AnalysisRequest/AnalysisResponse`, используя `search.ok.json` и `chunks.ok.json` как ответы заглушки. Оба используют один синтетический профиль и событие из `analysis.request.json`.
 
-Реализован R01: [Python retrieval на fixtures/in-memory](../../ml/README.md), `search` и `get_chunks`, DTO, валидация и контрактные тесты. Парсеры, реальный индекс, модельный агент, API, миграции и backend-адаптеры ещё не реализованы. Команда выше проверяет контракты, но не запускает сервис.
+Реализован R01: [Python retrieval на fixtures/in-memory](../../ml/README.md), `search` и `get_chunks`, DTO, валидация и контрактные тесты. R02 также реализован: canonical saved document, strict extraction metadata и deterministic quality gate, 8 corpus fixtures. Реальный индекс, модельный агент и HTTP ML ещё не реализованы в этой ветке. В backend-ветке e33715e уже есть Go ingestion/парсеры/миграции; это отдельный снимок, не код Python ML. Команда выше проверяет контракты, но не запускает сервис.
 
 Изменения относительно PR №6: [review-changes.md](review-changes.md).
 
@@ -57,6 +63,8 @@ ML 1 начинает с `SearchRequest/SearchResponse` и fixtures `search.*`, 
 | Первый сценарий | Одна компания, роль CFO, заранее выбранное событие, один insight и follow_up |
 | События | ML 2; до фонового pipeline событие задается fixture/вручную |
 | Профиль | ML 2 отвечает за преобразование; исходные данные и права дает backend; первый профиль фиксирован |
+| Приём материалов | Go сохраняет article_version и оригинал до POST; ID сохраняются в ML; body ≤131072 UTF-8 байта, пустой title допустим |
+| Quality R02 | PASS/FAIL — результат проверки текста; PASS не равен готовности поиска; extraction metadata обязательны в целевом входе, правила ml1-quality-v1 реализованы |
 | Поиск | Embeddings + явные фильтры; полнотекстовый поиск и reranker добавляются по оценке |
 | Готовность | Рабочая цель — `embedded` или `analyzed`; требуется согласовать отличие от SQL-примера исходного RFC |
 | Evidence | В v1 только `document_chunk` и `profile_feature`; таблицы event_facts отложены |

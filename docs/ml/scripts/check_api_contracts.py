@@ -17,6 +17,7 @@ from check_ml_contracts import load_fixtures, require, validate_scenario
 DOCS = Path(__file__).resolve().parents[2]
 PATHS = [DOCS / 'api' / name for name in ('openapi.yaml', 'ml-openapi.yaml', 'schemas.yaml')]
 PATHS.append(DOCS / 'ml/contracts/v1/contracts.schema.json')
+PATHS.append(DOCS / 'ml/contracts/quality/v1/quality.schema.json')
 
 
 def walk(node):
@@ -92,7 +93,19 @@ def main():
         require(internal[origin] == public[target], f'public projection mismatch: {target}')
     require(internal['claim_type'] == 'action' and public['claim_type'] == 'AI_INFERENCE', 'claim axes were conflated')
     require(any(s['section_type'] == 'SCENARIOS_ACTIONS' and internal['id'] in s['claim_ids'] for s in projection['response']['sections']), 'action section missing')
-    print(f'OK: {refs} local references, HTTP request/response schemas, operation states, 4 public fixtures and claim projection.')
+    pointer = '/paths/~1internal~1v0.1~1article-processings/post/requestBody/content/application~1json/schema'
+    request = json.loads((DOCS / 'api/examples/article-processing.request.json').read_text())
+    validate(api_uri, pointer, request)
+    legacy = copy.deepcopy(request)
+    legacy['article']['metadata'] = {}
+    must_reject(api_uri, pointer, legacy)
+    for state in ('running', 'succeeded', 'failed'):
+        value = json.loads((DOCS / f'api/examples/article-processing.{state}.json').read_text())
+        validate(schemas_uri, '/components/schemas/ArticleProcessingOperation', value)
+    value = json.loads((DOCS / 'api/examples/article-processing.too-large.json').read_text())
+    validate(schemas_uri, '/components/schemas/Error', value)
+    print(f'OK: {refs} local references, HTTP request/response schemas, operation states, '
+          '4 public fixtures, claim projection and 5 article-processing examples.')
 
 
 if __name__ == '__main__':

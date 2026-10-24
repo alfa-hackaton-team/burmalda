@@ -1,0 +1,29 @@
+{
+  "article": {
+    "article_id": "20000000-0000-4000-8000-000000000071",
+    "article_version_id": "20000000-0000-4000-8000-000000000072",
+    "source_id": "20000000-0000-4000-8000-000000000073",
+    "title": "Учебный материал",
+    "body": "Сохранённый\u0000текст",
+    "fetched_at": "2026-10-24T12:00:00Z",
+    "raw_ref": "raw-artifact:20000000-0000-4000-8000-000000000074",
+    "content_hash": "6fcd45d60a7c980ebc77f28f75d7dcb39db3356f154f863897d82f7dc7fcb061",
+    "metadata": {
+      "extraction_method": "full_article",
+      "extraction_errors": []
+    },
+    "language": "ru",
+    "canonical_url": "https://example.org/corpus/7",
+    "published_at": "2026-10-20T09:00:00Z"
+  },
+  "source": {
+    "source_id": "20000000-0000-4000-8000-000000000073",
+    "name": "Учебный источник",
+    "source_type": "news",
+    "source_role": "external",
+    "trust_level": "standard",
+    "config_version": "1"
+  },
+  "pipeline_version": "corpus-quality-test-v1",
+  "trace_id": "20000000-0000-4000-8000-000000000075"
+}
