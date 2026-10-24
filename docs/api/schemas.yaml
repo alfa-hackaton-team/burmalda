@@ -1302,7 +1302,7 @@ components:
           type: string
           format: date-time
         response:
-          "$ref": "#/components/schemas/AgentResponse"
+          "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisResponse"
         error:
           "$ref": "#/components/schemas/Error"
       additionalProperties: false
@@ -1311,9 +1311,59 @@ components:
       - state
       - trace_id
       - created_at
-      description: 'Состояние асинхронного анализа: SUCCEEDED требует response, FAILED
-        — error. Сервер связывает внутренний analysis_id с публичным generation_id;
-        идентификаторы имеют разное назначение.'
+      description: Внутренняя операция анализа. QUEUED и RUNNING не содержат response;
+        терминальные состояния содержат AnalysisResponse v1 с соответствующим status.
+        analysis_id совпадает с analysis_run_id результата. Go сохраняет публичный
+        ответ до завершения своей операции; generation_id принадлежит Go.
+      allOf:
+      - if:
+          properties:
+            state:
+              enum: [QUEUED, RUNNING]
+          required: [state]
+        then:
+          not:
+            required: [response]
+      - if:
+          properties:
+            state:
+              enum: [SUCCEEDED, INSUFFICIENT_EVIDENCE, FAILED]
+          required: [state]
+        then:
+          required: [response]
+      - if:
+          properties:
+            state:
+              const: SUCCEEDED
+          required: [state]
+        then:
+          properties:
+            response:
+              properties:
+                status:
+                  const: succeeded
+      - if:
+          properties:
+            state:
+              const: INSUFFICIENT_EVIDENCE
+          required: [state]
+        then:
+          properties:
+            response:
+              properties:
+                status:
+                  const: insufficient_evidence
+      - if:
+          properties:
+            state:
+              const: FAILED
+          required: [state]
+        then:
+          properties:
+            response:
+              properties:
+                status:
+                  const: failed
     ProfileRebuildOperation:
       type: object
       properties:
@@ -1506,6 +1556,8 @@ components:
         pipeline_version:
           type: string
           minLength: 1
+          description: Версия набора правил, переданная Go при создании операции.
+            ML возвращает то же значение при каждом POST и GET, включая повторы.
         state:
           type: string
           enum:
@@ -1558,6 +1610,8 @@ components:
           required:
           - error
       description: Вычислительная обработка материала от Go; не синхронизация источника.
+        SUCCEEDED означает доступность чанков и embeddings для поиска и сохранённый
+        результат обработки событий. event_ids может быть пустым.
         SUCCEEDED содержит document_version_id и event_ids, включая пустой список,
         если событие не выделено. FAILED содержит безопасную ошибку. Повтор с тем
         же ключом возвращает ту же операцию.
