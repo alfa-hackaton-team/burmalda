@@ -670,7 +670,10 @@ paths:
       description: Go-воркер передаёт NormalizedArticle и безопасные метаданные источника.
         ML выполняет смысловую дедупликацию, извлечение событий и индексирование.
         Перед запуском сохраняет ключ и отпечаток параметров; повтор не создаёт вторую
-        обработку. trace_id — корреляция, а не основание для нового выполнения.
+        обработку. Для пары (article_version_id, pipeline_version) существует одна
+        логическая операция. trace_id — корреляция, а не основание для нового выполнения.
+        Оригинал по raw_ref ML не загружает. Превышение согласованного лимита текста
+        возвращает 413 без обрезания.
       requestBody:
         required: true
         content:
@@ -688,6 +691,7 @@ paths:
                       minLength: 1
                     name:
                       type: string
+                      minLength: 1
                     source_role:
                       type: string
                       enum:
@@ -696,10 +700,10 @@ paths:
                       - expert
                     source_type:
                       type: string
+                      minLength: 1
                     trust_level:
                       type: string
-                    config_version:
-                      type: string
+                      minLength: 1
                   additionalProperties: false
                   required:
                   - source_id
@@ -707,10 +711,15 @@ paths:
                   - source_role
                   - source_type
                   - trust_level
-                  - config_version
                   description: Безопасная версия метаданных реестра Go для классификации
                     материала; без endpoint, credential_ref и конфигурации доступа
                     к издателю.
+                pipeline_version:
+                  type: string
+                  minLength: 1
+                  description: Версия правил ML, согласованная через конфигурацию
+                    окружения и сохранённая Go в задании до POST. ML отклоняет
+                    неподдерживаемую версию до запуска обработки.
                 trace_id:
                   type: string
                   minLength: 1
@@ -718,6 +727,7 @@ paths:
               required:
               - article
               - source
+              - pipeline_version
               - trace_id
               description: article.source_id должен совпадать с source.source_id.
                 Go передаёт сохранённую версию материала; ML проверяет ссылки и метаданные,
@@ -729,24 +739,63 @@ paths:
         schema:
           type: string
           minLength: 1
-        description: Стабильный ключ Go-воркера, связанный с версией материала и конфигурацией
-          обработки. Повтор с другими параметрами возвращает 409; техническая смена
-          trace_id не создаёт новое выполнение.
+        description: Стабильный ключ из (article_version_id, pipeline_version).
+          Повтор с тем же материалом и значимыми метаданными источника возвращает
+          прежний processing_id; другие значимые параметры дают 409. trace_id
+          исключён из сравнения.
       responses:
         '202':
-          description: Операция ML-обработки материала
+          description: Задание надёжно сохранено и принято. Готовность для поиска
+            подтверждается только состоянием SUCCEEDED; повтор возвращает то же
+            состояние той же операции.
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/ArticleProcessingOperation"
         '400':
-          description: Некорректный материал или несовпадение source_id
+          description: Невалидный JSON или структура запроса
           content:
             application/json:
               schema:
                 "$ref": "./schemas.yaml#/components/schemas/Error"
         '409':
           description: Ключ уже использован с другими параметрами
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '413':
+          description: Превышен согласованный предел размера текста или запроса;
+            PAYLOAD_TOO_LARGE, без автоматического повтора и обрезания.
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '422':
+          description: Неверный материал или неподдерживаемая pipeline_version;
+            во втором случае код UNSUPPORTED_PIPELINE_VERSION. Без автоматического повтора.
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '429':
+          description: Временное ограничение; Go повторяет с прежним ключом и учитывает
+            Retry-After.
+          headers:
+            Retry-After:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+        '503':
+          description: Временная недоступность; Go ограниченно повторяет с прежним
+            ключом и учитывает Retry-After, если он указан.
+          headers:
+            Retry-After:
+              schema:
+                type: string
           content:
             application/json:
               schema:
@@ -779,7 +828,11 @@ paths:
       - Processing
       summary: Получить состояние обработки материала
       description: Go-воркер связывает состояние ML с исходной задачей загрузки. Успешная
-        загрузка файла и успешная ML-обработка — отдельные результаты.
+        загрузка файла и успешная ML-обработка — отдельные результаты. SUCCEEDED
+        означает сохранённые результаты и доступность для поиска. При 404 Go
+        повторяет исходный POST с прежними параметрами и ключом для восстановления
+        ссылки; исчезновение уже подтверждённой операции после такой попытки
+        требует разбирательства.
       parameters:
       - name: processing_id
         in: path

@@ -1,0 +1,105 @@
+services:
+  migrate:
+    build: .
+    command: ["/app/migrate"]
+    environment:
+      DATABASE_URL: postgres://burmalda:burmalda@db:5432/burmalda?sslmode=disable
+      BACKEND_CONFIG_FILE: /app/config.yaml
+    depends_on:
+      db:
+        condition: service_healthy
+
+  worker:
+    build: .
+    command: ["/app/worker"]
+    environment:
+      DATABASE_URL: postgres://burmalda:burmalda@db:5432/burmalda?sslmode=disable
+      BACKEND_CONFIG_FILE: /app/config.yaml
+      METRICS_ADDR: :19090
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      ML_PIPELINE_VERSION: ${ML_PIPELINE_VERSION:-}
+      ML_MAX_TEXT_BYTES: ${ML_MAX_TEXT_BYTES:-}
+      ML_BASE_URL: ${ML_BASE_URL:-}
+      ML_SERVICE_TOKEN: ${ML_SERVICE_TOKEN:-}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      alloy:
+        condition: service_started
+    restart: unless-stopped
+
+  observer:
+    build: .
+    command: ["/app/observer"]
+    environment:
+      DATABASE_URL: postgres://burmalda:burmalda@db:5432/burmalda?sslmode=disable
+      BACKEND_CONFIG_FILE: /app/config.yaml
+      METRICS_ADDR: :19091
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=15d"]
+    volumes:
+      - ./observability/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "127.0.0.1:19092:9090"
+    restart: unless-stopped
+
+  loki:
+    image: grafana/loki:3.5.0
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./observability/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    restart: unless-stopped
+
+  tempo:
+    image: grafana/tempo:2.8.0
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./observability/tempo/config.yaml:/etc/tempo/config.yaml:ro
+      - tempo_data:/var/tempo
+    restart: unless-stopped
+
+  alloy:
+    image: grafana/alloy:v1.10.2
+    command: ["run", "--server.http.listen-addr=0.0.0.0:12345", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./observability/alloy/config.alloy:/etc/alloy/config.alloy:ro
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      PG_HOST: db
+      PG_USER: burmalda
+      PG_PASSWORD: burmalda
+      PG_DATABASE: burmalda
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports:
+      - "127.0.0.1:13000:3000"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+      - db
+    restart: unless-stopped
+
+volumes:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:

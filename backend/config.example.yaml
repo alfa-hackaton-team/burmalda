@@ -1,0 +1,49 @@
+database:
+  max_conns: 10
+  connect_timeout: 5s
+server:
+  read_header_timeout: 5s
+  readiness_timeout: 2s
+  shutdown_timeout: 10s
+source_poll:
+  lease: 2m
+  idle: 5s
+  reap_batch: 100
+  finish_timeout: 5s
+article_retry:
+  idle: 5s
+  lease: 2m
+  finish_timeout: 5s
+  max_attempts: 5
+  retry_step: 30s
+  retry_max: 15m
+  retry_after_max: 24h
+feeds:
+  max_feed_bytes: 4194304
+  max_article_bytes: 4194304
+  max_entries: 500
+  max_article_entries: 20
+  max_pdf_pages: 100
+  max_pdf_text_bytes: 4194304
+  request_timeout: 20s
+  dns_lookup_timeout: 3s
+  dial_timeout: 5s
+  tls_handshake_timeout: 5s
+  response_header_timeout: 10s
+  idle_conn_timeout: 30s
+  max_idle_conns: 10
+  max_conns_per_host: 2
+  max_redirects: 5
+  retry_after_max: 24h
+  user_agent: Burmalda/0.1 (+source-polling)
+ml:
+  idle: 5s
+  lease: 2m
+  finish_timeout: 5s
+  request_timeout: 20s
+  max_response_bytes: 1048576
+  max_attempts: 12
+  retry_step: 5s
+  retry_max: 1m
+  retry_after_max: 1h
+  status_poll_interval: 5s

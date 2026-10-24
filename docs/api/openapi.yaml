@@ -986,15 +986,6 @@ paths:
             schema:
               "$ref": "./schemas.yaml#/components/schemas/SourceConfigInput"
       parameters:
-      - name: Idempotency-Key
-        in: header
-        required: false
-        schema:
-          type: string
-          minLength: 1
-          description: Ключ связывает повтор с исходной операцией в пределах пользователя
-            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
-            финальный персональный ответ между пользователями.
       - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/sources/{source_id}":
     get:
@@ -1099,11 +1090,12 @@ paths:
           minLength: 1
       - name: If-Match
         in: header
-        required: false
+        required: true
         schema:
           type: string
-          description: 'Версия конфигурации для защиты от одновременного изменения:
-            сервер проверяет, что запрос относится к актуальной версии.'
+          description: 'Сильный ETag текущей конфигурации, например "3". Сервер
+            проверяет, что запрос относится к актуальной версии; отсутствие заголовка
+            даёт HTTP 428, устаревшая версия — HTTP 409.'
       - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/sources/{source_id}/syncs":
     post:
