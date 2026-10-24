@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -28,11 +29,22 @@ type Job struct {
 	Attempts                                  int
 }
 
-type Store struct{ db *pgxpool.Pool }
+type Store struct {
+	db       *pgxpool.Pool
+	Settings func() config.Runtime
+}
 
 func NewStore(db *pgxpool.Pool) *Store { return &Store{db: db} }
 
+func (s *Store) settings() config.Runtime {
+	if s.Settings != nil {
+		return s.Settings()
+	}
+	return config.DefaultRuntime()
+}
+
 func (s *Store) Claim(ctx context.Context) (Job, bool, error) {
+	settings := s.settings()
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return Job{}, false, err
@@ -51,12 +63,12 @@ func (s *Store) Claim(ctx context.Context) (Job, bool, error) {
 	}
 	var job Job
 	err = tx.QueryRow(ctx, `UPDATE processing_jobs SET status='RUNNING',
-		lease_token=gen_random_uuid(), lease_until=clock_timestamp()+interval '2 minutes',
+		lease_token=gen_random_uuid(), lease_until=clock_timestamp()+($2::double precision*interval '1 second'),
 		attempts=attempts+1, updated_at=clock_timestamp()
 		WHERE id=$1::uuid RETURNING id::text, lease_token::text,
 		article_version_id::text, dedupe_key, pipeline_version,
 		source_name, source_type, source_role, source_trust_level,
-		external_id, canonical_url, ml_processing_id, attempts`, id).Scan(
+		external_id, canonical_url, ml_processing_id, attempts`, id, settings.ML.Lease.Std().Seconds()).Scan(
 		&job.ID, &job.Token, &job.VersionID, &job.DedupeKey, &job.PipelineVersion,
 		&job.SourceName, &job.SourceType, &job.SourceRole, &job.TrustLevel,
 		&job.ExternalID, &job.CanonicalURL, &job.ProcessingID, &job.Attempts)
@@ -80,10 +92,11 @@ func (s *Store) Claim(ctx context.Context) (Job, bool, error) {
 }
 
 func (s *Store) Finish(ctx context.Context, job Job, result Result) error {
+	settings := s.settings()
 	status := "RETRY"
 	if result.Succeeded {
 		status = "SUCCEEDED"
-	} else if result.Permanent || (job.Attempts >= 12 && !result.Pending) {
+	} else if result.Permanent || (job.Attempts >= settings.ML.MaxAttempts && !result.Pending) {
 		status = "FAILED"
 	}
 	var events []byte
@@ -102,10 +115,10 @@ func (s *Store) Finish(ctx context.Context, job Job, result Result) error {
 	}
 	delay := result.RetryAfter
 	if delay <= 0 {
-		delay = min(time.Duration(job.Attempts)*5*time.Second, time.Minute)
+		delay = min(time.Duration(job.Attempts)*settings.ML.RetryStep.Std(), settings.ML.RetryMax.Std())
 	}
-	if delay > time.Hour {
-		delay = time.Hour
+	if delay > settings.ML.RetryAfterMax.Std() {
+		delay = settings.ML.RetryAfterMax.Std()
 	}
 	command, err := s.db.Exec(ctx, `UPDATE processing_jobs SET
 		status=$3, ml_processing_id=COALESCE(ml_processing_id, NULLIF($4::text,'')),

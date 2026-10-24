@@ -91,6 +91,7 @@ activemq-data/
 *.sage.py
 
 .env
+/backend/config.yaml
 .envrc
 .venv
 env/

@@ -10,6 +10,9 @@ import (
 )
 
 type Config struct {
+	ConfigFile             string
+	Runtime                Runtime
+	RuntimeBase            Runtime
 	DatabaseURL            string
 	HTTPAddr               string
 	DBMaxConns             int32
@@ -29,6 +32,7 @@ func Load() (Config, error) {
 	cfg := Config{
 		DatabaseURL: os.Getenv("DATABASE_URL"),
 		HTTPAddr:    getenv("HTTP_ADDR", ":8080"),
+		ConfigFile:  os.Getenv("BACKEND_CONFIG_FILE"),
 	}
 	if cfg.DatabaseURL == "" {
 		return Config{}, fmt.Errorf("DATABASE_URL is required")
@@ -68,6 +72,20 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("SOURCE_POLL_REAP_BATCH must be between 1 and 1000")
 	}
 	cfg.SourcePollReapBatch = reapBatch
+	cfg.RuntimeBase = DefaultRuntime()
+	cfg.RuntimeBase.Database.MaxConns = int(cfg.DBMaxConns)
+	cfg.RuntimeBase.Database.ConnectTimeout = Duration(cfg.DatabaseConnectTimeout)
+	cfg.RuntimeBase.Server.ReadinessTimeout = Duration(cfg.ReadinessTimeout)
+	cfg.RuntimeBase.Server.ShutdownTimeout = Duration(cfg.ShutdownTimeout)
+	cfg.RuntimeBase.SourcePoll.Lease = Duration(cfg.SourcePollLease)
+	cfg.RuntimeBase.SourcePoll.Idle = Duration(cfg.SourcePollIdle)
+	cfg.RuntimeBase.SourcePoll.ReapBatch = cfg.SourcePollReapBatch
+	cfg.Runtime, err = readRuntime(cfg.ConfigFile, cfg.RuntimeBase)
+	if err != nil {
+		return Config{}, fmt.Errorf("load BACKEND_CONFIG_FILE: %w", err)
+	}
+	cfg.DBMaxConns = int32(cfg.Runtime.Database.MaxConns)
+	cfg.DatabaseConnectTimeout = cfg.Runtime.Database.ConnectTimeout.Std()
 	cfg.MLPipelineVersion = strings.TrimSpace(os.Getenv("ML_PIPELINE_VERSION"))
 	limitRaw := strings.TrimSpace(os.Getenv("ML_MAX_TEXT_BYTES"))
 	if (cfg.MLPipelineVersion == "") != (limitRaw == "") {

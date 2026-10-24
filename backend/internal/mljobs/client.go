@@ -10,6 +10,8 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 )
 
 type Result struct {
@@ -24,9 +26,17 @@ type Result struct {
 }
 
 type Client struct {
-	BaseURL string
-	Token   string
-	HTTP    *http.Client
+	BaseURL  string
+	Token    string
+	HTTP     *http.Client
+	Settings func() config.Runtime
+}
+
+func (c Client) settings() config.Runtime {
+	if c.Settings != nil {
+		return c.Settings()
+	}
+	return config.DefaultRuntime()
 }
 
 type operation struct {
@@ -64,7 +74,7 @@ func (c Client) get(ctx context.Context, job Job) (Result, bool) {
 	if status != http.StatusOK {
 		return classifyStatus(status, retryAfter), false
 	}
-	return decodeOperation(body, job), false
+	return decodeOperationWithInterval(body, job, c.settings().ML.StatusPollInterval.Std()), false
 }
 
 func (c Client) post(ctx context.Context, job Job) Result {
@@ -120,13 +130,14 @@ func (c Client) post(ctx context.Context, job Job) Result {
 	if status != http.StatusAccepted {
 		return classifyStatus(status, retryAfter)
 	}
-	return decodeOperation(response, job)
+	return decodeOperationWithInterval(response, job, c.settings().ML.StatusPollInterval.Std())
 }
 
 func (c Client) do(req *http.Request) (int, []byte, time.Duration, error) {
+	settings := c.settings()
 	client := c.HTTP
 	if client == nil {
-		client = &http.Client{Timeout: 20 * time.Second}
+		client = &http.Client{Timeout: settings.ML.RequestTimeout.Std()}
 	}
 	copyClient := *client
 	copyClient.CheckRedirect = func(*http.Request, []*http.Request) error {
@@ -138,14 +149,18 @@ func (c Client) do(req *http.Request) (int, []byte, time.Duration, error) {
 		return 0, nil, 0, err
 	}
 	defer resp.Body.Close()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, (1<<20)+1))
-	if err != nil || len(body) > 1<<20 {
+	body, err := io.ReadAll(io.LimitReader(resp.Body, settings.ML.MaxResponseBytes+1))
+	if err != nil || int64(len(body)) > settings.ML.MaxResponseBytes {
 		return 0, nil, 0, fmt.Errorf("ML response is unreadable or too large")
 	}
-	return resp.StatusCode, body, parseRetryAfter(resp.Header.Get("Retry-After")), nil
+	return resp.StatusCode, body, parseRetryAfterWithMax(resp.Header.Get("Retry-After"), settings.ML.RetryAfterMax.Std()), nil
 }
 
 func decodeOperation(body []byte, job Job) Result {
+	return decodeOperationWithInterval(body, job, 5*time.Second)
+}
+
+func decodeOperationWithInterval(body []byte, job Job, interval time.Duration) Result {
 	var op operation
 	if err := json.Unmarshal(body, &op); err != nil || strings.TrimSpace(op.ProcessingID) == "" ||
 		op.ArticleVersionID != job.VersionID || op.PipelineVersion != job.PipelineVersion {
@@ -158,7 +173,7 @@ func decodeOperation(body []byte, job Job) Result {
 	switch op.State {
 	case "QUEUED", "RUNNING":
 		result.Pending = true
-		result.RetryAfter = 5 * time.Second
+		result.RetryAfter = interval
 	case "SUCCEEDED":
 		if strings.TrimSpace(op.DocumentVersionID) == "" || op.EventIDs == nil {
 			return Result{ProcessingID: op.ProcessingID, Permanent: true, Error: "ML success is missing results"}
@@ -191,14 +206,18 @@ func classifyStatus(status int, retryAfter time.Duration) Result {
 }
 
 func parseRetryAfter(raw string) time.Duration {
+	return parseRetryAfterWithMax(raw, time.Hour)
+}
+
+func parseRetryAfterWithMax(raw string, maxDelay time.Duration) time.Duration {
 	if raw == "" {
 		return 0
 	}
 	if seconds, err := time.ParseDuration(strings.TrimSpace(raw) + "s"); err == nil {
-		return min(max(seconds, 0), time.Hour)
+		return min(max(seconds, 0), maxDelay)
 	}
 	if when, err := http.ParseTime(raw); err == nil {
-		return min(max(time.Until(when), 0), time.Hour)
+		return min(max(time.Until(when), 0), maxDelay)
 	}
 	return 0
 }

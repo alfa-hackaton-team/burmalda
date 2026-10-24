@@ -6,6 +6,7 @@ import (
 )
 
 func TestLoad(t *testing.T) {
+	t.Setenv("BACKEND_CONFIG_FILE", "")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("HTTP_ADDR", ":9090")
 	t.Setenv("DB_MAX_CONNS", "7")
@@ -29,6 +30,7 @@ func TestLoad(t *testing.T) {
 }
 
 func TestLoadRejectsIncompleteMLConfiguration(t *testing.T) {
+	t.Setenv("BACKEND_CONFIG_FILE", "")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("ML_PIPELINE_VERSION", "test-v1")
 	t.Setenv("ML_MAX_TEXT_BYTES", "")
@@ -40,6 +42,7 @@ func TestLoadRejectsIncompleteMLConfiguration(t *testing.T) {
 }
 
 func TestLoadRejectsInvalidConfiguration(t *testing.T) {
+	t.Setenv("BACKEND_CONFIG_FILE", "")
 	t.Setenv("DATABASE_URL", "postgres://localhost/test")
 	t.Setenv("DB_MAX_CONNS", "0")
 	if _, err := Load(); err == nil {

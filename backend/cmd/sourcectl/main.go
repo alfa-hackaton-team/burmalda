@@ -36,7 +36,7 @@ func run(args []string) error {
 		return err
 	}
 	defer pool.Close()
-	store := sources.NewStore(pool, sources.Validator{})
+	store := sources.NewStore(pool, sources.Validator{LookupTimeout: cfg.Runtime.Feeds.DNSLookupTimeout.Std()})
 
 	var result any
 	switch args[0] {

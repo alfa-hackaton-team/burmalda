@@ -11,13 +11,17 @@ type Pinger interface {
 }
 
 func Handler(db Pinger, readinessTimeout time.Duration) http.Handler {
+	return HandlerWithTimeout(db, func() time.Duration { return readinessTimeout })
+}
+
+func HandlerWithTimeout(db Pinger, readinessTimeout func() time.Duration) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health/live", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		_, _ = w.Write([]byte("ok\n"))
 	})
 	mux.HandleFunc("GET /health/ready", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout)
+		ctx, cancel := context.WithTimeout(r.Context(), readinessTimeout())
 		defer cancel()
 		if err := db.Ping(ctx); err != nil {
 			http.Error(w, "database unavailable", http.StatusServiceUnavailable)

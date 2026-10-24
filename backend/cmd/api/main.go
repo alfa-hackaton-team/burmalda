@@ -27,8 +27,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	manager := config.NewManagerFromConfig(cfg)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	config.WatchSIGHUP(ctx, manager)
 
 	pool, err := database.Open(ctx, cfg)
 	if err != nil {
@@ -38,8 +40,8 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           health.Handler(pool, cfg.ReadinessTimeout),
-		ReadHeaderTimeout: 5 * time.Second,
+		Handler:           health.HandlerWithTimeout(pool, func() time.Duration { return manager.Current().Server.ReadinessTimeout.Std() }),
+		ReadHeaderTimeout: manager.Current().Server.ReadHeaderTimeout.Std(),
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.ListenAndServe() }()
@@ -52,7 +54,7 @@ func run() error {
 		}
 		return err
 	case <-ctx.Done():
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), manager.Current().Server.ShutdownTimeout.Std())
 		defer cancel()
 		if err := server.Shutdown(shutdownCtx); err != nil {
 			return err
