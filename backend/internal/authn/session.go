@@ -88,6 +88,10 @@ func Middleware(store Store, next http.Handler) http.Handler {
 		tokenHash := sha256.Sum256(token)
 		principal, err := store.Authenticate(r.Context(), tokenHash)
 		if err != nil {
+			if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
+				httpx.WriteError(w, http.StatusGatewayTimeout, "REQUEST_TIMEOUT", "request timed out", true)
+				return
+			}
 			if errors.Is(err, ErrUnauthenticated) {
 				unauthenticated(w)
 				return

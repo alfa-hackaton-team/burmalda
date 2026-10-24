@@ -38,6 +38,11 @@ type Runtime struct {
 	} `yaml:"database"`
 	Server struct {
 		ReadHeaderTimeout Duration `yaml:"read_header_timeout"`
+		ReadTimeout       Duration `yaml:"read_timeout"`
+		WriteTimeout      Duration `yaml:"write_timeout"`
+		IdleTimeout       Duration `yaml:"idle_timeout"`
+		RequestTimeout    Duration `yaml:"request_timeout"`
+		MaxBodyBytes      int64    `yaml:"max_body_bytes"`
 		ReadinessTimeout  Duration `yaml:"readiness_timeout"`
 		ShutdownTimeout   Duration `yaml:"shutdown_timeout"`
 	} `yaml:"server"`
@@ -102,7 +107,10 @@ type Runtime struct {
 func DefaultRuntime() Runtime {
 	var r Runtime
 	r.Database.MaxConns, r.Database.ConnectTimeout = 10, Duration(5*time.Second)
-	r.Server.ReadHeaderTimeout, r.Server.ReadinessTimeout, r.Server.ShutdownTimeout = Duration(5*time.Second), Duration(2*time.Second), Duration(10*time.Second)
+	r.Server.ReadHeaderTimeout, r.Server.ReadTimeout = Duration(5*time.Second), Duration(15*time.Second)
+	r.Server.WriteTimeout, r.Server.IdleTimeout = Duration(30*time.Second), Duration(60*time.Second)
+	r.Server.RequestTimeout, r.Server.MaxBodyBytes = Duration(20*time.Second), 1<<20
+	r.Server.ReadinessTimeout, r.Server.ShutdownTimeout = Duration(2*time.Second), Duration(10*time.Second)
 	r.SourcePoll.Lease, r.SourcePoll.Idle = Duration(2*time.Minute), Duration(5*time.Second)
 	r.SourcePoll.ReapBatch, r.SourcePoll.FinishTimeout = 100, Duration(5*time.Second)
 	r.SourcePoll.PersistTimeout = Duration(90 * time.Second)
@@ -134,6 +142,10 @@ func (r Runtime) validate() error {
 	for name, d := range map[string]Duration{
 		"database.connect_timeout":   r.Database.ConnectTimeout,
 		"server.read_header_timeout": r.Server.ReadHeaderTimeout,
+		"server.read_timeout":        r.Server.ReadTimeout,
+		"server.write_timeout":       r.Server.WriteTimeout,
+		"server.idle_timeout":        r.Server.IdleTimeout,
+		"server.request_timeout":     r.Server.RequestTimeout,
 		"server.readiness_timeout":   r.Server.ReadinessTimeout,
 		"server.shutdown_timeout":    r.Server.ShutdownTimeout,
 		"source_poll.lease":          r.SourcePoll.Lease, "source_poll.idle": r.SourcePoll.Idle,
@@ -161,6 +173,9 @@ func (r Runtime) validate() error {
 	}
 	if r.Database.MaxConns < 1 || r.Database.MaxConns > 2147483647 {
 		return fmt.Errorf("database.max_conns must be between 1 and 2147483647")
+	}
+	if r.Server.MaxBodyBytes < 1 || r.Server.MaxBodyBytes > 16<<20 {
+		return fmt.Errorf("server.max_body_bytes must be between 1 and 16777216")
 	}
 	if r.SourcePoll.Lease < Duration(3*time.Second) || r.SourcePoll.FinishTimeout >= r.SourcePoll.Lease ||
 		r.SourcePoll.ReapBatch < 1 || r.SourcePoll.ReapBatch > 1000 {
@@ -249,8 +264,14 @@ func (m *Manager) Reload() error {
 		return err
 	}
 	if current := m.value.Load(); current != nil &&
-		(value.Database != current.Database || value.Server.ReadHeaderTimeout != current.Server.ReadHeaderTimeout) {
-		return fmt.Errorf("database settings and server.read_header_timeout require restart")
+		(value.Database != current.Database ||
+			value.Server.ReadHeaderTimeout != current.Server.ReadHeaderTimeout ||
+			value.Server.ReadTimeout != current.Server.ReadTimeout ||
+			value.Server.WriteTimeout != current.Server.WriteTimeout ||
+			value.Server.IdleTimeout != current.Server.IdleTimeout ||
+			value.Server.RequestTimeout != current.Server.RequestTimeout ||
+			value.Server.MaxBodyBytes != current.Server.MaxBodyBytes) {
+		return fmt.Errorf("database settings and server transport/request limits require restart")
 	}
 	m.value.Store(&value)
 	return nil

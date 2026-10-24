@@ -82,6 +82,7 @@ services:
       HTTP_ADDR: :8080
       DATASET_REQUIRED: "true"
       DATASET_API_TOKEN: ${DATASET_API_TOKEN:-}
+      CURSOR_SIGNING_KEY: ${CURSOR_SIGNING_KEY:?CURSOR_SIGNING_KEY is required; generate it with openssl rand -base64 32}
     depends_on:
       migrate:
         condition: service_completed_successfully

@@ -50,12 +50,24 @@ func run() error {
 	dataset.DatasetHandler{DB: pool, Token: os.Getenv("DATASET_API_TOKEN")}.Register(mux)
 	sessionStore := authn.NewPostgresStore(pool)
 	userStore := userapi.NewPostgresStore(pool)
-	mux.Handle("/v0.1/", authn.Middleware(sessionStore, userapi.Handler(userStore)))
+	cursorSigningKey, err := userapi.ParseCursorSigningKey(os.Getenv("CURSOR_SIGNING_KEY"))
+	if err != nil {
+		return err
+	}
+	userHandler := authn.Middleware(sessionStore, userapi.Handler(userStore, cursorSigningKey))
+	serverSettings := manager.Current().Server
+	mux.Handle("/v0.1/", userapi.ProtectHTTP(userHandler, userapi.HTTPOptions{
+		RequestTimeout: serverSettings.RequestTimeout.Std(),
+		MaxBodyBytes:   serverSettings.MaxBodyBytes,
+	}))
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
 		Handler:           mux,
 		ReadHeaderTimeout: manager.Current().Server.ReadHeaderTimeout.Std(),
+		ReadTimeout:       serverSettings.ReadTimeout.Std(),
+		WriteTimeout:      serverSettings.WriteTimeout.Std(),
+		IdleTimeout:       serverSettings.IdleTimeout.Std(),
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.ListenAndServe() }()

@@ -7,9 +7,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/authn"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpx"
@@ -52,17 +56,45 @@ type ContextPage struct {
 }
 
 type contextCursor struct {
-	UserID  string `json:"user_id"`
-	AfterID string `json:"after_id"`
+	UserID    string `json:"user_id"`
+	SessionID string `json:"session_id"`
+	AfterID   string `json:"after_id"`
 }
 
-func Handler(store Store) http.Handler {
+type HTTPOptions struct {
+	RequestTimeout time.Duration
+	MaxBodyBytes   int64
+}
+
+func ParseCursorSigningKey(value string) ([sha256.Size]byte, error) {
+	var key [sha256.Size]byte
+	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
+	if err != nil || len(decoded) != sha256.Size {
+		return key, fmt.Errorf("CURSOR_SIGNING_KEY must be base64 for exactly %d random bytes", sha256.Size)
+	}
+	copy(key[:], decoded)
+	return key, nil
+}
+
+func Handler(store Store, cursorSigningKey [sha256.Size]byte) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0.1/me", getMe)
 	mux.HandleFunc("GET /v0.1/contexts", func(w http.ResponseWriter, r *http.Request) {
-		listContexts(w, r, store)
+		listContexts(w, r, store, cursorSigningKey)
 	})
 	return mux
+}
+
+func ProtectHTTP(next http.Handler, options HTTPOptions) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if r.Body != nil {
+			r.Body = http.MaxBytesReader(w, r.Body, options.MaxBodyBytes)
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), options.RequestTimeout)
+		defer cancel()
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 func getMe(w http.ResponseWriter, r *http.Request) {
@@ -80,7 +112,7 @@ func getMe(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func listContexts(w http.ResponseWriter, r *http.Request, store Store) {
+func listContexts(w http.ResponseWriter, r *http.Request, store Store, cursorSigningKey [sha256.Size]byte) {
 	principal, ok := authn.PrincipalFromContext(r.Context())
 	if !ok {
 		httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error", false)
@@ -94,13 +126,17 @@ func listContexts(w http.ResponseWriter, r *http.Request, store Store) {
 	if !ok {
 		return
 	}
-	afterID, ok := parseCursor(w, r, principal.UserID, principal.CSRFTokenHash)
+	afterID, ok := parseCursor(w, r, principal.UserID, principal.SessionID, cursorSigningKey)
 	if !ok {
 		return
 	}
 
 	items, err := store.ListContexts(r.Context(), principal.UserID, afterID, limit+1)
 	if err != nil {
+		if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
+			httpx.WriteError(w, http.StatusGatewayTimeout, "REQUEST_TIMEOUT", "request timed out", true)
+			return
+		}
 		httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error", false)
 		return
 	}
@@ -112,9 +148,10 @@ func listContexts(w http.ResponseWriter, r *http.Request, store Store) {
 	if len(items) > limit {
 		items = items[:limit]
 		encoded, err := encodeCursor(contextCursor{
-			UserID:  principal.UserID,
-			AfterID: items[len(items)-1].Context.ContextID,
-		}, principal.CSRFTokenHash)
+			UserID:    principal.UserID,
+			SessionID: principal.SessionID,
+			AfterID:   items[len(items)-1].Context.ContextID,
+		}, cursorSigningKey)
 		if err != nil {
 			httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error", false)
 			return
@@ -132,12 +169,7 @@ func validEmptyGET(w http.ResponseWriter, r *http.Request, allowedQuery map[stri
 			return false
 		}
 	}
-	if r.Body == nil {
-		return true
-	}
-	var one [1]byte
-	n, err := io.ReadFull(r.Body, one[:])
-	if n != 0 || (err != nil && err != io.EOF) {
+	if r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
 		httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "GET request body must be empty", false)
 		return false
 	}
@@ -161,7 +193,7 @@ func parseLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return limit, true
 }
 
-func parseCursor(w http.ResponseWriter, r *http.Request, userID string, signingKey [sha256.Size]byte) (string, bool) {
+func parseCursor(w http.ResponseWriter, r *http.Request, userID, sessionID string, signingKey [sha256.Size]byte) (string, bool) {
 	values, present := r.URL.Query()["cursor"]
 	if !present {
 		return "", true
@@ -185,7 +217,7 @@ func parseCursor(w http.ResponseWriter, r *http.Request, userID string, signingK
 	var cursor contextCursor
 	decoder := json.NewDecoder(io.LimitReader(bytes.NewReader(body), 2048))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&cursor); err != nil || cursor.UserID != userID || uuid.Validate(cursor.AfterID) != nil {
+	if err := decoder.Decode(&cursor); err != nil || cursor.UserID != userID || cursor.SessionID != sessionID || uuid.Validate(cursor.AfterID) != nil {
 		httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid cursor", false)
 		return "", false
 	}
