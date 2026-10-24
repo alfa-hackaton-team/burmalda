@@ -120,7 +120,7 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Check reachable Go vulnerabilities
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           govulncheck ./...
 
   images:
@@ -137,7 +137,7 @@ jobs:
         run: docker build --pull -t backend-ci ./backend
       - name: Check compiled backend binaries
         run: |
-          go install golang.org/x/vuln/cmd/govulncheck@v1.1.4
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
           container="$(docker create backend-ci)"
           trap 'docker rm "$container" >/dev/null' EXIT
           mkdir -p /tmp/backend-bin
