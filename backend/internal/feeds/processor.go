@@ -90,12 +90,21 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	default:
 		return result, fmt.Errorf("source returned HTTP %d", response.Status)
 	}
-	entries, err := ParseWithLimit(response.Body, lease.Endpoint, lease.AdapterType, adapterConfig.ArticleHTML, limits.Feeds.MaxEntries)
+	feedURL := response.FinalURL
+	if feedURL == "" {
+		feedURL = lease.Endpoint
+	}
+	entries, parseFailures, err := ParseEntriesWithLimit(response.Body, feedURL, lease.AdapterType, adapterConfig.ArticleHTML, limits.Feeds.MaxEntries)
 	if err != nil {
 		return result, err
 	}
 	materials := make([]material, 0, len(entries))
 	entryFailures := make([]polling.EntryFailure, 0)
+	for _, failure := range parseFailures {
+		entryFailures = append(entryFailures, polling.EntryFailure{
+			EntryNo: failure.EntryNo, ErrorCode: "FEED_ENTRY_INVALID", ErrorMessage: failure.Err.Error(),
+		})
+	}
 	addFailure := func(index int, entry Entry, code string, err error, response Response, retryable, queue bool) {
 		var status *int
 		if response.Status != 0 {
@@ -116,12 +125,13 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 		if len(entries) > limits.Feeds.MaxArticleEntries {
 			return result, fmt.Errorf("HTML feed exceeds %d article links", limits.Feeds.MaxArticleEntries)
 		}
-		for index, entry := range entries {
+		for _, parsed := range entries {
+			entry, index := parsed.Entry, parsed.EntryNo-1
 			if entry.CanonicalURL == "" {
 				addFailure(index, entry, "ARTICLE_URL_MISSING", fmt.Errorf("feed entry has no article URL"), Response{}, false, false)
 				continue
 			}
-			articleResponse, err := articleFetcher.FetchArticle(ctx, lease.Endpoint, entry.CanonicalURL)
+			articleResponse, err := articleFetcher.FetchArticle(ctx, feedURL, entry.CanonicalURL)
 			if err != nil {
 				addFailure(index, entry, "ARTICLE_FETCH_FAILED", err, articleResponse,
 					RetryableArticleFetch(articleResponse.Status, err), true)
@@ -155,7 +165,8 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 		}
 	} else {
 		parserVersion := lease.AdapterType + "-" + ParserVersion
-		for index, entry := range entries {
+		for _, parsed := range entries {
+			entry, index := parsed.Entry, parsed.EntryNo-1
 			if p.MaxTextBytes > 0 && len(entry.Body) > p.MaxTextBytes {
 				addFailure(index, entry, "ARTICLE_TEXT_TOO_LARGE", fmt.Errorf("article text exceeds configured ML limit of %d bytes", p.MaxTextBytes), Response{}, false, false)
 				continue
@@ -170,9 +181,9 @@ func (p Processor) Poll(ctx context.Context, lease polling.Lease) (polling.Outco
 	result.Partial = len(entryFailures) > 0 && len(materials) > 0
 	result.EntryFailures = entryFailures
 	if len(entryFailures) > 0 {
-		result.Error = fmt.Sprintf("%d of %d feed entries failed", len(entryFailures), len(entries))
+		result.Error = fmt.Sprintf("%d of %d feed entries failed", len(entryFailures), len(entries)+len(parseFailures))
 	}
-	result.DiscoveredCount = len(entries)
+	result.DiscoveredCount = len(entries) + len(parseFailures)
 	fetchedAt := time.Now().UTC()
 	result.Persist = func(ctx context.Context, tx pgx.Tx) (int, int, error) {
 		feedArtifactID, err := saveFeedSnapshot(ctx, tx, lease.SourceID, lease.AdapterType, response.Body)
@@ -248,22 +259,41 @@ func saveEntry(ctx context.Context, tx pgx.Tx, lease polling.Lease, feedArtifact
 	sourceID := lease.SourceID
 	kind, key := entry.Identity()
 	var articleID string
-	err := tx.QueryRow(ctx, `INSERT INTO articles
-		(source_id, identity_kind, identity_key, external_id, canonical_url)
-		VALUES ($1::uuid, $2, $3, $4, $5)
-		ON CONFLICT (source_id, identity_kind, identity_key) DO NOTHING
-		RETURNING id::text`, sourceID, kind, key,
-		nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL)).Scan(&articleID)
-	createdArticle := err == nil
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return false, false, fmt.Errorf("create article: %w", err)
-	}
+	createdArticle := false
 	var latestID *string
-	err = tx.QueryRow(ctx, `SELECT id::text, latest_version_id::text FROM articles
-		WHERE source_id=$1::uuid AND identity_kind=$2 AND identity_key=$3
-		FOR UPDATE`, sourceID, kind, key).Scan(&articleID, &latestID)
+	rows, err := tx.Query(ctx, `SELECT id::text, latest_version_id::text FROM articles
+		WHERE source_id=$1::uuid AND
+		(($2::text IS NOT NULL AND external_id=$2) OR
+		 ($3::text IS NOT NULL AND canonical_url=$3))
+		FOR UPDATE`, sourceID, nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL))
 	if err != nil {
-		return false, false, fmt.Errorf("lock article: %w", err)
+		return false, false, fmt.Errorf("find article: %w", err)
+	}
+	matched := 0
+	for rows.Next() {
+		matched++
+		if err := rows.Scan(&articleID, &latestID); err != nil {
+			rows.Close()
+			return false, false, fmt.Errorf("read article identity: %w", err)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return false, false, fmt.Errorf("find article identity: %w", err)
+	}
+	rows.Close()
+	if matched > 1 {
+		return false, false, fmt.Errorf("article external ID and URL refer to different articles")
+	}
+	if matched == 0 {
+		err = tx.QueryRow(ctx, `INSERT INTO articles
+			(source_id, identity_kind, identity_key, external_id, canonical_url)
+			VALUES ($1::uuid, $2, $3, $4, $5) RETURNING id::text`,
+			sourceID, kind, key, nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL)).Scan(&articleID)
+		if err != nil {
+			return false, false, fmt.Errorf("create article: %w", err)
+		}
+		createdArticle = true
 	}
 	versionNo := 1
 	contentHash := entry.ContentHash()
@@ -277,7 +307,8 @@ func saveEntry(ctx context.Context, tx pgx.Tx, lease polling.Lease, feedArtifact
 			return false, false, fmt.Errorf("read latest article version: %w", err)
 		}
 		if latestHash == contentHash && latestParser == parserVersion {
-			_, err = tx.Exec(ctx, `UPDATE articles SET external_id=$2, canonical_url=$3
+			_, err = tx.Exec(ctx, `UPDATE articles SET external_id=COALESCE($2, external_id),
+					canonical_url=COALESCE($3, canonical_url)
 				WHERE id=$1::uuid`, articleID, nullIfEmpty(entry.ExternalID),
 				nullIfEmpty(entry.CanonicalURL))
 			if err != nil {
@@ -306,7 +337,8 @@ func saveEntry(ctx context.Context, tx pgx.Tx, lease polling.Lease, feedArtifact
 		return false, false, fmt.Errorf("create article version: %w", err)
 	}
 	_, err = tx.Exec(ctx, `UPDATE articles SET latest_version_id=$2::uuid,
-		external_id=$3, canonical_url=$4 WHERE id=$1::uuid`, articleID, versionID,
+		external_id=COALESCE($3, external_id), canonical_url=COALESCE($4, canonical_url)
+		WHERE id=$1::uuid`, articleID, versionID,
 		nullIfEmpty(entry.ExternalID), nullIfEmpty(entry.CanonicalURL))
 	if err != nil {
 		return false, false, fmt.Errorf("set latest article version: %w", err)

@@ -28,6 +28,8 @@ type Result struct {
 	Permanent         bool
 	RetryAfter        time.Duration
 	Error             string
+	ErrorCode         string
+	ErrorRetryable    bool
 }
 
 type Client struct {
@@ -51,6 +53,11 @@ type operation struct {
 	State             string    `json:"state"`
 	DocumentVersionID string    `json:"document_version_id"`
 	EventIDs          *[]string `json:"event_ids"`
+	Error             *struct {
+		Code      string `json:"code"`
+		Message   string `json:"message"`
+		Retryable *bool  `json:"retryable"`
+	} `json:"error"`
 }
 
 func (c Client) Process(ctx context.Context, job Job) Result {
@@ -201,7 +208,15 @@ func decodeOperationWithInterval(body []byte, job Job, interval time.Duration) R
 		result.EventIDs = *op.EventIDs
 	case "FAILED":
 		result.Permanent = true
-		result.Error = "ML processing failed"
+		if op.Error == nil || strings.TrimSpace(op.Error.Code) == "" ||
+			strings.TrimSpace(op.Error.Message) == "" || op.Error.Retryable == nil {
+			result.Error = "ML failure is missing structured error"
+			result.ErrorCode = "INVALID_ML_RESPONSE"
+		} else {
+			result.Error = op.Error.Message
+			result.ErrorCode = op.Error.Code
+			result.ErrorRetryable = *op.Error.Retryable
+		}
 	default:
 		result.Permanent = true
 		result.Error = "ML operation has an unknown state"

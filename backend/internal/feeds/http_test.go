@@ -108,6 +108,25 @@ func TestFetchArticleAcceptsPDF(t *testing.T) {
 	}
 }
 
+func TestFetchReturnsFinalURLAfterRedirect(t *testing.T) {
+	fetcher := NewSafeFetcher(nil)
+	fetcher.client.Transport = roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		if req.URL.Host == "old.example" {
+			return &http.Response{StatusCode: http.StatusFound,
+				Request: req,
+				Header:  http.Header{"Location": []string{"https://publisher.example/news/feed.xml"}},
+				Body:    io.NopCloser(strings.NewReader(""))}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK,
+			Request: req,
+			Body:    io.NopCloser(strings.NewReader("<rss><channel/></rss>"))}, nil
+	})
+	response, err := fetcher.Fetch(context.Background(), polling.Lease{Endpoint: "https://old.example/rss"})
+	if err != nil || response.FinalURL != "https://publisher.example/news/feed.xml" {
+		t.Fatalf("response=%+v err=%v", response, err)
+	}
+}
+
 func TestArticleFetchErrorClassification(t *testing.T) {
 	for _, status := range []int{0, 408, 429, 500, 503} {
 		if !RetryableArticleFetch(status, io.ErrUnexpectedEOF) {

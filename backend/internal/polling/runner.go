@@ -32,8 +32,8 @@ func (r Runner) Run(ctx context.Context) error {
 		return fmt.Errorf("invalid polling runner configuration")
 	}
 	for ctx.Err() == nil {
-		leaseDuration, idleInterval, reapBatch, finishTimeout := r.settings()
-		if leaseDuration < 3*time.Second || idleInterval <= 0 || reapBatch <= 0 || finishTimeout <= 0 {
+		leaseDuration, idleInterval, reapBatch, finishTimeout, persistTimeout := r.settings()
+		if leaseDuration < 3*time.Second || idleInterval <= 0 || reapBatch <= 0 || finishTimeout <= 0 || persistTimeout <= 0 {
 			return fmt.Errorf("invalid polling runner configuration")
 		}
 		closed, err := r.Store.ReapExpired(ctx, reapBatch)
@@ -58,22 +58,24 @@ func (r Runner) Run(ctx context.Context) error {
 			}
 			continue
 		}
-		if err := r.processOne(ctx, lease, leaseDuration, finishTimeout); err != nil && ctx.Err() == nil {
-			return err
+		if err := r.processOne(ctx, lease, leaseDuration, finishTimeout, persistTimeout); err != nil && ctx.Err() == nil {
+			slog.Error("source poll failed before saving result", "source_id", lease.SourceID,
+				"poll_id", lease.PollID, "error", err)
 		}
 	}
 	return nil
 }
 
-func (r Runner) settings() (time.Duration, time.Duration, int, time.Duration) {
+func (r Runner) settings() (time.Duration, time.Duration, int, time.Duration, time.Duration) {
 	if r.Settings != nil {
 		cfg := r.Settings()
-		return cfg.SourcePoll.Lease.Std(), cfg.SourcePoll.Idle.Std(), cfg.SourcePoll.ReapBatch, cfg.SourcePoll.FinishTimeout.Std()
+		return cfg.SourcePoll.Lease.Std(), cfg.SourcePoll.Idle.Std(), cfg.SourcePoll.ReapBatch,
+			cfg.SourcePoll.FinishTimeout.Std(), cfg.SourcePoll.PersistTimeout.Std()
 	}
-	return r.LeaseDuration, r.IdleInterval, r.ReapBatch, 5 * time.Second
+	return r.LeaseDuration, r.IdleInterval, r.ReapBatch, 5 * time.Second, 90 * time.Second
 }
 
-func (r Runner) processOne(ctx context.Context, lease Lease, leaseDuration, finishTimeout time.Duration) error {
+func (r Runner) processOne(ctx context.Context, lease Lease, leaseDuration, finishTimeout, persistTimeout time.Duration) error {
 	started := time.Now()
 	ctx, span := otel.Tracer("ingestion/polling").Start(ctx, "source.poll",
 		trace.WithAttributes(attribute.String("source.id", lease.SourceID), attribute.String("poll.id", lease.PollID)))
@@ -120,6 +122,16 @@ func (r Runner) processOne(ctx context.Context, lease Lease, leaseDuration, fini
 		result.Success = false
 		result.Error = pollErr.Error()
 	}
+	if result.Persist != nil {
+		finishTimeout = persistTimeout
+	}
+	if err := r.Store.Renew(ctx, lease, max(leaseDuration, finishTimeout+10*time.Second)); err != nil {
+		if !errors.Is(err, ErrLostLease) {
+			slog.Error("source poll lease could not be renewed", "source_id", lease.SourceID,
+				"poll_id", lease.PollID, "error", err)
+		}
+		return nil
+	}
 	finishCtx, finishCancel := context.WithTimeout(context.Background(), finishTimeout)
 	defer finishCancel()
 	finished, err := r.Store.FinishResult(finishCtx, lease, result)
@@ -128,7 +140,9 @@ func (r Runner) processOne(ctx context.Context, lease Lease, leaseDuration, fini
 			slog.Warn("discarded stale poll result", "source_id", lease.SourceID, "poll_id", lease.PollID)
 			return nil
 		}
-		return err
+		slog.Error("source poll result could not be saved", "source_id", lease.SourceID,
+			"poll_id", lease.PollID, "error", err)
+		return nil
 	}
 	result = finished
 	status := "SUCCEEDED"

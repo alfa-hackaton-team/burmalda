@@ -10,6 +10,7 @@ source_poll:
   idle: 5s
   reap_batch: 100
   finish_timeout: 5s
+  persist_timeout: 90s
 article_retry:
   idle: 5s
   lease: 2m
@@ -47,3 +48,4 @@ ml:
   retry_max: 1m
   retry_after_max: 1h
   status_poll_interval: 5s
+  max_processing_duration: 30m

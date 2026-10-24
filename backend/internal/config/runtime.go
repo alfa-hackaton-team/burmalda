@@ -42,10 +42,11 @@ type Runtime struct {
 		ShutdownTimeout   Duration `yaml:"shutdown_timeout"`
 	} `yaml:"server"`
 	SourcePoll struct {
-		Lease         Duration `yaml:"lease"`
-		Idle          Duration `yaml:"idle"`
-		ReapBatch     int      `yaml:"reap_batch"`
-		FinishTimeout Duration `yaml:"finish_timeout"`
+		Lease          Duration `yaml:"lease"`
+		Idle           Duration `yaml:"idle"`
+		ReapBatch      int      `yaml:"reap_batch"`
+		FinishTimeout  Duration `yaml:"finish_timeout"`
+		PersistTimeout Duration `yaml:"persist_timeout"`
 	} `yaml:"source_poll"`
 	ArticleRetry struct {
 		Idle          Duration `yaml:"idle"`
@@ -76,16 +77,17 @@ type Runtime struct {
 		UserAgent             string   `yaml:"user_agent"`
 	} `yaml:"feeds"`
 	ML struct {
-		Idle               Duration `yaml:"idle"`
-		Lease              Duration `yaml:"lease"`
-		FinishTimeout      Duration `yaml:"finish_timeout"`
-		RequestTimeout     Duration `yaml:"request_timeout"`
-		MaxResponseBytes   int64    `yaml:"max_response_bytes"`
-		MaxAttempts        int      `yaml:"max_attempts"`
-		RetryStep          Duration `yaml:"retry_step"`
-		RetryMax           Duration `yaml:"retry_max"`
-		RetryAfterMax      Duration `yaml:"retry_after_max"`
-		StatusPollInterval Duration `yaml:"status_poll_interval"`
+		Idle                  Duration `yaml:"idle"`
+		Lease                 Duration `yaml:"lease"`
+		FinishTimeout         Duration `yaml:"finish_timeout"`
+		RequestTimeout        Duration `yaml:"request_timeout"`
+		MaxResponseBytes      int64    `yaml:"max_response_bytes"`
+		MaxAttempts           int      `yaml:"max_attempts"`
+		RetryStep             Duration `yaml:"retry_step"`
+		RetryMax              Duration `yaml:"retry_max"`
+		RetryAfterMax         Duration `yaml:"retry_after_max"`
+		StatusPollInterval    Duration `yaml:"status_poll_interval"`
+		MaxProcessingDuration Duration `yaml:"max_processing_duration"`
 	} `yaml:"ml"`
 }
 
@@ -95,6 +97,7 @@ func DefaultRuntime() Runtime {
 	r.Server.ReadHeaderTimeout, r.Server.ReadinessTimeout, r.Server.ShutdownTimeout = Duration(5*time.Second), Duration(2*time.Second), Duration(10*time.Second)
 	r.SourcePoll.Lease, r.SourcePoll.Idle = Duration(2*time.Minute), Duration(5*time.Second)
 	r.SourcePoll.ReapBatch, r.SourcePoll.FinishTimeout = 100, Duration(5*time.Second)
+	r.SourcePoll.PersistTimeout = Duration(90 * time.Second)
 	r.ArticleRetry.Idle, r.ArticleRetry.Lease, r.ArticleRetry.FinishTimeout = Duration(5*time.Second), Duration(2*time.Minute), Duration(5*time.Second)
 	r.ArticleRetry.MaxAttempts = 5
 	r.ArticleRetry.RetryStep, r.ArticleRetry.RetryMax, r.ArticleRetry.RetryAfterMax = Duration(30*time.Second), Duration(15*time.Minute), Duration(24*time.Hour)
@@ -113,6 +116,7 @@ func DefaultRuntime() Runtime {
 	r.ML.MaxResponseBytes, r.ML.MaxAttempts = 1<<20, 12
 	r.ML.RetryStep, r.ML.RetryMax, r.ML.RetryAfterMax = Duration(5*time.Second), Duration(time.Minute), Duration(time.Hour)
 	r.ML.StatusPollInterval = Duration(5 * time.Second)
+	r.ML.MaxProcessingDuration = Duration(30 * time.Minute)
 	return r
 }
 
@@ -123,8 +127,9 @@ func (r Runtime) validate() error {
 		"server.readiness_timeout":   r.Server.ReadinessTimeout,
 		"server.shutdown_timeout":    r.Server.ShutdownTimeout,
 		"source_poll.lease":          r.SourcePoll.Lease, "source_poll.idle": r.SourcePoll.Idle,
-		"source_poll.finish_timeout": r.SourcePoll.FinishTimeout,
-		"article_retry.idle":         r.ArticleRetry.Idle, "article_retry.lease": r.ArticleRetry.Lease,
+		"source_poll.finish_timeout":  r.SourcePoll.FinishTimeout,
+		"source_poll.persist_timeout": r.SourcePoll.PersistTimeout,
+		"article_retry.idle":          r.ArticleRetry.Idle, "article_retry.lease": r.ArticleRetry.Lease,
 		"article_retry.finish_timeout": r.ArticleRetry.FinishTimeout,
 		"article_retry.retry_step":     r.ArticleRetry.RetryStep, "article_retry.retry_max": r.ArticleRetry.RetryMax,
 		"article_retry.retry_after_max": r.ArticleRetry.RetryAfterMax,
@@ -135,7 +140,8 @@ func (r Runtime) validate() error {
 		"ml.idle":               r.ML.Idle, "ml.lease": r.ML.Lease, "ml.finish_timeout": r.ML.FinishTimeout,
 		"ml.request_timeout": r.ML.RequestTimeout, "ml.retry_step": r.ML.RetryStep,
 		"ml.retry_max": r.ML.RetryMax, "ml.retry_after_max": r.ML.RetryAfterMax,
-		"ml.status_poll_interval": r.ML.StatusPollInterval,
+		"ml.status_poll_interval":    r.ML.StatusPollInterval,
+		"ml.max_processing_duration": r.ML.MaxProcessingDuration,
 	} {
 		if d <= 0 {
 			return fmt.Errorf("%s must be positive", name)

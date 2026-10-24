@@ -83,3 +83,17 @@ func TestProcessClassifiesTooManyRequests(t *testing.T) {
 		t.Fatalf("result=%+v", result)
 	}
 }
+
+func TestDecodeFailedOperationPreservesStructuredError(t *testing.T) {
+	result := decodeOperation([]byte(`{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","state":"FAILED","error":{"code":"INSUFFICIENT_EVIDENCE","message":"No usable evidence","retryable":false}}`),
+		Job{VersionID: "version", PipelineVersion: "pipe"})
+	if !result.Permanent || result.ErrorCode != "INSUFFICIENT_EVIDENCE" ||
+		result.Error != "No usable evidence" || result.ErrorRetryable {
+		t.Fatalf("result=%+v", result)
+	}
+	missing := decodeOperation([]byte(`{"processing_id":"op","article_version_id":"version","pipeline_version":"pipe","state":"FAILED"}`),
+		Job{VersionID: "version", PipelineVersion: "pipe"})
+	if missing.ErrorCode != "INVALID_ML_RESPONSE" {
+		t.Fatalf("missing error=%+v", missing)
+	}
+}

@@ -21,6 +21,7 @@ type scriptedFetcher struct {
 	seen      []polling.Lease
 	articles  []Response
 	seenLinks []string
+	seenBases []string
 }
 
 func TestProcessorUsesConfiguredArticleLimit(t *testing.T) {
@@ -46,14 +47,92 @@ func (f *scriptedFetcher) Fetch(_ context.Context, lease polling.Lease) (Respons
 	return response, nil
 }
 
-func (f *scriptedFetcher) FetchArticle(_ context.Context, _, articleURL string) (Response, error) {
+func (f *scriptedFetcher) FetchArticle(_ context.Context, feedURL, articleURL string) (Response, error) {
 	f.seenLinks = append(f.seenLinks, articleURL)
+	f.seenBases = append(f.seenBases, feedURL)
 	response := f.articles[0]
 	f.articles = f.articles[1:]
 	if response.Status >= 400 {
 		return response, fmt.Errorf("article returned HTTP %d", response.Status)
 	}
 	return response, nil
+}
+
+func TestProcessorUsesRedirectedFeedURLAndKeepsValidEntries(t *testing.T) {
+	feed := []byte(`<rss><channel>
+		<item><guid>one</guid><link>article/1</link></item>
+		<item><guid>bad</guid><link>ftp://publisher.example/article/2</link></item>
+	</channel></rss>`)
+	fetcher := &scriptedFetcher{responses: []Response{{Status: 200, Body: feed,
+		FinalURL: "https://publisher.example/news/feed.xml"}},
+		articles: []Response{{Status: 200, ContentType: "text/html", Body: []byte("<article>First article</article>")}}}
+	outcome, err := (Processor{Fetcher: fetcher}).Poll(context.Background(), polling.Lease{
+		Endpoint: "https://old.example/rss", AdapterType: "rss", AdapterConfig: []byte(`{"article_html":true}`),
+	})
+	if err != nil || !outcome.Partial || !outcome.Success || outcome.DiscoveredCount != 2 ||
+		len(outcome.EntryFailures) != 1 || outcome.EntryFailures[0].EntryNo != 2 || outcome.Persist == nil {
+		t.Fatalf("outcome=%+v err=%v", outcome, err)
+	}
+	if len(fetcher.seenBases) != 1 || fetcher.seenBases[0] != "https://publisher.example/news/feed.xml" ||
+		len(fetcher.seenLinks) != 1 || fetcher.seenLinks[0] != "https://publisher.example/news/article/1" {
+		t.Fatalf("article bases=%v links=%v", fetcher.seenBases, fetcher.seenLinks)
+	}
+}
+
+func TestArticleIdentityMatchesURLWhenGUIDAppears(t *testing.T) {
+	databaseURL := os.Getenv("TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("TEST_DATABASE_URL is required")
+	}
+	ctx := context.Background()
+	pool, err := pgxpool.New(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pool.Close()
+	if _, err := migrate.Run(ctx, pool); err != nil {
+		t.Fatal(err)
+	}
+	tx, err := pool.Begin(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer tx.Rollback(ctx)
+	var sourceID string
+	if err := tx.QueryRow(ctx, `INSERT INTO sources
+		(name, source_type, source_role, trust_level, adapter_type, endpoint, polling_interval_seconds)
+		VALUES ('identity-test', 'news', 'external', 'reviewed', 'rss', 'https://example.com/rss', 60)
+		RETURNING id::text`).Scan(&sourceID); err != nil {
+		t.Fatal(err)
+	}
+	artifactID, err := saveRawArtifact(ctx, tx, sourceID, "application/rss+xml", []byte("test feed"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease := polling.Lease{SourceID: sourceID}
+	first := material{Entry: Entry{CanonicalURL: "https://example.com/article", Body: "Article text"}}
+	created, version, err := saveEntry(ctx, tx, lease, artifactID, time.Now(), "rss-v1", first, "")
+	if err != nil || !created || !version {
+		t.Fatalf("first article: created=%v version=%v err=%v", created, version, err)
+	}
+	first.ExternalID = "publisher-guid"
+	created, version, err = saveEntry(ctx, tx, lease, artifactID, time.Now(), "rss-v1", first, "")
+	if err != nil || created || version {
+		t.Fatalf("same article with GUID: created=%v version=%v err=%v", created, version, err)
+	}
+	var count int
+	var externalID string
+	if err := tx.QueryRow(ctx, `SELECT count(*), max(external_id) FROM articles WHERE source_id=$1::uuid`, sourceID).Scan(&count, &externalID); err != nil || count != 1 || externalID != "publisher-guid" {
+		t.Fatalf("articles=%d external_id=%q err=%v", count, externalID, err)
+	}
+	second := material{Entry: Entry{ExternalID: "other-guid", CanonicalURL: "https://example.com/other", Body: "Other text"}}
+	if _, _, err := saveEntry(ctx, tx, lease, artifactID, time.Now(), "rss-v1", second, ""); err != nil {
+		t.Fatal(err)
+	}
+	conflict := material{Entry: Entry{ExternalID: "publisher-guid", CanonicalURL: "https://example.com/other", Body: "Conflict text"}}
+	if _, _, err := saveEntry(ctx, tx, lease, artifactID, time.Now(), "rss-v1", conflict, ""); err == nil || !strings.Contains(err.Error(), "different articles") {
+		t.Fatalf("identity conflict=%v", err)
+	}
 }
 
 func TestFeedVersionsAndConditionalPolls(t *testing.T) {
@@ -262,7 +341,7 @@ func TestHTMLArticleVersionsAndOriginals(t *testing.T) {
 	if err != nil || !ok || job.PipelineVersion != "test-pipeline" || job.RawArtifactID == "" {
 		t.Fatalf("claim ML job: ok=%v job=%+v err=%v", ok, job, err)
 	}
-	if err := jobStore.Finish(ctx, job, mljobs.Result{
+	if _, err := jobStore.Finish(ctx, job, mljobs.Result{
 		ProcessingID: "processing-test", Succeeded: true,
 		DocumentVersionID: "document-test", EventIDs: []string{},
 	}); err != nil {

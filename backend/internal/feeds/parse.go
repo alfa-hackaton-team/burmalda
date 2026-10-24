@@ -26,6 +26,16 @@ type Entry struct {
 	PublishedAt  *time.Time
 }
 
+type ParsedEntry struct {
+	Entry
+	EntryNo int
+}
+
+type ParseFailure struct {
+	EntryNo int
+	Err     error
+}
+
 func (e Entry) Identity() (kind, key string) {
 	if e.ExternalID != "" {
 		return "external_id", e.ExternalID
@@ -102,6 +112,21 @@ func ParseWithOptions(data []byte, feedURL, adapterType string, allowEmptyBody b
 }
 
 func ParseWithLimit(data []byte, feedURL, adapterType string, allowEmptyBody bool, maxEntries int) ([]Entry, error) {
+	parsed, failures, err := ParseEntriesWithLimit(data, feedURL, adapterType, allowEmptyBody, maxEntries)
+	if err != nil {
+		return nil, err
+	}
+	if len(failures) > 0 {
+		return nil, failures[0].Err
+	}
+	entries := make([]Entry, 0, len(parsed))
+	for _, item := range parsed {
+		entries = append(entries, item.Entry)
+	}
+	return entries, nil
+}
+
+func ParseEntriesWithLimit(data []byte, feedURL, adapterType string, allowEmptyBody bool, maxEntries int) ([]ParsedEntry, []ParseFailure, error) {
 	decoder := xml.NewDecoder(bytes.NewReader(data))
 	decoder.CharsetReader = charset.NewReaderLabel
 	var root xml.StartElement
@@ -109,30 +134,31 @@ func ParseWithLimit(data []byte, feedURL, adapterType string, allowEmptyBody boo
 		token, err := decoder.Token()
 		if err != nil {
 			if err == io.EOF {
-				return nil, fmt.Errorf("empty feed")
+				return nil, nil, fmt.Errorf("empty feed")
 			}
-			return nil, fmt.Errorf("read feed XML: %w", err)
+			return nil, nil, fmt.Errorf("read feed XML: %w", err)
 		}
 		if start, ok := token.(xml.StartElement); ok {
 			root = start
 			break
 		}
 	}
-	var entries []Entry
+	var entries []ParsedEntry
+	var failures []ParseFailure
 	switch adapterType {
 	case "rss":
 		if root.Name.Local != "rss" {
-			return nil, fmt.Errorf("expected RSS feed, got %s", root.Name.Local)
+			return nil, nil, fmt.Errorf("expected RSS feed, got %s", root.Name.Local)
 		}
 		var feed rssFeed
 		if err := decoder.DecodeElement(&feed, &root); err != nil {
-			return nil, fmt.Errorf("parse RSS: %w", err)
+			return nil, nil, fmt.Errorf("parse RSS: %w", err)
 		}
 		if feed.Channel == nil {
-			return nil, fmt.Errorf("RSS channel is missing")
+			return nil, nil, fmt.Errorf("RSS channel is missing")
 		}
 		if len(feed.Channel.Items) > maxEntries {
-			return nil, fmt.Errorf("RSS feed exceeds %d entries", maxEntries)
+			return nil, nil, fmt.Errorf("RSS feed exceeds %d entries", maxEntries)
 		}
 		for i, item := range feed.Channel.Items {
 			body := item.Content
@@ -141,24 +167,26 @@ func ParseWithLimit(data []byte, feedURL, adapterType string, allowEmptyBody boo
 			}
 			entry, err := makeEntry(feedURL, item.GUID, item.Link, item.Title, body, item.PubDate, allowEmptyBody)
 			if err != nil {
-				return nil, fmt.Errorf("RSS item %d: %w", i+1, err)
+				failures = append(failures, ParseFailure{EntryNo: i + 1, Err: fmt.Errorf("RSS item %d: %w", i+1, err)})
+				continue
 			}
-			entries = append(entries, entry)
+			entries = append(entries, ParsedEntry{Entry: entry, EntryNo: i + 1})
 		}
 	case "atom":
 		if root.Name.Local != "feed" || root.Name.Space != "http://www.w3.org/2005/Atom" {
-			return nil, fmt.Errorf("expected Atom feed, got %s", root.Name.Local)
+			return nil, nil, fmt.Errorf("expected Atom feed, got %s", root.Name.Local)
 		}
 		var feed atomFeed
 		if err := decoder.DecodeElement(&feed, &root); err != nil {
-			return nil, fmt.Errorf("parse Atom: %w", err)
+			return nil, nil, fmt.Errorf("parse Atom: %w", err)
 		}
 		if len(feed.Entries) > maxEntries {
-			return nil, fmt.Errorf("Atom feed exceeds %d entries", maxEntries)
+			return nil, nil, fmt.Errorf("Atom feed exceeds %d entries", maxEntries)
 		}
 		for i, item := range feed.Entries {
 			if item.Content.Src != "" {
-				return nil, fmt.Errorf("Atom entry %d: external content is unsupported", i+1)
+				failures = append(failures, ParseFailure{EntryNo: i + 1, Err: fmt.Errorf("Atom entry %d: external content is unsupported", i+1)})
+				continue
 			}
 			body := item.Content.value()
 			if strings.TrimSpace(body) == "" {
@@ -177,28 +205,29 @@ func ParseWithLimit(data []byte, feedURL, adapterType string, allowEmptyBody boo
 			}
 			entry, err := makeEntry(feedURL, item.ID, link, item.Title.value(), body, published, allowEmptyBody)
 			if err != nil {
-				return nil, fmt.Errorf("Atom entry %d: %w", i+1, err)
+				failures = append(failures, ParseFailure{EntryNo: i + 1, Err: fmt.Errorf("Atom entry %d: %w", i+1, err)})
+				continue
 			}
-			entries = append(entries, entry)
+			entries = append(entries, ParsedEntry{Entry: entry, EntryNo: i + 1})
 		}
 	default:
-		return nil, fmt.Errorf("unsupported feed adapter %q", adapterType)
+		return nil, nil, fmt.Errorf("unsupported feed adapter %q", adapterType)
 	}
 	seen := make(map[string]string, len(entries))
-	unique := make([]Entry, 0, len(entries))
-	for _, entry := range entries {
-		kind, key := entry.Identity()
+	unique := make([]ParsedEntry, 0, len(entries))
+	for _, item := range entries {
+		kind, key := item.Identity()
 		identity := kind + "\x00" + key
 		if previousHash, exists := seen[identity]; exists {
-			if previousHash != entry.ContentHash() {
-				return nil, fmt.Errorf("feed contains conflicting entries for the same identity")
+			if previousHash != item.ContentHash() {
+				failures = append(failures, ParseFailure{EntryNo: item.EntryNo, Err: fmt.Errorf("feed contains conflicting entries for the same identity")})
 			}
 			continue
 		}
-		seen[identity] = entry.ContentHash()
-		unique = append(unique, entry)
+		seen[identity] = item.ContentHash()
+		unique = append(unique, item)
 	}
-	return unique, nil
+	return unique, failures, nil
 }
 
 func makeEntry(feedURL, id, link, title, rawBody, date string, allowEmptyBody bool) (Entry, error) {

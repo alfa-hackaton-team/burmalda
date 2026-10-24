@@ -211,7 +211,7 @@ type ArticleJobProcessor struct {
 }
 
 func (p ArticleJobProcessor) Process(ctx context.Context, job ArticleJob) ArticleOutcome {
-	response, err := p.Fetcher.FetchArticle(ctx, job.Endpoint, job.ArticleURL)
+	response, err := p.Fetcher.FetchArticle(ctx, job.ArticleURL, job.ArticleURL)
 	var status *int
 	if response.Status != 0 {
 		status = &response.Status

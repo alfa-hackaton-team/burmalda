@@ -50,7 +50,7 @@ func (r Runner) Run(ctx context.Context) error {
 			trace.WithAttributes(attribute.String("source.id", job.SourceID), attribute.String("ml_job.id", job.ID)))
 		result := r.Client.Process(jobCtx, job)
 		finishCtx, cancel := context.WithTimeout(context.Background(), finishTimeout)
-		err = r.Store.Finish(finishCtx, job, result)
+		status, err := r.Store.Finish(finishCtx, job, result)
 		cancel()
 		span.End()
 		if errors.Is(err, ErrLostLease) {
@@ -59,12 +59,6 @@ func (r Runner) Run(ctx context.Context) error {
 		}
 		if err != nil {
 			return err
-		}
-		status := "RETRY"
-		if result.Succeeded {
-			status = "SUCCEEDED"
-		} else if result.Permanent || (job.Attempts >= r.Store.settings().ML.MaxAttempts && !result.Pending) {
-			status = "FAILED"
 		}
 		observability.ML(status, time.Since(started))
 		slog.Info("ML job updated", "job_id", job.ID, "succeeded", result.Succeeded,

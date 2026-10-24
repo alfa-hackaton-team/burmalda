@@ -41,6 +41,7 @@ func RetryableArticleFetch(status int, err error) bool {
 type Response struct {
 	Status       int
 	Body         []byte
+	FinalURL     string
 	ETag         string
 	LastModified string
 	ContentType  string
@@ -184,9 +185,13 @@ func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxB
 	observability.Upstream(upstreamName, resp.StatusCode)
 	result := Response{
 		Status:       resp.StatusCode,
+		FinalURL:     u.String(),
 		ETag:         resp.Header.Get("ETag"),
 		LastModified: resp.Header.Get("Last-Modified"),
 		ContentType:  resp.Header.Get("Content-Type"),
+	}
+	if resp.Request != nil && resp.Request.URL != nil {
+		result.FinalURL = resp.Request.URL.String()
 	}
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 		result.RetryAfter = parseRetryAfterWithMax(resp.Header.Get("Retry-After"), f.options().Feeds.RetryAfterMax.Std())
