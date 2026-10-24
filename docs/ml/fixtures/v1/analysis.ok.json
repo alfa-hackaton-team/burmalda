@@ -1,0 +1,66 @@
+{
+  "contract_version": "v1",
+  "trace_id": "00000000-0000-4000-8000-000000000001",
+  "request_operation_id": "00000000-0000-4000-8000-000000000011",
+  "analysis_run_id": "00000000-0000-4000-8000-000000000014",
+  "status": "succeeded",
+  "insight": {
+    "id": "00000000-0000-4000-8000-000000000013",
+    "business_context_id": "00000000-0000-4000-8000-000000000002",
+    "event_id": "00000000-0000-4000-8000-000000000010",
+    "analysis_run_id": "00000000-0000-4000-8000-000000000014",
+    "version": 1,
+    "status": "verified",
+    "impact_kind": "neutral",
+    "relevance_score": null,
+    "impact_score": null,
+    "confidence": null,
+    "severity": null,
+    "time_horizon": null,
+    "summary": "Перед новым договором продукта X проверьте условия, действующие с 1 ноября. Наличие действующего кредита не доказывает изменение платежей по нему.",
+    "consequences": [],
+    "recommended_actions": [
+      {
+        "action": "Проверить условия перед заключением нового договора продукта X",
+        "priority": "medium",
+        "reason": "С 1 ноября условия новых договоров обновлены"
+      }
+    ],
+    "score_components": {},
+    "bank_view": null,
+    "bank_view_document_version_id": null,
+    "claims": [
+      {
+        "id": "00000000-0000-4000-8000-000000000012",
+        "claim_type": "action",
+        "claim_text": "Перед новым договором продукта X проверьте условия, действующие с 1 ноября. Наличие действующего кредита не доказывает изменение платежей по нему.",
+        "position": 1,
+        "confidence": null,
+        "evidence": [
+          {
+            "evidence_type": "document_chunk",
+            "chunk_id": "00000000-0000-4000-8000-000000000003",
+            "fact_id": null,
+            "profile_feature_id": null,
+            "evidence_role": "support",
+            "quote_text": "С 1 ноября новые договоры продукта X заключаются по обновленным условиям."
+          },
+          {
+            "evidence_type": "profile_feature",
+            "chunk_id": null,
+            "fact_id": null,
+            "profile_feature_id": "00000000-0000-4000-8000-000000000007",
+            "evidence_role": "context",
+            "quote_text": null
+          }
+        ]
+      }
+    ]
+  },
+  "message": null,
+  "warnings": [
+    "Условия действующего кредита неизвестны"
+  ],
+  "gaps": [],
+  "error": null
+}
