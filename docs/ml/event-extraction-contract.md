@@ -13,7 +13,7 @@ LLMEventExtractor.extract(
 ) -> EventExtractionResult
 ```
 
-After ML1 indexing, `Indexer.index()` returns `IndexedArticleVersion(document_version_id, chunks)` to `ArticleProcessingCoordinator`, which passes that same value to ML2. Each evidence quote must be an exact substring of a supplied chunk and is linked to every matching `chunk_id`. The standalone extractor accepts `chunks=None` only for fixture use; the coordinator rejects an empty chunk list, so persisted production evidence has real chunk IDs. Before saving, the storage boundary parses the DTO again and checks document/config versions, candidate shape, and every evidence chunk ID and quote against the indexed result.
+ML1 owns canonical document validation and indexing. After indexing, its adapter returns `IndexedArticleVersion(document_version_id, chunks)` to `ArticleProcessingCoordinator`; each chunk contains a stable UUID `chunk_id` and its indexed `text`. The `document_version_id` must equal the submitted `article_version_id`. ML2 consumes those chunks directly and does not fetch Go tables, re-index the article, or persist a second copy of the document. Each evidence quote must be an exact substring of a supplied chunk and is linked to every matching `chunk_id`. The standalone extractor accepts `chunks=None` only for fixture use; the coordinator rejects an empty chunk list, so persisted production evidence has real chunk IDs. Before saving, the storage boundary parses the DTO again and checks document/config versions, candidate shape, and every evidence chunk ID and quote against the indexed result.
 
 ## Result DTO
 
@@ -47,12 +47,12 @@ Extraction returns no database IDs. It does not mark events confirmed, merge eve
 
 ## Storage and retry behavior
 
-- The idempotency key is `(document_version_id, event_pipeline_config_version)`. The event configuration version is separate from the article-processing `pipeline_version` and must be incremented when event extraction behavior changes.
-- The first successfully persisted result for that key wins. A replay returns its stored event IDs without invoking the model again. If two workers race, the database uniqueness constraint selects one stored result; the losing result is discarded.
+- The HTTP operation is idempotent by `(article_version_id, pipeline_version)`; Go sends this as `Idempotency-Key: article_version_id:pipeline_version`. ML stores the event result's `event_pipeline_config_version` on that operation for provenance. An operation may have one event result. To intentionally process the same document version with a changed pipeline, use a new supported `pipeline_version`, which produces a new Go idempotency key and ML operation.
+- The operation row stores the stable `event_ids`, including `[]` for a successful extraction with no candidates. The event rows, evidence links, event configuration version, and IDs are committed in one transaction. A replay returns those IDs without invoking the model again. A configuration mismatch against an already saved result fails closed instead of overwriting it.
 - Events from different document versions are not automatically merged. Cross-document deduplication requires a separate reviewed policy.
 - Two candidates with the same normalized event type, title, occurrence time, and geography in one result are treated as a malformed duplicate response; extraction fails instead of silently dropping one.
 - Persisted event links carry `evidence_role` and `is_primary`; this implementation does not infer a primary event, so `is_primary` remains false.
 
 ## Failure behavior
 
-Malformed model output, unsupported claims, an invalid DTO, or evidence absent from the supplied chunks fail the extraction stage; no partial result is stored. Timeouts and gateway errors propagate to the article-processing coordinator, which records a failed operation. The event store writes the run, events, links, and stable IDs in one transaction.
+Malformed model output, unsupported claims, an invalid DTO, or evidence absent from the supplied chunks fail the extraction stage; no partial result is stored. Timeouts and gateway errors propagate to the article-processing coordinator, which records a failed operation. The event store writes events, links, and stable IDs to the operation in one transaction.
