@@ -53,6 +53,8 @@ ML 1 начинает с `SearchRequest/SearchResponse` и fixtures `search.*`, 
 
 Для R02 `ArticleProcessingCoordinator` сначала запускает quality gate ML1 и только при PASS продолжает индексацию и обработку событий ML2. Входная проверка принимает обязательные поля extraction metadata из целевого контракта; адаптер `ML1R02QualityGate` использует canonical document и правила ML1. Этот путь зависит от ML1 PR с R02. Добавлены PostgreSQL store для операций ML, идемпотентность, атомарный claim и отдельные миграции; схема подключения и безопасное поведение при восстановлении описаны в [operation-storage.md](operation-storage.md). HTTP-фабрика `create_article_processing_app` реализует Bearer-authenticated POST/GET и оставляет работу в durable QUEUED до отдельного вызова worker. Для развёртывания ещё нужно собрать concrete quality/index/event adapters и подключить их в app factory; автоматическое восстановление уже RUNNING операции намеренно не выполняется без stage checkpoints.
 
+`LLMEventExtractor` — начальный ML2 этап: он возвращает проверяемые кандидаты событий с цитатами, которые дословно присутствуют в сохранённом тексте. Он не назначает ID, не объединяет события между документами и не сохраняет их. До постоянного event store и версии идемпотентной обработки эти кандидаты не выдаются Go как готовые события.
+
 Для одного платного smoke-прогона синтетического fixture из корня репозитория нужен Python 3.10+. Пример для macOS/Linux с Python 3.12:
 
 ```bash
