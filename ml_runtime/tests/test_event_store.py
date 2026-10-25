@@ -123,7 +123,7 @@ class PostgresEventStoreTests(unittest.TestCase):
                 )
                 cursor.execute(
                     """DELETE FROM ml.events e WHERE NOT EXISTS (
-                           SELECT 1 FROM ml.event_documents d WHERE d.event_id = e.event_id
+                           SELECT 1 FROM ml.event_documents d WHERE d.event_id = e.id
                        )"""
                 )
 
