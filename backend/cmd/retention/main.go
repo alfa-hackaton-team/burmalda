@@ -14,6 +14,7 @@ import (
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/database"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/retention"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
@@ -73,7 +74,7 @@ func run() error {
 			return err
 		}
 		registry := prometheus.NewRegistry()
-		registry.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}), deleted, failures, lastSuccess)
+		registry.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}), deleted, failures, lastSuccess, observability.NewPoolCollector(db))
 		server := &http.Server{Addr: addr, Handler: promhttp.HandlerFor(registry, promhttp.HandlerOpts{}), ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			if err := server.Serve(listener); err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -61,7 +61,7 @@
             "summary": "Воркер недоступен"
           },
           "dashboardUid": "ingestion-overview",
-          "panelId": 1
+          "panelId": 2
         },
         {
           "uid": "ingestion-observer-down",
@@ -172,7 +172,7 @@
           "annotations": {
             "summary": "Источники долго не опрашивались"
           },
-          "dashboardUid": "ingestion-overview",
+          "dashboardUid": "ingestion-sources",
           "panelId": 2
         },
         {
@@ -228,8 +228,8 @@
           "annotations": {
             "summary": "Есть статьи DEAD"
           },
-          "dashboardUid": "ingestion-overview",
-          "panelId": 4
+          "dashboardUid": "ingestion-sources",
+          "panelId": 3
         },
         {
           "uid": "ingestion-article-backlog",
@@ -284,8 +284,8 @@
           "annotations": {
             "summary": "Очередь статей отстаёт"
           },
-          "dashboardUid": "ingestion-overview",
-          "panelId": 5
+          "dashboardUid": "ingestion-sources",
+          "panelId": 4
         },
         {
           "uid": "ingestion-ml-backlog",
@@ -340,8 +340,8 @@
           "annotations": {
             "summary": "Очередь ML отстаёт"
           },
-          "dashboardUid": "ingestion-overview",
-          "panelId": 14
+          "dashboardUid": "ingestion-ml",
+          "panelId": 3
         },
         {
           "uid": "ingestion-poll-errors",
@@ -396,8 +396,8 @@
           "annotations": {
             "summary": "Повторяются неудачные опросы"
           },
-          "dashboardUid": "ingestion-overview",
-          "panelId": 7
+          "dashboardUid": "ingestion-sources",
+          "panelId": 6
         },
         {
           "uid": "ingestion-rate-limits",
@@ -452,8 +452,8 @@
           "annotations": {
             "summary": "Повторяются ответы 429/503"
           },
-          "dashboardUid": "ingestion-overview",
-          "panelId": 11
+          "dashboardUid": "ingestion-http",
+          "panelId": 12
         },
         {
           "uid": "ingestion-raw-missing",
@@ -508,8 +508,8 @@
           "annotations": {
             "summary": "Отсутствует оригинал в S3"
           },
-          "dashboardUid": "ingestion-overview",
-          "panelId": 27
+          "dashboardUid": "ingestion-s3",
+          "panelId": 4
         }
       ]
     }

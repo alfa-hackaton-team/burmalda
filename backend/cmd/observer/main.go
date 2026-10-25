@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"syscall"
 	"time"
@@ -53,7 +54,17 @@ func run() error {
 	}
 	defer db.Close()
 	registry := prometheus.NewRegistry()
-	registry.MustRegister(observability.NewStateCollector(db))
+	registry.MustRegister(observability.NewStateCollector(db), observability.NewPoolCollector(db), observability.NewPipelineCollector(db), prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	registry.MustRegister(observability.IOCollectors()...)
+	for storage, path := range map[string]string{"postgres": os.Getenv("POSTGRES_VOLUME_PATH"), "s3": os.Getenv("S3_VOLUME_PATH")} {
+		if path == "" {
+			continue
+		}
+		if !filepath.IsAbs(path) {
+			return errors.New("storage volume metrics require absolute paths")
+		}
+		registry.MustRegister(observability.NewVolumeCollector(storage, path))
+	}
 	collectors := []*observability.StorageCollector{observability.NewStorageCollector("postgres", observability.PostgreSQLUsage(db))}
 	if cfg.RawStorageBackend == "s3" {
 		store, err := rawartifacts.NewS3(ctx, cfg)

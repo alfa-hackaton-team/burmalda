@@ -16,6 +16,7 @@ import (
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/database"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -104,7 +105,8 @@ func run() error {
 	}
 	if *metricsAddr != "" {
 		registry := prometheus.NewRegistry()
-		registry.MustRegister(missingObjects, orphanObjects, reconciliationErrors)
+		registry.MustRegister(missingObjects, orphanObjects, reconciliationErrors, observability.NewPoolCollector(db), prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+		registry.MustRegister(observability.IOCollectors()...)
 		server := &http.Server{Addr: *metricsAddr, Handler: promhttp.HandlerFor(registry, promhttp.HandlerOpts{}), ReadHeaderTimeout: 5 * time.Second}
 		go func() {
 			if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

@@ -43,6 +43,7 @@ services:
 
   observer:
     environment:
+      S3_VOLUME_PATH: /storage-volumes/s3
       RAW_STORAGE_BACKEND: s3
       S3_BUCKET: ${S3_BUCKET:-raw-materials}
       S3_REGION: us-east-1
@@ -50,6 +51,8 @@ services:
       AWS_ACCESS_KEY_ID: ${LOCAL_S3_ACCESS_KEY:-localreview}
       AWS_SECRET_ACCESS_KEY: ${LOCAL_S3_SECRET_KEY:-localreviewsecret}
       AWS_SESSION_TOKEN: ""
+    volumes:
+      - s3local_data:/storage-volumes/s3:ro
     depends_on:
       s3-init:
         condition: service_completed_successfully

@@ -16,7 +16,9 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/dataset"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/health"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpsecurity"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/userapi"
+	"github.com/prometheus/client_golang/prometheus"
 )
 
 func main() {
@@ -41,6 +43,14 @@ func run() error {
 		return err
 	}
 	defer pool.Close()
+	registry := prometheus.NewRegistry()
+	registry.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}), observability.NewPoolCollector(pool))
+	registry.MustRegister(observability.HTTPCollectors()...)
+	stopMetrics, err := observability.StartMetrics(os.Getenv("METRICS_ADDR"), registry, cfg.ShutdownTimeout)
+	if err != nil {
+		return err
+	}
+	defer stopMetrics()
 	if os.Getenv("DATASET_REQUIRED") == "true" {
 		if err := dataset.RequireActive(ctx, pool); err != nil {
 			return err
@@ -70,7 +80,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
-		Handler:           mux,
+		Handler:           observability.HTTPHandler(mux),
 		ReadHeaderTimeout: manager.Current().Server.ReadHeaderTimeout.Std(),
 		ReadTimeout:       serverSettings.ReadTimeout.Std(),
 		WriteTimeout:      serverSettings.WriteTimeout.Std(),
