@@ -11,6 +11,7 @@ from time import monotonic
 from typing import Any, Protocol
 from uuid import uuid4
 from .analysis_validation import AnalysisRequestError, validate_analysis_request, validate_contract_message
+from .citation_support import ensure_attributed_support
 from .drafting import build_evidence_draft
 from .model_policy import DEFAULT_AGENT_MODEL, require_allowed_model
 from .verification import OutputVerificationError, SemanticVerifier, verify_analysis_response
@@ -69,6 +70,18 @@ bank_view, claim_type="bank_view" и knowledge_type="ALFA_ANALYTICS" допус�
 десятичный разделитель или проценты. Текст claim может быть пересказом, quote_text — нет.
 Каждый claim должен выражать одну проверяемую мысль; его support должен подтверждать
 весь claim, включая субъект, период, числа, причинность и модальность.
+Формируй support до текста claim: сначала выбери минимальный достаточный непрерывный
+exact span из evidence, затем сформулируй только подтверждаемое им утверждение.
+Для прогноза/оценки span должен включать и значение, и явно названного автора/субъекта.
+Не обрезай цитату до числа или предложения с «это», «мы», «в базовом сценарии», если
+из-за этого теряется источник прогноза: сохрани необходимое предшествующее предложение
+в том же дословном span. Название источника в metadata не заменяет подтверждение
+добавленного в claim действия или атрибуции. Для частей составного claim из разных
+фрагментов приведи отдельный exact support каждой части с её chunk_id либо раздели
+claim. Например, цитата о снижении ставки не подтверждает добавленное утверждение
+об обновлении прогноза; для него нужна своя цитата. Если достаточного support нет,
+не включай неподтверждённую часть в claim. Не цитируй весь chunk ради покрытия:
+оставляй только необходимый непрерывный фрагмент, сохраняя субъект и оговорки.
 «Ожидаем», «прогноз», «не исключаем» не превращай в уже наступивший факт. Атрибутируй
 прогноз автору источника; source_role=bank сам по себе не делает статистику мнением банка.
 Summary, consequences, recommended_actions и bank_view не являются местом для новых
@@ -127,6 +140,7 @@ class AnalysisAgent:
                 timeout_seconds=timeout_seconds,
             )
             validate_contract_message(response, "AnalysisResponse")
+            ensure_attributed_support(response, chunks)
             ground_insight_summary(response)
         except ModelCallError as exc:
             raise AgentExecutionError(str(exc), exc.code, exc.retryable) from exc

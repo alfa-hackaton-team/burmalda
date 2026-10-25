@@ -2,7 +2,7 @@
 import copy
 import unittest
 
-from ml_runtime.agent import AnalysisAgent, _citation_candidates, ground_insight_summary
+from ml_runtime.agent import AgentExecutionError, AnalysisAgent, _citation_candidates, ground_insight_summary
 from ml_runtime.retrieval import FixtureRetriever
 from ml_runtime.search_plan import FixtureSearchPlanner
 from ml_runtime.service import AnalysisService
@@ -71,3 +71,38 @@ class GenerationGroundingTests(unittest.TestCase):
         self.assertEqual(result['status'], 'failed')
         self.assertIn('Unsupported applicability', result['error']['message'])
         self.assertIsNone(result['insight'])
+
+    def test_attributed_forecast_candidate_keeps_subject_and_value_together(self):
+        paragraph = ('Банк России представил базовый сценарий. '
+                     'В базовом сценарии средняя ставка составит 13,0–15,0% в 2026 году.')
+        text = 'Решение по ставке.\n\n' + paragraph + '\n\nСледующее заседание.'
+        quotes = _citation_candidates([{'chunk_id': 'forecast', 'chunk_text': text}])
+        self.assertIn({'chunk_id': 'forecast', 'quote_text': paragraph}, quotes)
+        self.assertTrue(all(q['quote_text'] in text for q in quotes))
+
+    def test_partial_support_is_not_extended_or_published_when_fact_is_elsewhere(self):
+        request = load_fixture('analysis.request.json')
+        chunks = load_fixture('chunks.ok.json')['results']
+        short_quote = 'Банк России снизил ключевую ставку до 16,50%.'
+        missing_support = 'Банк России обновил среднесрочный прогноз.'
+        chunks[0]['chunk_text'] = short_quote + '\n\n' + missing_support
+
+        class PartialSupportClient(FixtureModelClient):
+            def generate_json(self, **kwargs):
+                response = super().generate_json(**kwargs)
+                claim = response['insight']['claims'][0]
+                claim.update(claim_type='relevance', knowledge_type='FACT', assumptions=[],
+                             claim_text='Банк России снизил ставку и обновил прогноз.')
+                claim['evidence'] = claim['evidence'][:1]
+                claim['evidence'][0]['quote_text'] = short_quote
+                return response
+
+        checked = []
+        def verifier(req, response, evidence, timeout):
+            checked.append(response['insight']['claims'][0]['evidence'][0]['quote_text'])
+            return False, 'Quote does not support the forecast update'
+
+        agent = AnalysisAgent(PartialSupportClient(), semantic_verifier=verifier)
+        with self.assertRaisesRegex(AgentExecutionError, 'forecast update'):
+            agent.run(request, chunks)
+        self.assertEqual(checked, [short_quote])
