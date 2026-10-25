@@ -655,6 +655,7 @@ components:
           - UNSUPPORTED_ADAPTER
           - UNSUPPORTED_PIPELINE_VERSION
           - PAYLOAD_TOO_LARGE
+          - INVALID_ML_RESPONSE
           - INTERNAL_ERROR
           - UNAUTHENTICATED
           - FORBIDDEN

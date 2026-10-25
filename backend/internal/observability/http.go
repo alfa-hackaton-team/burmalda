@@ -18,16 +18,30 @@ var (
 	httpDuration = prometheus.NewHistogramVec(prometheus.HistogramOpts{Name: "ingestion_http_request_duration_seconds", Help: "Incoming API handler duration including authentication and validation.", Buckets: []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30}}, []string{"route", "method"})
 )
 
-var apiRoutes = []string{"/health/live", "/health/ready", "/v0.1/me", "/v0.1/contexts", "/internal/v0.1/datasets/active", "/internal/v0.1/datasets/active/{kind}"}
+var apiRoutes = []string{
+	"/health/live", "/health/ready", "/login", "/v0.1/auth/login", "/v0.1/auth/logout", "/v0.1/me", "/v0.1/contexts", "/v0.1/feed", "/v0.1/alerts", "/v0.1/insights", "/v0.1/insights/{insight_id}", "/v0.1/insights/{insight_id}/conversations", "/v0.1/insights/{insight_id}/feedback", "/v0.1/generations/{generation_id}", "/v0.1/conversations/{conversation_id}/messages", "/v0.1/traces/{trace_id}", "/v0.1/analytics/events", "/v0.1/admin/sources", "/v0.1/admin/sources/{source_id}", "/v0.1/admin/sources/{source_id}/syncs", "/v0.1/admin/source-syncs/{sync_id}", "/v0.1/admin/quality", "/internal/v0.1/datasets/active", "/internal/v0.1/datasets/active/{kind}",
+}
 
 func routeLabel(path string) string {
+	parts := strings.Split(path, "/")
 	for _, route := range apiRoutes {
-		if route == path {
+		candidate := strings.Split(route, "/")
+		if len(candidate) != len(parts) {
+			continue
+		}
+		match := true
+		for i, part := range candidate {
+			if strings.HasPrefix(part, "{") {
+				if parts[i] == "" {
+					match = false
+				}
+			} else if part != parts[i] {
+				match = false
+			}
+		}
+		if match {
 			return route
 		}
-	}
-	if rest, ok := strings.CutPrefix(path, "/internal/v0.1/datasets/active/"); ok && rest != "" && !strings.Contains(rest, "/") {
-		return "/internal/v0.1/datasets/active/{kind}"
 	}
 	return "unmatched"
 }

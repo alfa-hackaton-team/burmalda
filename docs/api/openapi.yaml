@@ -10,7 +10,7 @@ info:
     server-side session по cookie session_id; изменяющие запросы требуют X-CSRF-Token
     и проверки Origin. Реестр источников, планировщик и воркер принадлежат Go.
     Административный GET источников требует sources:read, PATCH — sources:manage,
-    а назначение trust_level/source_role и POST — также sources:trust.
+    а назначение trust_level/source_role, смена происхождения источника и POST — также sources:trust.
     JSON источника ограничен 64 КиБ (HTTP 413 PAYLOAD_TOO_LARGE).
     Курсор реестра связан с пользователем, сессией и limit и не фиксирует снимок.
     Ответы одного источника содержат ETag, создание — также Location;
@@ -1273,6 +1273,93 @@ paths:
         schema:
           type: string
           format: date-time
+  /v0.1/auth/login:
+    post:
+      operationId: passwordLogin
+      tags:
+      - Authentication
+      summary: Вход локальной учётной записью
+      description: Доступен только при AUTH_PASSWORD_LOGIN_ENABLED=true. Требуется разрешённый
+        Origin. Выдаёт session_id и csrf_token в cookie; публичной регистрации нет.
+      security: []
+      parameters:
+      - name: Origin
+        in: header
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required:
+              - login
+              - password
+              properties:
+                login:
+                  type: string
+                  minLength: 1
+                  maxLength: 200
+                password:
+                  type: string
+                  minLength: 1
+                  maxLength: 1024
+      responses:
+        '200':
+          description: Сессия создана; session_id HttpOnly, csrf_token читается JavaScript
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - user_id
+                - expires_at
+                properties:
+                  user_id:
+                    type: string
+                  expires_at:
+                    type: string
+                    format: date-time
+        default: &id001
+          description: Ошибка авторизации, проверки запроса или лимита
+          content:
+            application/json:
+              schema:
+                $ref: ./schemas.yaml#/components/schemas/Error
+  /v0.1/auth/logout:
+    post:
+      operationId: logout
+      tags:
+      - Authentication
+      summary: Отозвать текущую сессию
+      parameters:
+      - $ref: '#/components/parameters/CsrfToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+      responses:
+        '200':
+          description: Сессия отозвана, обе cookie удалены
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required:
+                - signed_out
+                properties:
+                  signed_out:
+                    type: boolean
+                    const: true
+        default: *id001
 components:
   securitySchemes:
     sessionAuth:

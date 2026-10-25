@@ -116,6 +116,10 @@ func (s *Store) Claim(ctx context.Context, leaseDuration time.Duration) (Lease, 
 	if err != nil {
 		return Lease{}, false, fmt.Errorf("create source poll: %w", err)
 	}
+
+	if _, err := tx.Exec(ctx, `UPDATE source_sync_requests SET poll_id=$1::uuid WHERE source_id=$2::uuid AND poll_id IS NULL AND created_at>=now()-interval '1 hour'`, lease.PollID, lease.SourceID); err != nil {
+		return Lease{}, false, fmt.Errorf("attach manual sync requests: %w", err)
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return Lease{}, false, fmt.Errorf("commit source claim: %w", err)
 	}
