@@ -20,7 +20,6 @@ def candidate(**updates: Any) -> dict[str, Any]:
         "summary": "С 1 ноября новые договоры продукта X заключаются по обновленным условиям.",
         "occurred_at": None,
         "geography": [],
-        "confidence": 0.9,
         "evidence_quotes": [QUOTE],
     }
     event.update(updates)
@@ -79,6 +78,15 @@ class EventExtractionTests(unittest.TestCase):
         with self.assertRaises(EventExtractionError):
             validate_candidate_events({"events": [candidate(), candidate()]}, QUOTE)
 
+    def test_duplicate_identity_normalizes_title_spacing_and_timezone(self):
+        first = candidate(occurred_at="2026-11-01T00:00:00+03:00")
+        second = candidate(
+            title="  ОБНОВЛЕНИЕ   условий новых договоров продукта X ",
+            occurred_at="2026-10-31T21:00:00Z",
+        )
+        with self.assertRaisesRegex(EventExtractionError, "duplicate candidate"):
+            validate_candidate_events({"events": [first, second]}, QUOTE)
+
     def test_semantic_verifier_rejection_prevents_candidates_from_returning(self):
         client = FakeClient(
             {"events": [candidate()]},
@@ -95,7 +103,7 @@ class EventExtractionTests(unittest.TestCase):
         with self.assertRaisesRegex(EventExtractionError, "every candidate"):
             LLMEventExtractor(client).extract(self.request)
 
-    def test_rejects_invalid_confidence_or_timezone_less_event_date(self):
+    def test_rejects_unconfigured_confidence_or_timezone_less_event_date(self):
         with self.assertRaises(EventExtractionError):
             validate_candidate_events({"events": [candidate(confidence=1.1)]}, QUOTE)
         with self.assertRaises(EventExtractionError):
