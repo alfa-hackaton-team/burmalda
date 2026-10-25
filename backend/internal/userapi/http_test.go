@@ -4,15 +4,19 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/authn"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpx"
+	"gopkg.in/yaml.v3"
 )
 
 const (
@@ -220,6 +224,14 @@ func TestRequestTimeoutCancelsStoreQuery(t *testing.T) {
 	if res.Code != http.StatusGatewayTimeout {
 		t.Fatalf("status=%d body=%s", res.Code, res.Body.String())
 	}
+	var response httpx.Error
+	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if response.Code != httpx.ErrorCodeTimeout || !response.Retryable {
+		t.Fatalf("error=%+v", response)
+	}
+	assertOpenAPIErrorCode(t, response.Code)
 }
 
 func TestProtectHTTPLimitsRequestBody(t *testing.T) {
@@ -254,6 +266,36 @@ type timeoutStore struct{}
 func (timeoutStore) ListContexts(ctx context.Context, _, _ string, _ int) ([]AvailableContext, error) {
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+func assertOpenAPIErrorCode(t *testing.T, code string) {
+	t.Helper()
+	data, err := os.ReadFile("../../../docs/api/schemas.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Components struct {
+			Schemas struct {
+				Error struct {
+					Properties struct {
+						Code struct {
+							Enum []string `yaml:"enum"`
+						} `yaml:"code"`
+					} `yaml:"properties"`
+				} `yaml:"Error"`
+			} `yaml:"schemas"`
+		} `yaml:"components"`
+	}
+	if err := yaml.Unmarshal(data, &document); err != nil {
+		t.Fatal(err)
+	}
+	for _, allowed := range document.Components.Schemas.Error.Properties.Code.Enum {
+		if code == allowed {
+			return
+		}
+	}
+	t.Fatalf("error code %q is absent from docs/api/schemas.yaml", code)
 }
 
 func stringPtr(value string) *string { return &value }

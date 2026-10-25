@@ -89,7 +89,7 @@ func Middleware(store Store, next http.Handler) http.Handler {
 		principal, err := store.Authenticate(r.Context(), tokenHash)
 		if err != nil {
 			if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
-				httpx.WriteError(w, http.StatusGatewayTimeout, "REQUEST_TIMEOUT", "request timed out", true)
+				httpx.WriteError(w, http.StatusGatewayTimeout, httpx.ErrorCodeTimeout, "request timed out", true)
 				return
 			}
 			if errors.Is(err, ErrUnauthenticated) {
