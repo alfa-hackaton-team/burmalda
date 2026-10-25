@@ -1,0 +1,12 @@
+{
+  "body_bytes": 131073,
+  "construction": "65536 Cyrillic я characters followed by ASCII a",
+  "error": {
+    "code": "PAYLOAD_TOO_LARGE",
+    "message": "article.body exceeds ML limit: 131073 \u003e 131072 UTF-8 bytes",
+    "retryable": false
+  },
+  "http_requests": 0,
+  "limit_bytes": 131072,
+  "synthetic": true
+}

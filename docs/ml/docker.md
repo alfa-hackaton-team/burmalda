@@ -1,6 +1,6 @@
 # Локальный запуск ML через Docker Compose
 
-Комплект запускает Go-facing API, отдельный worker, два внутренних ML1 model-сервиса и PostgreSQL 18 с pgvector. Worker отправляет embedding и reranking запросы сервисам моделей по внутренней Docker-сети; веса в worker не загружаются. Веса и база хранятся в обычных локальных папках `docker-volume/models` и `docker-volume/postgres`, смонтированных внутрь контейнеров.
+ML запускается как профильный overlay поверх основного Go Compose: Go-сервисы сохраняют свои имена, ML API и worker называются `ml-api` и `ml-worker`. Все сервисы используют общий PostgreSQL 18 с pgvector. Веса хранятся в `docker-volume/models` и доступны model-контейнерам и worker через bind mount; данные PostgreSQL хранятся в `docker-volume/postgres`.
 
 ## Подготовка
 
@@ -18,20 +18,20 @@ ML_MODEL_CACHE="$PWD/docker-volume/models" .venv/bin/python -m ml_runtime.warm_m
 ## Скачать веса и запустить сервисы
 
 ```bash
-docker compose up --build -d
-docker compose ps
+docker compose -f compose.yaml -f compose.ml.yaml --profile ml up --build -d
+docker compose -f compose.yaml -f compose.ml.yaml --profile ml ps
 ```
 
-Команда скачивания кладёт закреплённые версии `Qwen/Qwen3-Embedding-0.6B` и `Qwen/Qwen3-Reranker-0.6B` в `docker-volume/models`. Compose монтирует эту папку read-only в отдельные контейнеры `embedding-model` и `reranker-model`; они загружают свои веса в память при старте и доступны только по внутренней Docker-сети. Worker читает tokenizer из того же кэша и вызывает model-сервисы по HTTP. PostgreSQL хранит данные на диске в `docker-volume/postgres`. Для новой базы init-скрипты включают `vector`, затем migration job применяет ML1 и ML2 миграции.
+Команда скачивания кладёт закреплённые версии `Qwen/Qwen3-Embedding-0.6B` и `Qwen/Qwen3-Reranker-0.6B` в `docker-volume/models`. Compose монтирует эту папку read-only в отдельные контейнеры `embedding-model` и `reranker-model`; они загружают свои веса в память при старте и доступны только по внутренней Docker-сети. ML worker читает tokenizer из того же кэша и вызывает model-сервисы по HTTP. PostgreSQL хранит данные на диске в `docker-volume/postgres`. Для новой базы init-скрипты включают `vector`, затем Go и ML migration jobs применяют свои миграции.
 
 API доступен локально по адресу `http://localhost:8000`. `GET /healthz` проверяет доступность HTTP-процесса. Go должен отправлять запросы на `POST /internal/v0.1/article-processings` с `Authorization: Bearer <ML_SERVICE_TOKEN>` и стабильным `Idempotency-Key`.
 
 ```bash
-docker compose logs -f api worker embedding-model reranker-model
-docker compose down
+docker compose -f compose.yaml -f compose.ml.yaml logs -f api worker ml-api ml-worker embedding-model reranker-model
+docker compose -f compose.yaml -f compose.ml.yaml down
 ```
 
-`docker compose down` останавливает контейнеры, а содержимое `docker-volume/` остаётся на диске. Чтобы полностью очистить локальные данные, удалите `docker-volume/` вручную после остановки Compose.
+`docker compose down` останавливает контейнеры, а содержимое `docker-volume/` остаётся на диске.
 
 ## Проверка обработки
 
@@ -56,11 +56,11 @@ POST возвращает `202 QUEUED`; сохраните `processing_id` и о
 
 ## Служебные настройки
 
-- `ML_PIPELINE_VERSIONS` и лимит `ML_MAX_TEXT_BYTES=131072` установлены в Compose по текущему контракту.
+- Профиль `ml` задаёт Go `ML_PIPELINE_VERSION=ml-pipeline-v1`; ML API принимает эту версию и устанавливает `ML_MAX_TEXT_BYTES=131072`.
 - `ML_MIGRATION_DATABASE_URL` использует административную роль только в одноразовом контейнере миграций. API и worker подключаются к БД под отдельной ролью `ml_runtime`.
-- `ML_INDEXER_FACTORY` указывает на `ml_runtime.docker_indexer:create_ml1_pipeline`. Worker создаёт один долгоживущий `ML1Pipeline` с HTTP-клиентами `embedding-model` и `reranker-model`.
-- API-контейнер не загружает embeddings и не требует LLM API key. Worker использует LLM gateway для извлечения событий и смысловой проверки; embedding/reranker веса загружаются отдельно в соответствующие model-контейнеры.
-- Изменение паролей после первого запуска не обновляет пароль роли в существующем volume автоматически. Для сброса локального стенда используйте `docker compose down -v`.
+- `ML_INDEXER_FACTORY` указывает на `ml_runtime.docker_indexer:create_ml1_pipeline`. `ml-worker` создаёт один долгоживущий `ML1Pipeline` с HTTP-клиентами `embedding-model` и `reranker-model`.
+- `ml-api` не загружает embeddings и не требует LLM API key. `ml-worker` использует LLM gateway для извлечения событий и смысловой проверки; embedding/reranker веса загружаются отдельно в соответствующие model-контейнеры.
+- Изменение паролей после первого запуска не обновляет пароль роли в существующей БД автоматически. Init-скрипты применяются только при инициализации пустой папки PostgreSQL.
 
 ## Что проверено
 
