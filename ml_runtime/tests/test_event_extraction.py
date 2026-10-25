@@ -76,6 +76,41 @@ class EventExtractionTests(unittest.TestCase):
         self.assertEqual(len(client.calls), 1)
         self.assertEqual(client.calls[0]["timeout_seconds"], DEFAULT_EVENT_EXTRACTION_TIMEOUT_SECONDS)
 
+    def test_explicit_timezone_timestamp_is_accepted(self):
+        value = "2026-11-01T10:30:00+03:00"
+        result = validate_candidate_events(
+            {"events": [candidate(occurred_at=value)]}, QUOTE
+        )
+        self.assertEqual(result[0].occurred_at, value)
+
+    def test_date_only_and_time_without_timezone_are_rejected(self):
+        for value in ("2026-11-01", "2026-11-01T10:30:00"):
+            with self.subTest(occurred_at=value), self.assertRaises(EventExtractionError):
+                validate_candidate_events(
+                    {"events": [candidate(occurred_at=value)]}, QUOTE
+                )
+
+    def test_published_at_is_not_used_as_event_occurred_at(self):
+        request_payload = payload(body=QUOTE)
+        request_payload["article"]["published_at"] = "2026-11-02T08:00:00Z"
+        request = parse_article_processing(
+            request_payload,
+            f"{request_payload['article']['article_version_id']}:{PIPELINE_VERSION}",
+            max_text_bytes=131072,
+            supported_pipeline_versions={PIPELINE_VERSION},
+        )
+        client = FakeClient(
+            {"events": [candidate(occurred_at=None)]},
+            {"event_checks": [{"index": 0, "supported": True, "reason": ""}], "overall_supported": True},
+        )
+
+        result = LLMEventExtractor(client).extract(request)
+
+        self.assertIsNone(result[0].occurred_at)
+        self.assertEqual(client.calls[0]["input_payload"]["published_at"], "2026-11-02T08:00:00Z")
+        self.assertIn("Не путай дату публикации с датой события", client.calls[0]["system_prompt"])
+        self.assertIn("Не добавляй время или часовой пояс", client.calls[0]["system_prompt"])
+
     def test_rejects_quote_not_found_in_saved_body(self):
         with self.assertRaises(EventExtractionError):
             validate_candidate_events({"events": [candidate(evidence_quotes=["10 млн рублей"])]}, QUOTE)
@@ -109,11 +144,9 @@ class EventExtractionTests(unittest.TestCase):
         with self.assertRaisesRegex(EventExtractionError, "every candidate"):
             LLMEventExtractor(client).extract(self.request)
 
-    def test_rejects_unconfigured_confidence_or_timezone_less_event_date(self):
+    def test_rejects_unconfigured_confidence(self):
         with self.assertRaises(EventExtractionError):
             validate_candidate_events({"events": [candidate(confidence=1.1)]}, QUOTE)
-        with self.assertRaises(EventExtractionError):
-            validate_candidate_events({"events": [candidate(occurred_at="2026-11-01T00:00:00")]}, QUOTE)
 
 
 if __name__ == "__main__":
