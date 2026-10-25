@@ -112,3 +112,32 @@ failures={
 ## Границы R01
 
 Нет PostgreSQL, S3, pgvector, embeddings, BM25, reranker, ingestion, LLM, HTTP/Docker, фоновой доставки и `ReadyDocuments.list`. Нет оценки качества реального поиска или production-авторизации.
+
+# R02: quality gate перед индексацией
+
+Реализован отдельный deterministic компонент. Вход — целевой BackendInput из [quality schema](../docs/ml/contracts/quality/v1/quality.schema.json); документация и полный список правил — [document-quality.md](../docs/ml/document-quality.md). Зависимости те же, что у R01. Все тесты запускаются прежней командой `python -m unittest discover -s ml/tests -v`.
+
+```python
+import json
+from pathlib import Path
+
+from ml.adapters.backend_documents import document_from_backend
+from ml.ingestion.quality import check_document
+
+payload = json.loads(Path('ml/tests/fixtures/corpus/news.json').read_text())
+document = document_from_backend(payload)
+result = check_document(document)
+print(json.dumps(result.to_dict(), ensure_ascii=False, indent=2))
+if result.status == 'PASS':
+    # document — неизменяемые текст/ID/provenance для будущего R05.
+    # Здесь индексирование не выполняется, общий pipeline не завершён.
+    assert not result.failures
+```
+
+`document_from_backend` валидирует строгий целевой вход и равенство source ID. Отсутствующие/неверные поля, старый metadata={}, неизвестные категории и extraction errors вызывают `ml.ingestion.validation.DocumentInputError` до gate. Проверка качества возвращает FAIL для дефектного текста; это отдельный результат, не ошибка DTO и не исключение сети/модели.
+
+Обязательны `article.metadata.extraction_method` (full_article/rss_summary/pdf_extracted) и `extraction_errors` (массив известных кодов, [] при отсутствии). Вход не чинится: title/body/dates/hash/raw_ref сохраняются. financial_press → news; reviewed → unknown с предупреждением и исходным backend_trust_level, без повышения до trusted. Неизвестная published_at остаётся None.
+
+QualityResult содержит ID, pipeline_version, quality_rules_version=ml1-quality-v1, PASS/FAIL, failures/warnings с code/field/message и размер UTF-8. FAIL: пустой/пробельный текст, >131072 UTF-8 байта, NUL, невалидный UTF-8, известная потеря текста/страниц/таблиц/сносок или ошибка extraction. WARNING: пустой title, неизвестная дата, RSS-анонс, отображение источника/неоценённое доверие, layout/порядок чтения, U+FFFD. Восемь [corpus fixtures](tests/fixtures/corpus/manifest.json) фиксируют ожидаемые решения; тесты проверяют также байтовые границы и provenance.
+
+Результат возвращается вызывающему коду; постоянное хранение — его ответственность. Gate не скачивает raw_ref, не пересчитывает content_hash, не меняет версии, не создаёт ready/SUCCEEDED, чанки, embeddings, поиск или HTTP. PASS — разрешение продолжить обработку по данным правилам, не гарантия полноты/истинности. До R05 остаются разбиение, title политика Chunk и page mapping PDF; правила и результат R02 уже определены.

@@ -1,0 +1,551 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ExtractionMetadata": {
+      "type": "object",
+      "properties": {
+        "extraction_method": {
+          "type": "string",
+          "enum": [
+            "full_article",
+            "rss_summary",
+            "pdf_extracted"
+          ]
+        },
+        "extraction_errors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "TEXT_TRUNCATED",
+              "MISSING_PAGES",
+              "MISSING_TABLES",
+              "MISSING_FOOTNOTES",
+              "EXTRACTION_FAILED",
+              "LAYOUT_LOSS",
+              "READING_ORDER_UNCERTAIN"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "extraction_method",
+        "extraction_errors"
+      ],
+      "additionalProperties": false
+    },
+    "BackendSource": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "news",
+            "bank_analytics",
+            "expert",
+            "regulator",
+            "financial_press"
+          ]
+        },
+        "source_role": {
+          "type": "string",
+          "enum": [
+            "external",
+            "bank",
+            "expert"
+          ]
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "trusted",
+            "standard",
+            "unknown",
+            "reviewed"
+          ]
+        },
+        "config_version": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        }
+      },
+      "required": [
+        "source_id",
+        "name",
+        "source_type",
+        "source_role",
+        "trust_level",
+        "config_version"
+      ],
+      "additionalProperties": false
+    },
+    "BackendArticle": {
+      "type": "object",
+      "properties": {
+        "article_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "version_no": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "article_version_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "fetched_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "raw_ref": {
+          "type": "string",
+          "pattern": "^raw-artifact:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "metadata": {
+          "$ref": "#/$defs/ExtractionMetadata"
+        },
+        "external_id": {
+          "type": "string"
+        },
+        "canonical_url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "language": {
+          "type": "string"
+        },
+        "author": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "article_id",
+        "article_version_id",
+        "source_id",
+        "title",
+        "body",
+        "fetched_at",
+        "raw_ref",
+        "content_hash",
+        "metadata"
+      ],
+      "additionalProperties": false
+    },
+    "BackendInput": {
+      "type": "object",
+      "properties": {
+        "article": {
+          "$ref": "#/$defs/BackendArticle"
+        },
+        "source": {
+          "$ref": "#/$defs/BackendSource"
+        },
+        "pipeline_version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "article",
+        "source",
+        "pipeline_version",
+        "trace_id"
+      ],
+      "additionalProperties": false
+    },
+    "SourceMetadata": {
+      "type": "object",
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "source_type": {
+          "type": "string",
+          "enum": [
+            "news",
+            "bank_analytics",
+            "expert",
+            "regulator"
+          ]
+        },
+        "source_role": {
+          "type": "string",
+          "enum": [
+            "external",
+            "bank",
+            "expert"
+          ]
+        },
+        "trust_level": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "trusted",
+            "standard",
+            "unknown"
+          ]
+        },
+        "config_version": {
+          "type": "string",
+          "pattern": "^[1-9][0-9]*$"
+        },
+        "backend_source_type": {
+          "type": "string",
+          "enum": [
+            "news",
+            "bank_analytics",
+            "expert",
+            "regulator",
+            "financial_press"
+          ]
+        },
+        "backend_trust_level": {
+          "type": "string",
+          "enum": [
+            "primary",
+            "trusted",
+            "standard",
+            "unknown",
+            "reviewed"
+          ]
+        }
+      },
+      "required": [
+        "source_id",
+        "name",
+        "source_type",
+        "source_role",
+        "trust_level",
+        "config_version",
+        "backend_source_type",
+        "backend_trust_level"
+      ],
+      "additionalProperties": false
+    },
+    "SavedDocumentVersion": {
+      "type": "object",
+      "properties": {
+        "document_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "document_version_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "title": {
+          "type": "string"
+        },
+        "normalized_text": {
+          "type": "string"
+        },
+        "source": {
+          "$ref": "#/$defs/SourceMetadata"
+        },
+        "published_at": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "raw_ref": {
+          "type": "string",
+          "pattern": "^raw-artifact:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+        },
+        "content_hash": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "extraction": {
+          "$ref": "#/$defs/ExtractionMetadata"
+        },
+        "pipeline_version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "trace_id": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "external_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "canonical_url": {
+          "anyOf": [
+            {
+              "type": "string",
+              "format": "uri"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "author": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "document_id",
+        "document_version_id",
+        "title",
+        "normalized_text",
+        "source",
+        "published_at",
+        "retrieved_at",
+        "raw_ref",
+        "content_hash",
+        "extraction",
+        "pipeline_version",
+        "trace_id",
+        "external_id",
+        "canonical_url",
+        "language",
+        "author"
+      ],
+      "additionalProperties": false
+    },
+    "QualityFailure": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "EMPTY_TEXT",
+            "TEXT_TOO_LARGE",
+            "INVALID_UTF8_TEXT",
+            "NUL_IN_TEXT",
+            "EXTRACTION_TEXT_TRUNCATED",
+            "EXTRACTION_MISSING_PAGES",
+            "EXTRACTION_MISSING_TABLES",
+            "EXTRACTION_MISSING_FOOTNOTES",
+            "EXTRACTION_FAILED"
+          ]
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "code",
+        "field",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "QualityWarning": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "enum": [
+            "EMPTY_TITLE",
+            "UNKNOWN_PUBLICATION_DATE",
+            "RSS_SUMMARY",
+            "SOURCE_TYPE_MAPPED",
+            "SOURCE_TRUST_UNRATED",
+            "EXTRACTION_LAYOUT_LOSS",
+            "EXTRACTION_READING_ORDER_UNCERTAIN",
+            "UNICODE_REPLACEMENT_CHARACTER"
+          ]
+        },
+        "field": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        }
+      },
+      "required": [
+        "code",
+        "field",
+        "message"
+      ],
+      "additionalProperties": false
+    },
+    "QualityResult": {
+      "type": "object",
+      "properties": {
+        "document_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "document_version_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "pipeline_version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "quality_rules_version": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL"
+          ]
+        },
+        "failures": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QualityFailure"
+          }
+        },
+        "warnings": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/QualityWarning"
+          }
+        },
+        "text_utf8_bytes": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "document_id",
+        "document_version_id",
+        "pipeline_version",
+        "quality_rules_version",
+        "status",
+        "failures",
+        "warnings",
+        "text_utf8_bytes"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "PASS"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "failures": {
+                "maxItems": 0
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "failures": {
+                "minItems": 1
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

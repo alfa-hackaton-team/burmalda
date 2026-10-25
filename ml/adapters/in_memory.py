@@ -13,19 +13,10 @@ from typing import Mapping, Sequence
 
 from ml.shared.dto import Chunk, Error, ErrorCode, GetChunksRequest, GetChunksResponse, SearchRequest, SearchResponse
 from ml.shared.validation import ContractValidationError, timestamp, validate, validate_pair, validate_uuid
+from ml.retrieval.interfaces import DocumentVersion
 
 
 LOGGER = logging.getLogger(__name__)
-
-
-@dataclass(frozen=True)
-class DocumentVersion:
-    """Internal fixture metadata, not a new wire DTO or database status policy."""
-
-    document_id: str
-    document_version_id: str
-    version_no: int
-    ready: bool = True
 
 
 @dataclass(frozen=True)

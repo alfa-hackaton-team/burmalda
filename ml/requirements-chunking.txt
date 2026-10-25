@@ -1,0 +1,4 @@
+# Optional tokenizer-only runtime. No torch, transformers or model weights.
+-r requirements.txt
+tokenizers==0.22.1
+huggingface-hub==0.36.0

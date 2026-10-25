@@ -1,0 +1,1 @@
+ALTER TABLE article_versions DROP CONSTRAINT article_versions_content_unique;

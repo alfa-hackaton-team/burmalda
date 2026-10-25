@@ -10,6 +10,8 @@
 
 Примеры — синтетические и не сообщают реальные условия финансовых продуктов. Они находятся в fixtures/v1; manifest связывает каждый файл с определением схемы.
 
+Вход корпуса Go → ML описан отдельно в [article-processing.md](article-processing.md) и API v0.1; качество — [document-quality.md](document-quality.md). article_id/article_version_id отображаются в document_id/document_version_id без смены значений. Это не переименование полей текущих JSON DTO. Правила required/null логического v1 не переносятся автоматически на NormalizedArticle, где published_at может отсутствовать, а title может быть пустым. Quality PASS/FAIL не входят в статусы retrieval или Error enum v1.
+
 ## 2. SearchRequest → SearchResponse
 
 Вход: contract_version, trace_id, business_context_id, query, filters, top_k. top_k=1–50, рекомендуемый старт 10. business_context_id=null разрешен только авторизованной фоновой задаче; это не способ отключить проверку доступа.
@@ -48,7 +50,7 @@ ok — все уникальные ID прочитаны, unresolved=[]; partial
 
 Вход: contract_version, trace_id, cursor (null или непрозрачная строка), limit=1–100. Выход: status, items, next_cursor, has_more, warnings, error и общие поля.
 
-Элемент: document_id, document_version_id, version_no, title, normalized_text, published_at, retrieved_at, chunk_ids. Готовность означает, что оригинал и текст сохранены, чанки полностью записаны и доступны для чтения, embeddings готовы.
+Элемент: document_id, document_version_id, version_no, title, normalized_text, published_at, retrieved_at, chunk_ids. Готовность означает, что оригинал и текст сохранены, чанки полностью записаны и доступны для чтения, embeddings готовы. Quality PASS R02 не является этой готовностью. normalized_text содержит весь сохранённый body версии, а не укороченный ответ retrieval; это не гарантия полного текста первоисточника, если Go получил только RSS-анонс.
 
 ok — непустая страница; empty — пустая успешная страница; error — пустой items и заполненный error. При пустой странице сохраняется прежний курсор, если новых готовых записей нет. has_more=false означает конец текущей выдачи, не конец будущих поступлений.
 

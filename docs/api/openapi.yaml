@@ -9,6 +9,12 @@ info:
     Правила контекстов, доказательств и ошибок приведены в README.md. Go проверяет
     server-side session по cookie session_id; изменяющие запросы требуют X-CSRF-Token
     и проверки Origin. Реестр источников, планировщик и воркер принадлежат Go.
+    Административный GET источников требует sources:read, PATCH — sources:manage,
+    а назначение trust_level/source_role и POST — также sources:trust.
+    JSON источника ограничен 64 КиБ (HTTP 413 PAYLOAD_TOO_LARGE).
+    Курсор реестра связан с пользователем, сессией и limit и не фиксирует снимок.
+    Ответы одного источника содержат ETag, создание — также Location;
+    last_error содержит безопасное описание без сырой диагностики загрузчика.
 paths:
   "/v0.1/me":
     get:
@@ -986,15 +992,6 @@ paths:
             schema:
               "$ref": "./schemas.yaml#/components/schemas/SourceConfigInput"
       parameters:
-      - name: Idempotency-Key
-        in: header
-        required: false
-        schema:
-          type: string
-          minLength: 1
-          description: Ключ связывает повтор с исходной операцией в пределах пользователя
-            и контекста. Повтор не создаёт новый платный запуск и не разрешает переиспользовать
-            финальный персональный ответ между пользователями.
       - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/sources/{source_id}":
     get:
@@ -1099,11 +1096,12 @@ paths:
           minLength: 1
       - name: If-Match
         in: header
-        required: false
+        required: true
         schema:
           type: string
-          description: 'Версия конфигурации для защиты от одновременного изменения:
-            сервер проверяет, что запрос относится к актуальной версии.'
+          description: 'Сильный ETag текущей конфигурации, например "3". Сервер
+            проверяет, что запрос относится к актуальной версии; отсутствие заголовка
+            даёт HTTP 428, устаревшая версия — HTTP 409.'
       - "$ref": "#/components/parameters/CsrfToken"
   "/v0.1/admin/sources/{source_id}/syncs":
     post:
