@@ -48,6 +48,6 @@ ML1_TEST_POSTGRES_DSN='<disposable admin test DSN>' python -m unittest ml.tests.
 
 Тесты применяют настоящий SQL в изолированных схемах: snapshot/provenance, FK/vector, retry/conflict, rollback DDL/данных, конкурентные записи, отдельный migration owner и ограниченный runtime. Тестовой роли нужны CREATE SCHEMA/CREATE ROLE/GRANT; production runtime — нет. Существующая deployment-схема не удаляется. Старые low-level fixture-тесты остаются регрессией; без DSN integration пропускается.
 
-Проверено: 143 runtime-теста (142 PASS, 1 pretrained smoke SKIP), 13 doc tests и обе проверки контрактов; PostgreSQL 18.4. Миграция применена также к локальной `ml1_test`, владелец таблиц — ml_migrator, runtime — ml_runtime. PostgreSQL 17 ещё не проверен.
+Проверено: 143 runtime PASS без skips, включая pretrained Qwen smoke; 13 doc tests и обе проверки контрактов; PostgreSQL 18.4. Миграция применена также к локальной `ml1_test`, владелец таблиц — ml_migrator, runtime — ml_runtime. PostgreSQL 17 ещё не проверен.
 
-Операции/Idempotency-Key, worker recovery, HTTP lifecycle и ready/SUCCEEDED пока не реализованы. Снимок содержимого не заменяет журнал операций и не предотвращает повторный запуск модели. Retrieval, retention и backfill — следующие этапы.
+Операции/Idempotency-Key, worker recovery, HTTP lifecycle и ready/SUCCEEDED пока не реализованы. Снимок содержимого не заменяет журнал операций и не предотвращает повторный запуск модели. Vector baseline описан в [RETRIEVAL.md](RETRIEVAL.md); retention и backfill — следующие этапы.
