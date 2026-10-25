@@ -49,6 +49,13 @@ _SOURCE_REQUIRED = {
     "source_id", "name", "source_role", "source_type", "trust_level", "config_version",
 }
 _SOURCE_ROLES = {"external", "bank", "expert"}
+_SOURCE_TYPES = {"news", "bank_analytics", "expert", "regulator", "financial_press"}
+_TRUST_LEVELS = {"primary", "trusted", "standard", "unknown", "reviewed"}
+_EXTRACTION_METHODS = {"full_article", "rss_summary", "pdf_extracted"}
+_EXTRACTION_ERRORS = {
+    "TEXT_TRUNCATED", "MISSING_PAGES", "MISSING_TABLES", "MISSING_FOOTNOTES",
+    "EXTRACTION_FAILED", "LAYOUT_LOSS", "READING_ORDER_UNCERTAIN",
+}
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _CONFIG_VERSION = re.compile(r"^[1-9][0-9]*$")
 
@@ -95,16 +102,19 @@ def parse_article_processing(
     if not isinstance(title, str):
         raise _invalid("article.title must be a string")
     body = article["body"]
-    if not isinstance(body, str) or not body.strip():
-        raise _invalid("article.body must contain non-whitespace text")
-    if len(body.encode("utf-8")) > max_text_bytes:
+    if not isinstance(body, str):
+        raise _invalid("article.body must be a string")
+    try:
+        body_size = len(body.encode("utf-8"))
+    except UnicodeEncodeError:
+        # R02 owns this quality failure; malformed Unicode must reach its
+        # deterministic gate instead of escaping as an unhandled 500 here.
+        body_size = None
+    if body_size is not None and body_size > max_text_bytes:
         raise ProcessingContractError(413, "PAYLOAD_TOO_LARGE", "UTF-8 article.body exceeds the configured limit")
     if not _SHA256.fullmatch(article["content_hash"]):
         raise _invalid("article.content_hash must be a lowercase SHA-256 hex digest")
-    if article["metadata"] != {}:
-        raise _invalid("article.metadata must be an empty object until fields are agreed")
-    if not isinstance(article["metadata"], dict):
-        raise _invalid("article.metadata must be an object")
+    _validate_extraction_metadata(article["metadata"])
 
     for field in ("external_id", "language", "author"):
         if field in article and not isinstance(article[field], str):
@@ -123,6 +133,10 @@ def parse_article_processing(
         _nonempty_string(source[field], f"source.{field}")
     if source["source_role"] not in _SOURCE_ROLES:
         raise _invalid("source.source_role is unsupported")
+    if source["source_type"] not in _SOURCE_TYPES:
+        raise _invalid("source.source_type is unsupported")
+    if source["trust_level"] not in _TRUST_LEVELS:
+        raise _invalid("source.trust_level is unsupported")
     if not _CONFIG_VERSION.fullmatch(source["config_version"]):
         raise _invalid("source.config_version must be a positive decimal version")
     if article["source_id"] != source["source_id"]:
@@ -147,9 +161,17 @@ def parse_article_processing(
         "source": source,
         "pipeline_version": pipeline_version,
     }
-    fingerprint = hashlib.sha256(
-        json.dumps(stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    try:
+        stable_bytes = json.dumps(
+            stable, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    except UnicodeEncodeError:
+        # Preserve malformed-but-valid-JSON Unicode for R02 to reject with a
+        # deterministic INVALID_UTF8_TEXT quality result rather than a 500.
+        stable_bytes = json.dumps(
+            stable, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        ).encode("utf-8")
+    fingerprint = hashlib.sha256(stable_bytes).hexdigest()
     return ArticleProcessingInput(
         article=article,
         source=source,
@@ -164,6 +186,24 @@ def _only_keys(value: dict[str, Any], allowed: set[str], label: str) -> None:
     extra = set(value) - allowed
     if extra:
         raise _invalid(f"{label} contains unsupported fields: {', '.join(sorted(extra))}")
+
+
+def _validate_extraction_metadata(value: Any) -> None:
+    if not isinstance(value, dict):
+        raise _invalid("article.metadata must be an object")
+    _only_keys(value, {"extraction_method", "extraction_errors"}, "article.metadata")
+    if set(value) != {"extraction_method", "extraction_errors"}:
+        raise _invalid("article.metadata requires extraction_method and extraction_errors")
+    method = value["extraction_method"]
+    if not isinstance(method, str) or method not in _EXTRACTION_METHODS:
+        raise _invalid("article.metadata.extraction_method is unsupported")
+    errors = value["extraction_errors"]
+    if not isinstance(errors, list) or any(
+        not isinstance(code, str) or code not in _EXTRACTION_ERRORS for code in errors
+    ):
+        raise _invalid("article.metadata.extraction_errors contains an unsupported code")
+    if len(errors) != len(set(errors)):
+        raise _invalid("article.metadata.extraction_errors must not contain duplicates")
 
 
 def _nonempty_string(value: Any, label: str, status: int = 400) -> None:

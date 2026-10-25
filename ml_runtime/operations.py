@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from .article_processing import ArticleProcessingInput, ProcessingContractError
+from .quality_gate import DocumentQualityGate
 
 
 @dataclass
@@ -27,6 +28,7 @@ class ArticleProcessingOperation:
     document_version_id: str | None = None
     event_ids: list[str] | None = None
     error: dict[str, Any] | None = None
+    quality_result: dict[str, Any] | None = None
 
     def to_wire(self) -> dict[str, Any]:
         value: dict[str, Any] = {
@@ -108,7 +110,7 @@ class InMemoryOperationStore:
             if target not in allowed.get(expected, set()):
                 raise RuntimeError(f"unsupported operation transition {expected} -> {target}")
             for key, value in updates.items():
-                if key not in {"document_version_id", "event_ids", "error"}:
+                if key not in {"document_version_id", "event_ids", "error", "quality_result"}:
                     raise ValueError(f"unsupported operation update: {key}")
                 setattr(operation, key, value)
             if target == "SUCCEEDED" and (not operation.document_version_id or operation.event_ids is None):
@@ -133,9 +135,10 @@ class EventProcessor(Protocol):
 
 @dataclass
 class ArticleProcessingCoordinator:
-    """Coordinates operation idempotency and the required ML1 then ML2 stages."""
+    """Runs quality, indexing, then event processing under one operation."""
 
     store: OperationStore
+    quality_gate: DocumentQualityGate
     indexer: Indexer
     event_processor: EventProcessor
 
@@ -157,7 +160,23 @@ class ArticleProcessingCoordinator:
         if request is None:
             raise RuntimeError("operation payload is missing from the operation store")
         self.store.transition(processing_id, "QUEUED", "RUNNING")
+        quality_result: dict[str, Any] | None = None
         try:
+            quality_result = self.quality_gate.assess(request)
+            if not isinstance(quality_result, dict) or quality_result.get("status") not in {"PASS", "FAIL"}:
+                raise RuntimeError("ML1 quality gate returned an invalid result")
+            if quality_result["status"] == "FAIL":
+                return self.store.transition(
+                    processing_id,
+                    "RUNNING",
+                    "FAILED",
+                    error={
+                        "code": "ML_PROCESSING_ERROR",
+                        "message": "Document did not pass ML quality checks",
+                        "retryable": False,
+                    },
+                    quality_result=quality_result,
+                ).to_wire()
             document_version_id = self.indexer.index(request)
             if not isinstance(document_version_id, str) or not document_version_id.strip():
                 raise RuntimeError("ML1 indexer returned no document_version_id")
@@ -174,6 +193,7 @@ class ArticleProcessingCoordinator:
                     "message": "Article processing failed in an ML stage",
                     "retryable": False,
                 },
+                quality_result=quality_result,
             ).to_wire()
         return self.store.transition(
             processing_id,
@@ -181,4 +201,5 @@ class ArticleProcessingCoordinator:
             "SUCCEEDED",
             document_version_id=document_version_id,
             event_ids=event_ids,
+            quality_result=quality_result,
         ).to_wire()
