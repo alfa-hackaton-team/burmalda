@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Any, Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from .article_processing import ArticleProcessingInput, ProcessingContractError
 from .event_extraction import EventTextChunk
@@ -156,16 +156,27 @@ class IndexedArticleVersion:
     def __post_init__(self) -> None:
         if not isinstance(self.document_version_id, str) or not self.document_version_id.strip():
             raise ValueError("indexed article requires a document_version_id")
+        try:
+            UUID(self.document_version_id)
+        except ValueError as exc:
+            raise ValueError("indexed article document_version_id must be a UUID") from exc
         if not isinstance(self.chunks, tuple) or not self.chunks:
             raise ValueError("indexed article requires a non-empty chunk tuple")
         if any(
             not isinstance(chunk, EventTextChunk)
+            or not isinstance(chunk.chunk_id, str)
             or not chunk.chunk_id.strip()
+            or not isinstance(chunk.text, str)
             or not chunk.text.strip()
             for chunk in self.chunks
         ):
             raise ValueError("indexed article chunks require non-empty IDs and text")
         chunk_ids = [chunk.chunk_id for chunk in self.chunks]
+        try:
+            for chunk_id in chunk_ids:
+                UUID(chunk_id)
+        except ValueError as exc:
+            raise ValueError("indexed article chunk IDs must be UUIDs") from exc
         if len(chunk_ids) != len(set(chunk_ids)):
             raise ValueError("indexed article contains duplicate chunk IDs")
 

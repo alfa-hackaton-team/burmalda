@@ -13,7 +13,7 @@ LLMEventExtractor.extract(
 ) -> EventExtractionResult
 ```
 
-After ML1 indexing, `Indexer.index()` returns `IndexedArticleVersion(document_version_id, chunks)` to `ArticleProcessingCoordinator`, which passes that same value to ML2. Each evidence quote must be an exact substring of a supplied chunk and is linked to every matching `chunk_id`. The standalone extractor accepts `chunks=None` only for fixture use; the coordinator rejects an empty chunk list, so persisted production evidence has real chunk IDs.
+After ML1 indexing, `Indexer.index()` returns `IndexedArticleVersion(document_version_id, chunks)` to `ArticleProcessingCoordinator`, which passes that same value to ML2. Each evidence quote must be an exact substring of a supplied chunk and is linked to every matching `chunk_id`. The standalone extractor accepts `chunks=None` only for fixture use; the coordinator rejects an empty chunk list, so persisted production evidence has real chunk IDs. Before saving, the storage boundary parses the DTO again and checks document/config versions, candidate shape, and every evidence chunk ID and quote against the indexed result.
 
 ## Result DTO
 
@@ -55,4 +55,4 @@ Extraction returns no database IDs. It does not mark events confirmed, merge eve
 
 ## Failure behavior
 
-Malformed model output, unsupported claims, or evidence absent from the supplied chunks fail the extraction stage; no partial result is stored. Timeouts and gateway errors propagate to the article-processing coordinator, which records a failed operation. The event store writes the run, events, links, and stable IDs in one transaction.
+Malformed model output, unsupported claims, an invalid DTO, or evidence absent from the supplied chunks fail the extraction stage; no partial result is stored. Timeouts and gateway errors propagate to the article-processing coordinator, which records a failed operation. The event store writes the run, events, links, and stable IDs in one transaction.

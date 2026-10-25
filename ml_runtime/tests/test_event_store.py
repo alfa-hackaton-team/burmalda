@@ -15,6 +15,7 @@ from ml_runtime.article_processing import parse_article_processing
 
 
 DATABASE_URL = os.environ.get("ML_TEST_DATABASE_URL")
+CHUNK_ID = "10000000-0000-4000-8000-000000000006"
 
 
 def event(
@@ -31,6 +32,7 @@ def event(
         geography=({"type": "country", "code": "RU", "name": "Россия"},),
         confidence=None,
         evidence_quotes=("Новые договоры продукта X заключаются по обновленным условиям.",),
+        evidence_chunk_ids=((CHUNK_ID,),),
     )
 
 
@@ -62,7 +64,7 @@ class EventResultBoundaryTests(unittest.TestCase):
             def get_saved_event_ids(self, _version_id, _config_version):
                 return self.prior
 
-            def save_result(self, result):
+            def save_result(self, result, indexed):
                 self.saved = result
                 return ["event-id-1"]
 
@@ -71,7 +73,7 @@ class EventResultBoundaryTests(unittest.TestCase):
 
         indexed = IndexedArticleVersion(
             request.article["article_version_id"],
-            (EventTextChunk("chunk-1", "Новые договоры продукта X заключаются по обновленным условиям."),),
+            (EventTextChunk(CHUNK_ID, "Новые договоры продукта X заключаются по обновленным условиям."),),
         )
         result = processor.process(request, indexed)
 
@@ -89,7 +91,7 @@ class EventResultBoundaryTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ValueError, "must match"):
             ML2EventProcessor(None, None).process(
-                request, IndexedArticleVersion(str(uuid4()), (EventTextChunk("chunk", "text"),))
+                request, IndexedArticleVersion(str(uuid4()), (EventTextChunk(CHUNK_ID, "text"),))
             )
 
 
@@ -128,9 +130,9 @@ class PostgresEventStoreTests(unittest.TestCase):
     def test_replay_is_idempotent_without_cross_document_auto_merge(self):
         first_result = EventExtractionResult(self.version_a, self.pipeline, (event(),))
         second_result = EventExtractionResult(self.version_b, self.pipeline, (event(),))
-        first = self.store.save_result(first_result)
-        replay = self.store.save_result(first_result)
-        second_article = self.store.save_result(second_result)
+        first = self.store.save_result(first_result, indexed(self.version_a))
+        replay = self.store.save_result(first_result, indexed(self.version_a))
+        second_article = self.store.save_result(second_result, indexed(self.version_b))
 
         self.assertEqual(replay, first)
         self.assertNotEqual(second_article, first)
@@ -140,9 +142,16 @@ class PostgresEventStoreTests(unittest.TestCase):
         changed_result = EventExtractionResult(
             self.version_a, self.pipeline, (event(title="Совершенно другое событие"),)
         )
-        first = self.store.save_result(first_result)
-        replay = self.store.save_result(changed_result)
+        first = self.store.save_result(first_result, indexed(self.version_a))
+        replay = self.store.save_result(changed_result, indexed(self.version_a))
         self.assertEqual(replay, first)
+
+
+def indexed(document_version_id: str) -> IndexedArticleVersion:
+    return IndexedArticleVersion(
+        document_version_id,
+        (EventTextChunk(CHUNK_ID, "Новые договоры продукта X заключаются по обновленным условиям."),),
+    )
 
 
 if __name__ == "__main__":

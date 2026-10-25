@@ -109,7 +109,12 @@ class EventExtractionResult:
     def __post_init__(self) -> None:
         if self.contract_version != EVENT_EXTRACTION_CONTRACT_VERSION:
             raise ValueError("unsupported event extraction contract version")
-        if not self.document_version_id.strip() or not self.event_pipeline_config_version.strip():
+        if (
+            not isinstance(self.document_version_id, str)
+            or not self.document_version_id.strip()
+            or not isinstance(self.event_pipeline_config_version, str)
+            or not self.event_pipeline_config_version.strip()
+        ):
             raise ValueError("event extraction result requires document and config versions")
 
     def __iter__(self):

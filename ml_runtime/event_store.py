@@ -15,6 +15,7 @@ from .event_extraction import (
     LLMEventExtractor,
 )
 from .operations import IndexedArticleVersion
+from .event_result_contract import validate_event_extraction_result
 
 
 class EventCandidateStore(Protocol):
@@ -22,7 +23,9 @@ class EventCandidateStore(Protocol):
         self, document_version_id: str, event_pipeline_config_version: str
     ) -> list[str] | None: ...
 
-    def save_result(self, result: EventExtractionResult) -> list[str]: ...
+    def save_result(
+        self, result: EventExtractionResult, indexed: IndexedArticleVersion
+    ) -> list[str]: ...
 
 
 class PostgresEventStore:
@@ -66,7 +69,12 @@ class PostgresEventStore:
                 row = cursor.fetchone()
                 return [str(item) for item in row[0]] if row is not None else None
 
-    def save_result(self, result: EventExtractionResult) -> list[str]:
+    def save_result(
+        self, result: EventExtractionResult, indexed: IndexedArticleVersion
+    ) -> list[str]:
+        result = validate_event_extraction_result(
+            result, indexed, result.event_pipeline_config_version
+        )
         document_version_id = result.document_version_id
         config_version = result.event_pipeline_config_version
         payload = json.dumps(result.to_dict(), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
@@ -156,11 +164,8 @@ class ML2EventProcessor:
         if not indexed.chunks:
             raise RuntimeError("ML1 returned no indexed chunks for the document version")
         result = self.extractor.extract(request, chunks=list(indexed.chunks))
-        if result.document_version_id != document_version_id:
-            raise ValueError("event extraction result document_version_id does not match input")
-        if result.event_pipeline_config_version != config_version:
-            raise ValueError("event extraction result configuration version changed unexpectedly")
-        return self.store.save_result(result)
+        result = validate_event_extraction_result(result, indexed, config_version)
+        return self.store.save_result(result, indexed)
 
 
 def candidate_fingerprint(candidate: CandidateEvent) -> str:

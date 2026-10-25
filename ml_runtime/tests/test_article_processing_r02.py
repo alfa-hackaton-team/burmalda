@@ -17,6 +17,7 @@ from ml_runtime.operations import (
 SOURCE_ID = "10000000-0000-4000-8000-000000000001"
 ARTICLE_VERSION_ID = "10000000-0000-4000-8000-000000000003"
 PIPELINE_VERSION = "ml-pipeline-v1"
+FIXTURE_CHUNK_ID = "10000000-0000-4000-8000-000000000006"
 
 
 def payload(body: str = "Synthetic article text.") -> dict[str, Any]:
@@ -85,7 +86,7 @@ class FakeIndexer:
         self.calls.append("index")
         return IndexedArticleVersion(
             self.document_version_id or request.article["article_version_id"],
-            (EventTextChunk("fixture-chunk", request.article["body"] or "fixture"),),
+            (EventTextChunk(FIXTURE_CHUNK_ID, request.article["body"] or "fixture"),),
         )
 
 

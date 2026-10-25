@@ -36,7 +36,7 @@ class FakeIndexer:
     def index(self, request):
         return IndexedArticleVersion(
             request.article["article_version_id"],
-            (EventTextChunk("fixture-chunk", request.article["body"]),),
+            (EventTextChunk("10000000-0000-4000-8000-000000000006", request.article["body"]),),
         )
 
 
