@@ -2,11 +2,25 @@ package sources
 
 import (
 	"context"
+	"crypto/sha256"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 )
+
+var testCursorKey = sha256.Sum256([]byte("admin-source-test-key"))
+
+func TestIfMatchRequiresExactStrongETag(t *testing.T) {
+	for _, value := range []string{`"01"`, `"+1"`, `" 1"`, `W/"1"`, `"1", "2"`, `*`, `1`, `"0"`} {
+		if _, err := parseIfMatch(value); err == nil {
+			t.Fatalf("invalid strong ETag accepted: %s", value)
+		}
+	}
+	if version, err := parseIfMatch(`"1"`); err != nil || version != 1 {
+		t.Fatalf("version=%d err=%v", version, err)
+	}
+}
 
 type fakeRegistry struct {
 	called int
@@ -34,11 +48,11 @@ func (f *fakeRegistry) List(context.Context, int, string) (Page, error) {
 }
 
 func TestAdminHandlerFailsClosed(t *testing.T) {
-	if _, err := AdminHandler(&fakeRegistry{}, nil); err == nil {
+	if _, err := AdminHandler(&fakeRegistry{}, nil, testCursorKey); err == nil {
 		t.Fatal("handler accepted missing authorizer")
 	}
 	registry := &fakeRegistry{}
-	handler, err := AdminHandler(registry, func(*http.Request, Permission) int { return 401 })
+	handler, err := AdminHandler(registry, func(*http.Request, Permission) int { return 401 }, testCursorKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -57,7 +71,7 @@ func TestAdminHandlerCreateAndPatchPermissions(t *testing.T) {
 			return 403
 		}
 		return 0
-	})
+	}, testCursorKey)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -70,7 +84,7 @@ func TestAdminHandlerCreateAndPatchPermissions(t *testing.T) {
 		t.Fatalf("create: status=%d calls=%d", res.Code, registry.called)
 	}
 
-	patch := httptest.NewRequest("PATCH", "/v0.1/admin/sources/source-id", strings.NewReader(`{"trust_level":"other"}`))
+	patch := httptest.NewRequest("PATCH", "/v0.1/admin/sources/11111111-1111-4111-8111-111111111111", strings.NewReader(`{"trust_level":"other"}`))
 	patch.Header.Set("Content-Type", "application/json")
 	patch.Header.Set("If-Match", `"1"`)
 	res = httptest.NewRecorder()
@@ -79,7 +93,7 @@ func TestAdminHandlerCreateAndPatchPermissions(t *testing.T) {
 		t.Fatalf("trust patch: status=%d calls=%d", res.Code, registry.called)
 	}
 
-	patch = httptest.NewRequest("PATCH", "/v0.1/admin/sources/source-id", strings.NewReader(`{"enabled":false}`))
+	patch = httptest.NewRequest("PATCH", "/v0.1/admin/sources/11111111-1111-4111-8111-111111111111", strings.NewReader(`{"enabled":false}`))
 	patch.Header.Set("Content-Type", "application/json")
 	res = httptest.NewRecorder()
 	handler.ServeHTTP(res, patch)
@@ -87,7 +101,7 @@ func TestAdminHandlerCreateAndPatchPermissions(t *testing.T) {
 		t.Fatalf("missing If-Match: status=%d calls=%d", res.Code, registry.called)
 	}
 
-	patch = httptest.NewRequest("PATCH", "/v0.1/admin/sources/source-id", strings.NewReader(`{"enabled":false}`))
+	patch = httptest.NewRequest("PATCH", "/v0.1/admin/sources/11111111-1111-4111-8111-111111111111", strings.NewReader(`{"enabled":false}`))
 	patch.Header.Set("Content-Type", "application/json")
 	patch.Header.Set("If-Match", `"1"`)
 	res = httptest.NewRecorder()
@@ -99,7 +113,7 @@ func TestAdminHandlerCreateAndPatchPermissions(t *testing.T) {
 
 func TestAdminHandlerCreate(t *testing.T) {
 	registry := &fakeRegistry{source: Source{SourceID: "source-id", ConfigVersion: "1", Health: "UNKNOWN"}}
-	handler, err := AdminHandler(registry, func(*http.Request, Permission) int { return 0 })
+	handler, err := AdminHandler(registry, func(*http.Request, Permission) int { return 0 }, testCursorKey)
 	if err != nil {
 		t.Fatal(err)
 	}

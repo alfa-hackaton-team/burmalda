@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/health"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpsecurity"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/userapi"
 	"github.com/prometheus/client_golang/prometheus"
 )
@@ -69,14 +71,18 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	userHandler := authn.Middleware(sessionStore,
-		httpsecurity.RequireMutationProof(userapi.Handler(userStore, cursorSigningKey), allowedOrigins))
 	serverSettings := manager.Current().Server
-	mux.Handle("/v0.1/", httpsecurity.Protect(userHandler, httpsecurity.Options{
-		RequestTimeout: serverSettings.RequestTimeout.Std(),
-		MaxBodyBytes:   serverSettings.MaxBodyBytes,
-		AllowedOrigins: allowedOrigins,
-	}))
+	apiHandler, err := newAPIHandler(sessionStore, userStore,
+		sources.NewStore(pool, sources.Validator{}), sources.NewPostgresAuthorizer(pool), cursorSigningKey,
+		httpsecurity.Options{
+			RequestTimeout: serverSettings.RequestTimeout.Std(),
+			MaxBodyBytes:   serverSettings.MaxBodyBytes,
+			AllowedOrigins: allowedOrigins,
+		})
+	if err != nil {
+		return err
+	}
+	mux.Handle("/v0.1/", apiHandler)
 
 	server := &http.Server{
 		Addr:              cfg.HTTPAddr,
@@ -105,4 +111,17 @@ func run() error {
 		slog.Info("api stopped")
 		return nil
 	}
+}
+
+func newAPIHandler(sessions authn.Store, users userapi.Store, registry sources.Registry, authorize sources.Authorize, cursorKey [sha256.Size]byte, options httpsecurity.Options) (http.Handler, error) {
+	sourceHandler, err := sources.AdminHandler(registry, authorize, cursorKey)
+	if err != nil {
+		return nil, err
+	}
+	routes := http.NewServeMux()
+	routes.Handle("/v0.1/admin/sources", sourceHandler)
+	routes.Handle("/v0.1/admin/sources/", sourceHandler)
+	routes.Handle("/v0.1/", userapi.Handler(users, cursorKey))
+	return httpsecurity.Protect(authn.Middleware(sessions,
+		httpsecurity.RequireMutationProof(routes, options.AllowedOrigins)), options), nil
 }
