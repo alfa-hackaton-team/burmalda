@@ -110,11 +110,17 @@ function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) {
         : data?.code === 'FORBIDDEN_CONTEXT' || data?.code === 'FORBIDDEN'
           ? 'Нет доступа'
           : 'Не удалось загрузить данные';
+  const detail =
+    data?.code === 'PROFILE_NOT_READY'
+      ? 'Профиль сохранён, но ещё не подготовлен для аналитики. Попробуйте обновить ленту позже.'
+      : data?.code === 'SOURCE_UNAVAILABLE'
+        ? 'Сервис анализа пока недоступен. Проверьте его подключение и повторите запрос позже.'
+        : messageOf(error);
   return (
     <div className="state-card" role="alert">
       <CircleHelp size={28} />
       <h3>{title}</h3>
-      <p>{messageOf(error)}</p>
+      <p>{detail}</p>
       {retry && data?.retryable !== false && (
         <Button size={40} view="secondary" onClick={retry} leftAddons={<RefreshCw size={16} />}>
           Повторить
@@ -127,11 +133,11 @@ function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) {
 export function App({
   api,
   demo,
-  onDemoExit,
+  onExit,
 }: {
   api: Api;
   demo: boolean;
-  onDemoExit?: () => void;
+  onExit?: () => void | Promise<void>;
 }) {
   const [user, setUser] = useState<User>();
   const [contexts, setContexts] = useState<AvailableContext[]>();
@@ -139,6 +145,7 @@ export function App({
   const [error, setError] = useState<unknown>();
   const [attempt, setAttempt] = useState(0);
   const [about, setAbout] = useState(false);
+  const [logoutError, setLogoutError] = useState('');
   const operationKeys = useRef(new Map<string, string>());
   useEffect(() => {
     const controller = new AbortController();
@@ -179,11 +186,21 @@ export function App({
             </span>
           )}
           <span className="user-name">{user?.display_name ?? 'Личный кабинет'}</span>
-          {demo && onDemoExit && (
-            <button className="demo-exit" type="button" onClick={onDemoExit}>
+          {onExit && (
+            <button
+              className="demo-exit"
+              type="button"
+              onClick={() => {
+                setLogoutError('');
+                Promise.resolve(onExit()).catch((err: unknown) => {
+                  setLogoutError(err instanceof Error ? err.message : 'Не удалось выйти.');
+                });
+              }}
+            >
               Выйти
             </button>
           )}
+          {logoutError && <span role="alert">{logoutError}</span>}
           <span className="avatar" aria-hidden="true">
             {user?.display_name
               ?.split(' ')
@@ -264,7 +281,7 @@ export function App({
                 </label>
                 <div className="context-profile">
                   <span className="status-dot" />
-                  {context?.profile ? 'Профиль доступен' : 'Профиль уточняется'}
+                  {context?.profile ? 'Профиль сохранён' : 'Профиль уточняется'}
                   <small>
                     {context?.profile
                       ? `Версия ${context.profile.version}`

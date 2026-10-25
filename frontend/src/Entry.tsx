@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { App } from './App';
 import { ApiError, type Api } from './api';
+import type { RegistrationCompany, RegistrationInput } from './types';
 import {
   authenticateDemo,
   clearDemoSession,
@@ -50,10 +51,12 @@ export function Entry({
   api,
   demo,
   authStartUrl = '',
+  selfRegistration = true,
 }: {
   api: Api;
   demo: boolean;
   authStartUrl?: string;
+  selfRegistration?: boolean;
 }) {
   const [demoSession, setDemoSession] = useState<DemoSession | undefined>(() =>
     demo ? readDemoSession() : undefined,
@@ -89,7 +92,12 @@ export function Entry({
     api
       .me(controller.signal)
       .then(() => {
-        if (!controller.signal.aborted) setAuthState('ready');
+        if (controller.signal.aborted) return;
+        setAuthState('ready');
+        if (window.location.pathname === '/pulse') {
+          setLoginOpen(false);
+          setInService(true);
+        }
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -130,8 +138,26 @@ export function Entry({
     window.scrollTo(0, 0);
   }
 
-  if (inService)
-    return <App api={serviceApi} demo={demo} onDemoExit={demo ? exitDemo : undefined} />;
+  async function exitReal() {
+    await api.logout();
+    setInService(false);
+    setAuthState('unauthenticated');
+    window.history.replaceState(null, '', `/${window.location.search}`);
+    window.scrollTo(0, 0);
+  }
+
+  async function enterWithPassword(login: string, password: string) {
+    await api.login(login, password);
+    await api.me();
+    enterService();
+  }
+
+  async function registerAndEnter(input: RegistrationInput) {
+    await api.register(input);
+    await enterWithPassword(input.login, input.password);
+  }
+
+  if (inService) return <App api={serviceApi} demo={demo} onExit={demo ? exitDemo : exitReal} />;
 
   return (
     <>
@@ -145,6 +171,10 @@ export function Entry({
           onRetry={() => setCheckAttempt((value) => value + 1)}
           onEnter={enterService}
           onDemoLogin={enterDemo}
+          onPasswordLogin={enterWithPassword}
+          onRegister={registerAndEnter}
+          registrationCompany={api.registrationCompany}
+          selfRegistration={selfRegistration}
         />
       )}
     </>
@@ -318,7 +348,9 @@ function Landing({ onOpen, demo }: { onOpen: () => void; demo: boolean }) {
               </span>
               <div>
                 <strong>Компания</strong>
-                <span>Контекст для аналитики готов</span>
+                <span>
+                  {demo ? 'Контекст для аналитики готов' : 'Ваш контекст — после входа в сервис'}
+                </span>
               </div>
             </div>
           </section>
@@ -379,6 +411,10 @@ function LoginDialog({
   onRetry,
   onEnter,
   onDemoLogin,
+  onPasswordLogin,
+  onRegister,
+  registrationCompany,
+  selfRegistration,
 }: {
   demo: boolean;
   state: AuthState;
@@ -387,6 +423,10 @@ function LoginDialog({
   onRetry: () => void;
   onEnter: () => void;
   onDemoLogin: (session: DemoSession) => void;
+  onPasswordLogin: (login: string, password: string) => Promise<void>;
+  onRegister: (input: RegistrationInput) => Promise<void>;
+  registrationCompany: (uid: string, signal?: AbortSignal) => Promise<RegistrationCompany>;
+  selfRegistration: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const [login, setLogin] = useState('');
@@ -394,9 +434,46 @@ function LoginDialog({
   const [companyId, setCompanyId] = useState<string>(demoCompanies[0].id);
   const [positionId, setPositionId] = useState<string>(demoPositions[0].id);
   const [loginError, setLoginError] = useState(false);
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [displayName, setDisplayName] = useState('');
+  const [companyUID, setCompanyUID] = useState('');
+  const [roleCode, setRoleCode] = useState('owner');
+  const [company, setCompany] = useState<RegistrationCompany>();
+  const [companyError, setCompanyError] = useState('');
+  const [realError, setRealError] = useState('');
+  const [working, setWorking] = useState(false);
   useEffect(() => {
     ref.current?.showModal();
   }, []);
+  useEffect(() => {
+    if (demo || mode !== 'register' || !/^U_[A-Z0-9_-]+$/i.test(companyUID.trim())) {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      registrationCompany(companyUID.trim().toUpperCase(), controller.signal)
+        .then((result) => {
+          if (!controller.signal.aborted) {
+            setCompany(result);
+            setCompanyError('');
+          }
+        })
+        .catch((error: unknown) => {
+          if (!controller.signal.aborted) {
+            setCompany(undefined);
+            setCompanyError(
+              error instanceof ApiError && error.status === 404
+                ? 'Компании с таким ID нет в загруженном наборе.'
+                : 'Не удалось проверить компанию.',
+            );
+          }
+        });
+    }, 350);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [companyUID, demo, mode, registrationCompany]);
   return (
     <dialog
       ref={ref}
@@ -436,7 +513,8 @@ function LoginDialog({
           <LockKeyhole size={17} /> ДОСТУП К СЕРВИСУ
         </div>
         <h2 id="login-title">
-          Войти в<br /> Бизнес-пульс
+          {mode === 'register' && !demo ? 'Создать аккаунт' : 'Войти в'}
+          <br /> Бизнес-пульс
         </h2>
         <p id="login-description">Персональная аналитика доступна в контексте вашей компании.</p>
         {demo ? (
@@ -546,52 +624,27 @@ function LoginDialog({
           </form>
         ) : (
           <>
-            <div className="bank-login-state" role="status" aria-live="polite">
-              {state === 'checking' ? (
-                <>
-                  <span className="bank-login-status-icon bank-login-status-loading" />
-                  <div>
-                    <strong>Проверяем сессию</strong>
-                    <span>Это займёт несколько секунд.</span>
-                  </div>
-                </>
-              ) : state === 'ready' ? (
-                <>
-                  <span className="bank-login-status-icon">
-                    <Check size={20} />
-                  </span>
-                  <div>
-                    <strong>Сессия подтверждена</strong>
-                    <span>Можно перейти к аналитике вашей компании.</span>
-                  </div>
-                </>
-              ) : state === 'unauthenticated' ? (
-                <>
-                  <span className="bank-login-status-icon bank-login-status-neutral">
-                    <LockKeyhole size={19} />
-                  </span>
-                  <div>
-                    <strong>Нужен вход в Альфа-Бизнес</strong>
-                    <span>
-                      {destination
-                        ? 'Продолжите через защищённый вход.'
-                        : 'Маршрут авторизации пока не подключён. Обратитесь к администратору стенда.'}
-                    </span>
-                  </div>
-                </>
-              ) : (
-                <>
-                  <span className="bank-login-status-icon bank-login-status-neutral">
-                    <ShieldCheck size={19} />
-                  </span>
-                  <div>
-                    <strong>Не удалось проверить сессию</strong>
-                    <span>Проверьте подключение и повторите попытку.</span>
-                  </div>
-                </>
-              )}
-            </div>
-            {state === 'ready' ? (
+            {state === 'checking' && (
+              <div className="bank-login-state" role="status">
+                <span className="bank-login-status-icon bank-login-status-loading" />
+                <div>
+                  <strong>Проверяем сессию</strong>
+                  <span>Это займёт несколько секунд.</span>
+                </div>
+              </div>
+            )}
+            {state === 'ready' && (
+              <div className="bank-login-state" role="status">
+                <span className="bank-login-status-icon">
+                  <Check size={20} />
+                </span>
+                <div>
+                  <strong>Сессия подтверждена</strong>
+                  <span>Можно перейти к аналитике вашей компании.</span>
+                </div>
+              </div>
+            )}
+            {state === 'ready' && (
               <Button
                 size={56}
                 view="primary"
@@ -601,20 +654,197 @@ function LoginDialog({
               >
                 Перейти к аналитике
               </Button>
-            ) : state === 'unauthenticated' && destination ? (
-              <a className="bank-login-redirect" href={destination}>
-                Продолжить к авторизации <ArrowRight size={19} />
-              </a>
-            ) : (
-              <Button
-                size={48}
-                view="secondary"
-                block
-                disabled={state === 'checking'}
-                onClick={onRetry}
-              >
+            )}
+            {state === 'error' && (
+              <div className="bank-login-state" role="alert">
+                <span className="bank-login-status-icon bank-login-status-neutral">
+                  <ShieldCheck size={19} />
+                </span>
+                <div>
+                  <strong>Не удалось связаться с сервером</strong>
+                  <span>Проверьте подключение и повторите попытку.</span>
+                </div>
+              </div>
+            )}
+            {state === 'error' && (
+              <Button size={48} view="secondary" block onClick={onRetry}>
                 Проверить ещё раз
               </Button>
+            )}
+            {state === 'unauthenticated' && (
+              <>
+                {selfRegistration && (
+                  <div className="bank-auth-switch" role="tablist" aria-label="Доступ к сервису">
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={mode === 'login'}
+                      onClick={() => {
+                        setMode('login');
+                        setRealError('');
+                      }}
+                    >
+                      Вход
+                    </button>
+                    <button
+                      type="button"
+                      role="tab"
+                      aria-selected={mode === 'register'}
+                      onClick={() => {
+                        setMode('register');
+                        setRealError('');
+                      }}
+                    >
+                      Регистрация
+                    </button>
+                  </div>
+                )}
+                <form
+                  className="bank-demo-form"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (working) return;
+                    setWorking(true);
+                    setRealError('');
+                    try {
+                      if (mode === 'login') {
+                        await onPasswordLogin(login.trim(), password);
+                      } else {
+                        await onRegister({
+                          login: login.trim(),
+                          password,
+                          display_name: displayName.trim(),
+                          company_uid: companyUID.trim().toUpperCase(),
+                          role_code: roleCode,
+                        });
+                      }
+                    } catch (error) {
+                      if (error instanceof ApiError && error.status === 401) {
+                        setRealError('Неверный логин или пароль.');
+                      } else if (error instanceof ApiError && error.status === 409) {
+                        setRealError('Этот логин уже занят. Выберите другой или войдите.');
+                      } else if (
+                        error instanceof ApiError &&
+                        error.status === 404 &&
+                        mode === 'register'
+                      ) {
+                        setRealError('Регистрация отключена на этом сервере.');
+                      } else {
+                        setRealError(
+                          error instanceof Error ? error.message : 'Не удалось выполнить запрос.',
+                        );
+                      }
+                    } finally {
+                      setPassword('');
+                      setWorking(false);
+                    }
+                  }}
+                >
+                  {mode === 'register' && (
+                    <label>
+                      Ваше имя
+                      <input
+                        autoComplete="name"
+                        value={displayName}
+                        onChange={(event) => setDisplayName(event.target.value)}
+                        minLength={2}
+                        maxLength={200}
+                        required
+                      />
+                    </label>
+                  )}
+                  <label>
+                    Логин
+                    <input
+                      autoComplete="username"
+                      value={login}
+                      onChange={(event) => setLogin(event.target.value)}
+                      minLength={3}
+                      maxLength={200}
+                      required
+                    />
+                  </label>
+                  <label>
+                    Пароль
+                    <input
+                      autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
+                      type="password"
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      minLength={mode === 'login' ? 1 : 12}
+                      required
+                    />
+                  </label>
+                  {mode === 'register' && (
+                    <>
+                      <label>
+                        ID компании из набора данных
+                        <input
+                          value={companyUID}
+                          onChange={(event) => {
+                            setCompanyUID(event.target.value);
+                            setCompany(undefined);
+                            setCompanyError('');
+                          }}
+                          placeholder="Например, U_80"
+                          pattern="[Uu]_[A-Za-z0-9_-]+"
+                          required
+                        />
+                      </label>
+                      {company && (
+                        <p className="bank-company-preview">
+                          <Check size={17} /> {company.display_name}
+                          {company.industry ? ` · ${company.industry}` : ''}
+                          {company.city ? ` · ${company.city}` : ''}
+                        </p>
+                      )}
+                      {companyError && (
+                        <p className="bank-demo-error" role="status">
+                          {companyError}
+                        </p>
+                      )}
+                      <label>
+                        Должность
+                        <select
+                          value={roleCode}
+                          onChange={(event) => setRoleCode(event.target.value)}
+                        >
+                          <option value="owner">Владелец</option>
+                          <option value="ceo">Генеральный директор</option>
+                          <option value="cfo">Финансовый директор</option>
+                          <option value="chief_accountant">Главный бухгалтер</option>
+                          <option value="treasury">Казначейство</option>
+                          <option value="other">Другая роль</option>
+                        </select>
+                      </label>
+                      <p className="bank-register-note">
+                        Регистрация доступна только для синтетических компаний локального стенда.
+                        Профиль появится после подготовки сервером.
+                      </p>
+                    </>
+                  )}
+                  {realError && (
+                    <p className="bank-demo-error" role="alert">
+                      {realError}
+                    </p>
+                  )}
+                  <Button
+                    size={56}
+                    view="primary"
+                    block
+                    type="submit"
+                    disabled={working}
+                    rightAddons={<ArrowRight size={20} />}
+                  >
+                    {working ? 'Подождите…' : mode === 'login' ? 'Войти' : 'Зарегистрироваться'}
+                  </Button>
+                </form>
+                {destination && (
+                  <a className="bank-login-redirect" href={destination}>
+                    Другой способ входа <ArrowRight size={19} />
+                  </a>
+                )}
+              </>
             )}
           </>
         )}
@@ -622,7 +852,7 @@ function LoginDialog({
           <ShieldCheck size={17} />{' '}
           {demo
             ? 'Только тестовые данные. Пароли видны в коде и не подходят для настоящего банковского входа.'
-            : 'Пароли и коды не вводятся в этот прототип. Сессию выдаёт серверный механизм входа.'}
+            : 'Пароль отправляется только в Go API. Сессия хранится в HttpOnly-cookie; в браузерном хранилище её нет.'}
         </p>
       </div>
     </dialog>

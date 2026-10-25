@@ -45,6 +45,32 @@ describe('public API boundaries', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it('starts a server session without CSRF and requires it for logout', async () => {
+    const fetch = vi
+      .fn()
+      .mockImplementation(
+        async (url: string) =>
+          new Response(
+            JSON.stringify(
+              url.endsWith('/logout')
+                ? { signed_out: true }
+                : { user_id: 'u', expires_at: '2026-10-26T00:00:00Z' },
+            ),
+          ),
+      );
+    vi.stubGlobal('fetch', fetch);
+    const api = createHttpApi();
+    await api.login('user', 'secret');
+    expect(fetch.mock.calls[0][0]).toBe('/v0.1/auth/login');
+    expect(fetch.mock.calls[0][1].credentials).toBe('include');
+    expect(fetch.mock.calls[0][1].headers.has('X-CSRF-Token')).toBe(false);
+    await expect(api.logout()).rejects.toMatchObject({ data: { code: 'UNAUTHENTICATED' } });
+    document.cookie = 'csrf_token=session-proof; path=/';
+    await api.logout();
+    expect(fetch.mock.calls[1][0]).toBe('/v0.1/auth/logout');
+    expect(fetch.mock.calls[1][1].headers.get('X-CSRF-Token')).toBe('session-proof');
+  });
+
   it('keeps authorization errors instead of replacing them with demo results', async () => {
     vi.stubGlobal(
       'fetch',

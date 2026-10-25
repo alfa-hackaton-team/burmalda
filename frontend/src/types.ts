@@ -11,6 +11,21 @@ export type AvailableContext = {
 };
 export type Page<T> = { items: T[]; next_cursor: string | null };
 export type User = { user_id: string; display_name?: string };
+export type LoginResult = { user_id: string; expires_at: string };
+export type RegistrationInput = {
+  login: string;
+  password: string;
+  display_name: string;
+  company_uid: string;
+  role_code: string;
+};
+export type RegistrationCompany = {
+  company_uid: string;
+  display_name: string;
+  industry: string;
+  city: string;
+  region: string;
+};
 export type EventRef = { event_id: string; title: string; summary: string };
 export type FeatureRef = {
   profile: ProfileRef;

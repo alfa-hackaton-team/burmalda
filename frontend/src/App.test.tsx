@@ -5,8 +5,8 @@ import { App } from './App';
 import { createDemoApi } from './demo';
 
 describe('client scenario', () => {
-  it('opens Burmalda even without an available company context', async () => {
-    render(<App api={createDemoApi('no-contexts')} demo />);
+  it.each([true, false])('opens Burmalda without a company context in demo=%s', async (demo) => {
+    render(<App api={createDemoApi('no-contexts')} demo={demo} />);
     expect(
       within(screen.getByLabelText('Навигация')).queryByRole('button', { name: 'Бурмалда' }),
     ).not.toBeInTheDocument();

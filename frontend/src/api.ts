@@ -9,8 +9,11 @@ import type {
   FollowUp,
   Generation,
   Insight,
+  LoginResult,
   Message,
   Page,
+  RegistrationCompany,
+  RegistrationInput,
   Trace,
   User,
 } from './types';
@@ -25,6 +28,10 @@ export class ApiError extends Error {
 }
 
 export interface Api {
+  login(login: string, password: string, signal?: AbortSignal): Promise<LoginResult>;
+  register(input: RegistrationInput, signal?: AbortSignal): Promise<{ user_id: string }>;
+  registrationCompany(uid: string, signal?: AbortSignal): Promise<RegistrationCompany>;
+  logout(signal?: AbortSignal): Promise<{ signed_out: boolean }>;
   me(signal?: AbortSignal): Promise<User>;
   contexts(signal?: AbortSignal): Promise<AvailableContext[]>;
   feed(
@@ -55,16 +62,20 @@ export function csrfToken(): string {
 }
 
 export function createHttpApi(baseUrl = ''): Api {
-  async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  async function request<T>(
+    path: string,
+    options: RequestInit = {},
+    requireCsrf = true,
+  ): Promise<T> {
     const headers = new Headers(options.headers);
     headers.set('Accept', 'application/json');
     if (options.body) headers.set('Content-Type', 'application/json');
-    if (options.method && options.method !== 'GET') {
+    if (requireCsrf && options.method && options.method !== 'GET') {
       const token = csrfToken();
       if (!token)
         throw new ApiError({
           code: 'UNAUTHENTICATED',
-          message: 'Для действия нужна действующая сессия. Откройте сервис через интернет-банк.',
+          message: 'Для действия нужна действующая сессия. Войдите в сервис заново.',
           retryable: false,
         });
       headers.set('X-CSRF-Token', token);
@@ -115,6 +126,17 @@ export function createHttpApi(baseUrl = ''): Api {
     });
   const enc = encodeURIComponent;
   return {
+    login: (login, password, signal) =>
+      request(
+        '/auth/login',
+        { method: 'POST', body: JSON.stringify({ login, password }), signal },
+        false,
+      ),
+    register: (input, signal) =>
+      request('/auth/register', { method: 'POST', body: JSON.stringify(input), signal }, false),
+    registrationCompany: (uid, signal) =>
+      request(`/auth/registration-company?uid=${enc(uid)}`, { signal }),
+    logout: (signal) => post('/auth/logout', {}, undefined, signal),
     me: (signal) => request('/me', { signal }),
     async contexts(signal) {
       const items: AvailableContext[] = [];

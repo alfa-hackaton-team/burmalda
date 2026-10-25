@@ -6,7 +6,7 @@ import { Entry } from './Entry';
 import { createHttpApi } from './api';
 import { createDemoApi } from './demo';
 
-const mode = import.meta.env.VITE_DATA_MODE ?? 'demo';
+const mode = import.meta.env.VITE_DATA_MODE ?? 'api';
 if (mode !== 'demo' && mode !== 'api') throw new Error('VITE_DATA_MODE must be demo or api');
 const api =
   mode === 'demo'
@@ -19,6 +19,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       api={api}
       demo={mode === 'demo'}
       authStartUrl={import.meta.env.VITE_AUTH_START_URL ?? ''}
+      selfRegistration={import.meta.env.VITE_SELF_REGISTRATION_ENABLED !== 'false'}
     />
   </React.StrictMode>,
 );

@@ -756,6 +756,49 @@
   color: #c32626;
   font-size: 12px;
 }
+.bank-auth-switch {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px;
+  padding: 4px;
+  margin: 0 0 18px;
+  border-radius: 11px;
+  background: #f2f2f4;
+}
+.bank-auth-switch button {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #64656c;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+.bank-auth-switch button[aria-selected='true'] {
+  background: #fff;
+  color: #ef3124;
+  box-shadow: 0 1px 4px #16161f18;
+}
+.bank-company-preview {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: -5px 0 0;
+  color: #287a4e;
+  font-size: 12px;
+  line-height: 1.4;
+}
+.bank-company-preview svg {
+  flex: 0 0 auto;
+}
+.bank-register-note {
+  margin: 0;
+  color: #787980;
+  font-size: 11px;
+  line-height: 1.5;
+}
 .bank-demo-accounts {
   display: grid;
   gap: 5px;

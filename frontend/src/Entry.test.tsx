@@ -1,6 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Entry } from './Entry';
 import { ApiError, type Api } from './api';
 import { createDemoApi } from './demo';
@@ -63,26 +63,93 @@ describe('entry and authorization', () => {
     );
   });
 
-  it('does not offer a fake bank login when the API has no session', async () => {
+  it('uses the server login and logout before showing real data', async () => {
     const user = userEvent.setup();
+    let authenticated = false;
+    const login = vi.fn(async () => {
+      authenticated = true;
+      return { user_id: 'server-user', expires_at: new Date().toISOString() };
+    });
+    const logout = vi.fn(async () => {
+      authenticated = false;
+      return { signed_out: true };
+    });
+    const api: Api = {
+      ...createDemoApi(),
+      login,
+      logout,
+      me: async () => {
+        if (!authenticated)
+          throw new ApiError(
+            { code: 'UNAUTHENTICATED', message: 'Session required', retryable: false },
+            401,
+          );
+        return { user_id: 'server-user', display_name: 'Тестовый пользователь' };
+      },
+    };
+    render(<Entry api={api} demo={false} />);
+    await user.click(screen.getAllByRole('button', { name: 'Открыть Бизнес-пульс' })[0]);
+    const dialog = await screen.findByRole('dialog', { name: /Войти в Бизнес-пульс/ });
+    await user.type(within(dialog).getByRole('textbox', { name: 'Логин' }), 'server.user');
+    await user.type(within(dialog).getByLabelText('Пароль'), 'strong-password');
+    await user.click(within(dialog).getByRole('button', { name: 'Войти' }));
+    expect(login).toHaveBeenCalledWith('server.user', 'strong-password');
+    expect(await screen.findByText('Тестовый пользователь')).toBeVisible();
+    expect(window.location.pathname).toBe('/pulse');
+    await user.click(screen.getByRole('button', { name: 'Выйти' }));
+    expect(logout).toHaveBeenCalledOnce();
+    expect(window.location.pathname).toBe('/');
+  });
+
+  it('registers against the server with a validated synthetic company', async () => {
+    const user = userEvent.setup();
+    let authenticated = false;
+    const register = vi.fn(async () => ({ user_id: 'new-user' }));
     const api: Api = {
       ...createDemoApi(),
       me: async () => {
-        throw new ApiError(
-          { code: 'UNAUTHENTICATED', message: 'Session required', retryable: false },
-          401,
-        );
+        if (!authenticated)
+          throw new ApiError(
+            { code: 'UNAUTHENTICATED', message: 'Session required', retryable: false },
+            401,
+          );
+        return { user_id: 'new-user' };
+      },
+      register,
+      registrationCompany: async () => ({
+        company_uid: 'U_80',
+        display_name: 'Компания U_80',
+        industry: 'Металлы',
+        city: 'Екатеринбург',
+        region: '',
+      }),
+      login: async () => {
+        authenticated = true;
+        return { user_id: 'new-user', expires_at: new Date().toISOString() };
       },
     };
-    render(<Entry api={api} demo={false} authStartUrl="/auth/start" />);
+    render(<Entry api={api} demo={false} />);
     await user.click(screen.getAllByRole('button', { name: 'Открыть Бизнес-пульс' })[0]);
-    expect(await screen.findByText('Нужен вход в Альфа-Бизнес')).toBeVisible();
-    expect(screen.getByRole('link', { name: 'Продолжить к авторизации' })).toHaveAttribute(
-      'href',
-      `${window.location.origin}/auth/start`,
+    const dialog = await screen.findByRole('dialog');
+    await user.click(within(dialog).getByRole('tab', { name: 'Регистрация' }));
+    await user.type(within(dialog).getByRole('textbox', { name: 'Ваше имя' }), 'Мария Тестовая');
+    await user.type(within(dialog).getByRole('textbox', { name: 'Логин' }), 'maria.test');
+    await user.type(within(dialog).getByLabelText('Пароль'), 'long-secure-password');
+    await user.type(
+      within(dialog).getByRole('textbox', { name: 'ID компании из набора данных' }),
+      'U_80',
     );
-    expect(screen.queryByLabelText(/пароль|код из смс/i)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: 'Перейти к аналитике' })).not.toBeInTheDocument();
+    await user.selectOptions(within(dialog).getByRole('combobox', { name: 'Должность' }), 'cfo');
+    expect(await within(dialog).findByText(/Компания U_80.*Металлы/)).toBeVisible();
+    await user.click(within(dialog).getByRole('button', { name: 'Зарегистрироваться' }));
+    expect(register).toHaveBeenCalledWith({
+      login: 'maria.test',
+      password: 'long-secure-password',
+      display_name: 'Мария Тестовая',
+      company_uid: 'U_80',
+      role_code: 'cfo',
+    });
+    expect(window.location.pathname).toBe('/pulse');
   });
 
   it('opens the real service only after the server confirms a session', async () => {
@@ -107,7 +174,7 @@ describe('entry and authorization', () => {
       },
     };
     render(<Entry api={api} demo={false} />);
-    expect(await screen.findByText('Нужен вход в Альфа-Бизнес')).toBeVisible();
+    expect(await screen.findByRole('textbox', { name: 'Логин' })).toBeVisible();
     expect(screen.queryByText('Деморежим · синтетические данные')).not.toBeInTheDocument();
     await userEvent.setup().click(screen.getByRole('button', { name: 'Закрыть окно входа' }));
     expect(window.location.pathname).toBe('/');

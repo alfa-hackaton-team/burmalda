@@ -313,6 +313,16 @@ export function createDemoApi(scenario = ''): Api {
   const page = <T>(items: T[]): Page<T> => ({ items, next_cursor: null });
   const pause = (signal?: AbortSignal, ms = 350) => abortableDelay(ms, signal);
   return {
+    login: async () => {
+      throw new Error('Демовход работает без серверной сессии.');
+    },
+    register: async () => {
+      throw new Error('Регистрация доступна только с сервером.');
+    },
+    registrationCompany: async () => {
+      throw new Error('Демокомпании заданы локально.');
+    },
+    logout: async () => ({ signed_out: true }),
     async me(signal) {
       await pause(signal);
       if (scenario === 'unauthenticated')
