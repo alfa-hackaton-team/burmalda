@@ -25,9 +25,9 @@ def apply_migrations(
     Apply ML1 migrations first. Use the dedicated migration database role, not
     ML_DATABASE_URL. ML2 uses its own journal because ML1 owns ml.schema_migrations.
     """
-    database_url = dsn if dsn is not None else os.environ.get("ML_MIGRATIONS_DATABASE_URL", "")
+    database_url = dsn if dsn is not None else _migration_database_url()
     if not database_url and connection_factory is None:
-        raise ValueError("ML_MIGRATIONS_DATABASE_URL must be configured")
+        raise ValueError("ML_MIGRATION_DATABASE_URL must be configured")
     directory = migrations_dir or Path(__file__).with_name("migrations")
     files = sorted(directory.glob("*.sql"))
     migrations: list[tuple[int, str, str, str]] = []
@@ -117,13 +117,18 @@ def main() -> int:
     args = parser.parse_args()
     applied = apply_migrations()
     if args.runtime_role:
-        database_url = os.environ.get("ML_MIGRATIONS_DATABASE_URL", "")
+        database_url = _migration_database_url()
         grant_runtime_access(lambda: _connect(database_url), args.runtime_role)
     if applied:
         print("Applied ML migrations: " + ", ".join(applied))
     else:
         print("ML schema is up to date")
     return 0
+
+
+def _migration_database_url() -> str:
+    """Use ML1's established singular variable; retain the earlier ML2 alias."""
+    return os.environ.get("ML_MIGRATION_DATABASE_URL", os.environ.get("ML_MIGRATIONS_DATABASE_URL", ""))
 
 
 if __name__ == "__main__":

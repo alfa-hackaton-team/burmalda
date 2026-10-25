@@ -1,0 +1,85 @@
+services:
+  db:
+    image: pgvector/pgvector:0.8.5-pg18
+    environment:
+      POSTGRES_DB: burmalda
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env and set credentials}
+      ML_RUNTIME_PASSWORD: ${ML_RUNTIME_PASSWORD:?set ML_RUNTIME_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql
+      - ./docker/postgres/init/00-enable-vector.sql:/docker-entrypoint-initdb.d/00-enable-vector.sql:ro
+      - ./docker/postgres/init/01-create-runtime-role.sh:/docker-entrypoint-initdb.d/01-create-runtime-role.sh:ro
+    ports:
+      - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d burmalda"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  migrate:
+    build: .
+    command: >-
+      sh -c "python -m ml.migrate --runtime-role ml_runtime
+      && python -m ml_runtime.migrate --runtime-role ml_runtime"
+    environment:
+      ML_MIGRATION_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@db:5432/burmalda
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build: .
+    command: ["python", "-m", "ml_runtime.serve_article_processing"]
+    environment:
+      ML_DATABASE_URL: postgresql://ml_runtime:${ML_RUNTIME_PASSWORD}@db:5432/burmalda
+      ML_SERVICE_TOKEN: ${ML_SERVICE_TOKEN:?set ML_SERVICE_TOKEN in .env}
+      ML_MAX_TEXT_BYTES: "131072"
+      ML_PIPELINE_VERSIONS: ml-pipeline-v1
+      ML_HTTP_HOST: 0.0.0.0
+      ML_HTTP_PORT: "8000"
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    build: .
+    command: ["python", "-m", "ml_runtime.run_article_processing_worker"]
+    environment:
+      ML_DATABASE_URL: postgresql://ml_runtime:${ML_RUNTIME_PASSWORD}@db:5432/burmalda
+      ML_INDEXER_FACTORY: ml_runtime.docker_indexer:create_ml1_pipeline
+      ML_MODEL_CACHE: /models/hf
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+      ML_LLM_API_KEY: ${ML_LLM_API_KEY:?set ML_LLM_API_KEY in .env}
+      ML_LLM_BASE_URL: ${ML_LLM_BASE_URL:-https://changellenge.up.railway.app/v1}
+      ML_LLM_EVENT_MODEL: ${ML_LLM_EVENT_MODEL:-z-ai/glm-5.3-flash}
+      ML_LLM_EVENT_VERIFIER_MODEL: ${ML_LLM_EVENT_VERIFIER_MODEL:-qwen/qwen3.6-35b-a3b}
+      ML_EVENT_PIPELINE_CONFIG_VERSION: ${ML_EVENT_PIPELINE_CONFIG_VERSION:-event-extraction-v1}
+      ML_WORKER_POLL_SECONDS: "1"
+    volumes:
+      - hf-model-cache:/models/hf
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  model-cache:
+    build: .
+    profiles: [setup]
+    command: ["python", "-m", "ml_runtime.warm_ml1_models"]
+    environment:
+      ML_MODEL_CACHE: /models/hf
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "0"
+    volumes:
+      - hf-model-cache:/models/hf
+
+volumes:
+  postgres-data:
+  hf-model-cache:

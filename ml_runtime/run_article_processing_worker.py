@@ -6,7 +6,7 @@ import logging
 import os
 import time
 
-from .article_processing_runtime import create_article_processing_runtime, load_indexer_from_env
+from .article_processing_runtime import create_article_processing_worker_runtime, load_indexer_from_env
 
 
 def main() -> int:
@@ -18,7 +18,7 @@ def main() -> int:
         raise ValueError("ML_WORKER_POLL_SECONDS must be a positive number")
 
     logging.basicConfig(level=os.environ.get("ML_LOG_LEVEL", "INFO"))
-    runtime = create_article_processing_runtime(load_indexer_from_env())
+    runtime = create_article_processing_worker_runtime(load_indexer_from_env())
     logging.info("ML article-processing worker started")
     while True:
         operation = runtime.worker.run_once()

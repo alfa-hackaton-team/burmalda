@@ -62,6 +62,32 @@ class OperationStore(Protocol):
     def transition(self, processing_id: str, expected: str, target: str, **updates: Any) -> ArticleProcessingOperation: ...
 
 
+class ArticleProcessingAPI(Protocol):
+    """Small API-facing surface; it does not load models or run worker stages."""
+
+    quality_gate: DocumentQualityGate
+
+    def submit(self, request: ArticleProcessingInput) -> tuple[dict[str, Any], bool]: ...
+
+    def get(self, processing_id: str) -> dict[str, Any] | None: ...
+
+
+@dataclass
+class ArticleProcessingSubmissionService:
+    """Persist and read operations without constructing the ML inference stack."""
+
+    store: OperationStore
+    quality_gate: DocumentQualityGate
+
+    def submit(self, request: ArticleProcessingInput) -> tuple[dict[str, Any], bool]:
+        operation, created = self.store.create_or_get(request)
+        return operation.to_wire(), created
+
+    def get(self, processing_id: str) -> dict[str, Any] | None:
+        operation = self.store.get(processing_id)
+        return operation.to_wire() if operation else None
+
+
 class InMemoryOperationStore:
     """Single-process development store; operations disappear on restart."""
 

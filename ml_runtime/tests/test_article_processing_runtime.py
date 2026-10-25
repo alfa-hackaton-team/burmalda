@@ -10,7 +10,9 @@ from unittest.mock import patch
 from fastapi import FastAPI
 
 from ml_runtime.article_processing_runtime import (
+    create_article_processing_api_runtime,
     create_article_processing_runtime,
+    create_article_processing_worker_runtime,
     load_indexer_from_env,
 )
 from ml_runtime.event_store import ML2EventProcessor
@@ -19,6 +21,48 @@ from ml_runtime.worker import ArticleProcessingWorker
 
 
 class RuntimeFactoryTests(unittest.TestCase):
+    def test_api_runtime_does_not_load_models_or_indexer(self):
+        class FakeQualityGate:
+            max_text_bytes = 131072
+
+        operation_store = object()
+        app = FastAPI()
+        with (
+            patch.dict(os.environ, {
+                "ML_SERVICE_TOKEN": "test-token",
+                "ML_MAX_TEXT_BYTES": "131072",
+                "ML_PIPELINE_VERSIONS": "ml-pipeline-v1",
+            }),
+            patch("ml_runtime.article_processing_runtime.create_article_processing_app_from_env", return_value=app),
+            patch("ml_runtime.article_processing_runtime.OpenAICompatibleModelClient") as model_client,
+        ):
+            runtime = create_article_processing_api_runtime(
+                operation_store=operation_store,
+                quality_gate=FakeQualityGate(),
+            )
+
+        self.assertIs(runtime.app, app)
+        self.assertIs(runtime.service.store, operation_store)
+        model_client.assert_not_called()
+
+    def test_worker_runtime_does_not_require_http_service_configuration(self):
+        class FakeIndexer:
+            def index(self, payload, **kwargs):
+                raise AssertionError("indexer must not run while composing worker")
+
+            def get_chunks(self, request):
+                raise AssertionError("retriever must not run while composing worker")
+
+        with (
+            patch.dict(os.environ, {}, clear=True),
+            patch("ml_runtime.article_processing_runtime.PostgresOperationStore", return_value=object()),
+            patch("ml_runtime.article_processing_runtime.PostgresEventStore", return_value=object()),
+            patch("ml_runtime.article_processing_runtime.OpenAICompatibleModelClient", return_value=object()),
+        ):
+            runtime = create_article_processing_worker_runtime(FakeIndexer())
+
+        self.assertIsInstance(runtime.worker, ArticleProcessingWorker)
+
     def test_loads_an_indexer_factory_from_the_configured_module_path(self):
         indexer = type("Indexer", (), {
             "index": lambda self, payload, **kwargs: None,

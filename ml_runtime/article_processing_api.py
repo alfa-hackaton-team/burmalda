@@ -11,7 +11,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from .article_processing import ProcessingContractError, parse_article_processing
-from .operations import ArticleProcessingCoordinator
+from .operations import ArticleProcessingAPI
 
 
 POST_PATH = "/internal/v0.1/article-processings"
@@ -19,7 +19,7 @@ GET_PATH = POST_PATH + "/{processing_id}"
 
 
 def create_article_processing_app(
-    coordinator: ArticleProcessingCoordinator,
+    coordinator: ArticleProcessingAPI,
     *,
     service_token: str,
     max_text_bytes: int,
@@ -115,10 +115,15 @@ def create_article_processing_app(
         return JSONResponse(status_code=200, content=response)
 
     app.state.article_processing_coordinator = coordinator
+
+    @app.get("/healthz", include_in_schema=False)
+    def healthcheck() -> dict[str, str]:
+        return {"status": "ok"}
+
     return app
 
 
-def create_article_processing_app_from_env(coordinator: ArticleProcessingCoordinator) -> FastAPI:
+def create_article_processing_app_from_env(coordinator: ArticleProcessingAPI) -> FastAPI:
     """Read deployment configuration and construct the authenticated API."""
     token = os.environ.get("ML_SERVICE_TOKEN", "")
     try:

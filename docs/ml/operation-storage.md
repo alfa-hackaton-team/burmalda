@@ -1,6 +1,6 @@
 # ML operation storage
 
-ML operations use the shared PostgreSQL server through the separately owned `ml` schema. Go continues to own its queue and communicates with ML only over HTTP. The ML runtime uses `ML_DATABASE_URL`; schema setup uses the separate `ML_MIGRATIONS_DATABASE_URL` role.
+ML operations use the shared PostgreSQL server through the separately owned `ml` schema. Go continues to own its queue and communicates with ML only over HTTP. The ML runtime uses `ML_DATABASE_URL`; schema setup uses the separate `ML_MIGRATION_DATABASE_URL` role.
 
 ## Ownership and setup
 
@@ -9,14 +9,14 @@ ML operations use the shared PostgreSQL server through the separately owned `ml`
 - Infrastructure runs ML migrations with a DDL-capable role. The runtime role receives only the required DML permissions on schema `ml`.
 - Go must not read or write ML tables directly.
 
-Run ML1 migrations first, then the ML2 extension, using the migration role:
+Run ML1 migrations first, then the ML2 extension, using the `ML_MIGRATION_DATABASE_URL` migration role:
 
 ```bash
 .venv/bin/python -m ml.migrate --runtime-role ml_runtime
 .venv/bin/python -m ml_runtime.migrate --runtime-role ml_runtime
 ```
 
-`ml_runtime.article_processing_runtime.create_article_processing_runtime(indexer)` is the composition root. It wires the ML1 R02 quality gate and indexer adapter, the ML2 extractor/verifier, PostgreSQL operation/event stores, authenticated FastAPI app, and worker. `ML_SERVICE_TOKEN`, `ML_MAX_TEXT_BYTES`, and comma-separated `ML_PIPELINE_VERSIONS` configure the API; model access uses `ML_LLM_API_KEY`, optional `ML_LLM_BASE_URL`, `ML_LLM_EVENT_MODEL`, `ML_LLM_EVENT_VERIFIER_MODEL`, and `ML_EVENT_PIPELINE_CONFIG_VERSION`. PostgreSQL stores use `ML_DATABASE_URL`. The app accepts HTTP requests while a separate worker process calls `runtime.worker.run_once()` to claim and execute one durable queued operation. `POST /internal/v0.1/article-processings` validates and persists the request, then returns `202` with `QUEUED`; it does not run model work in the request process. `GET /internal/v0.1/article-processings/{processing_id}` returns the same stored operation.
+`create_article_processing_api_runtime()` constructs only the Go-facing HTTP app, operation store, and quality-limit configuration. It does not load embeddings or require the LLM key. `create_article_processing_worker_runtime(indexer)` constructs the worker with ML1 indexing and ML2 extraction/verifier; it does not require HTTP service-token configuration. `create_article_processing_runtime(indexer)` remains the combined composition root for tests and single-process use. `ML_SERVICE_TOKEN`, `ML_MAX_TEXT_BYTES`, and comma-separated `ML_PIPELINE_VERSIONS` configure the API; model access uses `ML_LLM_API_KEY`, optional `ML_LLM_BASE_URL`, `ML_LLM_EVENT_MODEL`, `ML_LLM_EVENT_VERIFIER_MODEL`, and `ML_EVENT_PIPELINE_CONFIG_VERSION`. PostgreSQL stores use `ML_DATABASE_URL`. `POST /internal/v0.1/article-processings` validates and persists the request, then returns `202` with `QUEUED`; it does not run model work in the request process. `GET /internal/v0.1/article-processings/{processing_id}` returns the same stored operation.
 
 Deployment code exports a no-argument factory returning an `ml.pipeline.ML1Pipeline` and sets `ML_INDEXER_FACTORY=python.module:factory_name`. `ML1IndexerAdapter` sends the full validated BackendInput to `ML1Pipeline.index(..., service_access=True)`, then resolves the returned chunk IDs through `ML1Pipeline.get_chunks()`. ML1 and ML2 run as separate API and worker processes:
 
@@ -25,7 +25,9 @@ Deployment code exports a no-argument factory returning an `ml.pipeline.ML1Pipel
 .venv/bin/python -m ml_runtime.run_article_processing_worker
 ```
 
-Apply both migration sets before either process starts. Configure `ML_MIGRATIONS_DATABASE_URL` with the migration role; application processes use `ML_DATABASE_URL`.
+Apply both migration sets before either process starts. Configure `ML_MIGRATION_DATABASE_URL` with the migration role; application processes use `ML_DATABASE_URL`.
+
+See [docker.md](docker.md) for the local Docker Compose setup. Its API container does not load models; only the separate worker loads the ML1 indexer and calls the LLM gateway.
 
 ML1 migration 000002 creates `article_processings`, `events`, and `event_documents` as shared ML tables. ML2 migration `000001_article_processing_checkpoints.sql` extends `article_processings` with the exact request bytes, quality result, event configuration version, and event IDs, including `[]`. ML2 writes candidates/evidence into ML1's existing `events` and `event_documents` tables. A replay returns IDs from the operation row without invoking the model again. `ML1IndexerAdapter` resolves the newly persisted chunks and the coordinator passes those exact chunks to ML2. Cross-document event merging is deferred.
 
