@@ -97,6 +97,10 @@
           "type": "string",
           "format": "uuid"
         },
+        "version_no": {
+          "type": "integer",
+          "minimum": 1
+        },
         "article_version_id": {
           "type": "string",
           "format": "uuid"
@@ -153,6 +157,7 @@
       },
       "required": [
         "article_id",
+        "version_no",
         "article_version_id",
         "source_id",
         "title",

@@ -1,81 +1,57 @@
 # Приём сохранённых материалов Go → ML
 
-Редакция от 24 октября 2026 года. Это целевая спецификация входа и отображения в ML после обсуждения с backend и задачи реализации R02. Проверенный снимок Go — `origin/feature/go-backend-foundation@e33715e`; адаптер и quality gate R02 реализованы, полный HTTP ML ещё нет. Backend должен отправлять целевой payload; legacy-совместимость не поддерживается. Изменения, ожидаемые от backend, перечислены отдельно ниже. Этот документ не меняет retrieval/analysis DTO v1.
+HTTP-контракт: [ml-openapi.yaml](../api/ml-openapi.yaml), `NormalizedArticle` и `ArticleProcessingOperation` в [schemas.yaml](../api/schemas.yaml). Эти файлы перенесены из `main` после #27. Библиотечный R02 описан в [document-quality.md](document-quality.md).
 
-## Имена и источники истины
+## Данные и ответственность
 
-Для входного материала и физического ingestion-хранения используем backend-названия: `sources`, `articles`, `article_versions`, `raw_artifacts`, `processing_jobs`. В retrieval v1 остаются существующие поля `document_id`, `document_version_id`, `normalized_text`, `retrieved_at`. Это два представления одной сохранённой версии, а не требование создать второй набор документов в ML.
+Go загружает и сохраняет оригинал, текст, версию, снимок источника и задание. ML1 не создаёт второй ingestion-корпус и не скачивает `raw_ref`/URL. ML2/backend ведут HTTP lifecycle и постоянное хранение результатов.
 
-| Go / NormalizedArticle | Представление ML v1 | Правило |
+| Вход Go | R02 | Правило |
 |---|---|---|
-| article_id | document_id | То же значение UUID, без нового ID |
-| article_version_id | document_version_id | То же значение UUID, без новой версии |
-| body | normalized_text | Точный сохранённый текст, без trim, исправления или пересказа |
-| fetched_at | retrieved_at | Время загрузки, не дата публикации |
-| published_at отсутствует или null | published_at=null | Не подменять fetched_at |
-| source.source_id | source_id | Совпадает с article.source_id |
-| raw_ref | Происхождение версии | Не добавляется в Chunk как лишнее свойство |
+| article_id | document_id | Сохранить значение |
+| article_version_id | document_version_id | Сохранить значение |
+| body | normalized_text | Без trim, исправлений и обрезания |
+| fetched_at | retrieved_at | Не подменять дату публикации |
+| published_at отсутствует/null | None | Не угадывать дату |
+| source | SourceMetadata | Сохранить provenance и config_version |
+| raw_ref/content_hash | raw_ref/content_hash | Сохранить, не скачивать и не пересчитывать |
 
-Структура HTTP — [ml-openapi.yaml](../api/ml-openapi.yaml), `NormalizedArticle` и `ArticleProcessingOperation` — [schemas.yaml](../api/schemas.yaml). Семантика качества — [document-quality.md](document-quality.md). Новый [quality.schema.json](contracts/quality/v1/quality.schema.json) — единый источник целевого BackendInput, canonical документа и QualityResult. Существующий [contracts.schema.json](contracts/v1/contracts.schema.json) задаёт отдельные неизменённые DTO retrieval/анализа. Фактическое ingestion-хранение определяют миграции Go; [database_scheme.md](../rfc/database_scheme.md) содержит целевой проект ML-хранения и не подтверждает существование одноимённых таблиц.
+Запрос содержит `article`, `source`, `pipeline_version`, `trace_id`. Ключ идемпотентности — `article_version_id:pipeline_version`. Повтор использует прежний снимок; новая версия пайплайна означает отдельную обработку той же версии статьи.
 
-## Ответственность и гарантии входа
+Лимит — **131072 UTF-8 байта body без заголовка**. Go может настроить меньший предел; превышение отклоняется без обрезания. Пустой title и неизвестная дата допустимы.
 
-Go загружает, парсит, нормализует, технически дедуплицирует и сохраняет материалы. Версия, ссылка на оригинал и ML-задание фиксируются транзакционно до POST; отдельный воркер отправляет задание позже. Повторная доставка сохраняет ID. При изменении текста Go создаёт новую article_version; существующий код не перезаписывает её, отдельного запрета UPDATE в БД пока нет.
+`content_hash` принадлежит Go: обычный ingestion хеширует title + NUL + body + NUL + дату, банковский импорт — body. R02 проверяет формат и сохраняет значение. Хеш оригинала хранится отдельно.
 
-`raw_ref=raw-artifact:<id>` указывает на raw_artifacts.id нужной версии. В RSS-режиме без загрузки страницы оригиналом является снимок ленты. Для загруженной страницы/PDF — её сохранённые байты. ML не скачивает raw_ref или canonical_url и не проверяет существование оригинала сетевым запросом: связь обеспечивает Go. Приватное S3 — возможное дальнейшее хранилище, не обязательное условие R02; Go уже может сохранять оригиналы в PostgreSQL.
+## Extraction и корпус после #27
 
-Профили/признаки и события ведёт ML2, исходные данные предоставляет backend. ML1 отвечает за качество корпуса и последующую индексацию. HTTP ML, SERVICE_TOKEN и общий lifecycle операций ведёт ML2 совместно с backend; собственный загрузчик в Python не создаётся.
+В `article.metadata` обязательны `extraction_method` (`full_article`, `rss_summary`, `pdf_extracted`) и `extraction_errors` (уникальные известные коды). Go передаёт сохранённый снимок extraction; технический parser остаётся внутренним. `PAGE_COUNT_MISMATCH` при нехватке страниц отображается в `MISSING_PAGES`. Неизвестное происхождение или неизвестные проблемы блокируют новую доставку.
 
-## Запрос и лимит
+`[]` означает отсутствие известных ошибок, а не доказанную полноту. Оригинал RSS может быть снимком ленты. Банковские PDF/TXT включены в стандартные article_versions/raw_artifacts; CSV доступны отдельно для построения профиля ML2 и не являются статьями.
 
-`POST /internal/v0.1/article-processings` принимает `article`, `source`, `pipeline_version`, `trace_id`; заголовок Idempotency-Key обязателен. source содержит source_id, name, source_type, source_role, trust_level и **config_version** — положительное целое, переданное десятичной строкой. В свежем Go это поле уже сохраняется в задании и отправляется; прежнее предложение удалить его из контракта отменено.
+Go реализует постановку сохранённых версий, экспорт payload и защиту неподтверждённых legacy-снимков. Уже отправленные старые запросы нельзя незаметно менять под прежним ключом. Инструкции после обновления backend — `docs/operations/ml-ingestion.md` в main.
 
-**ML_MAX_TEXT_BYTES = 131072 байта UTF-8 article.body, без заголовка.** Проверка: `len(body.encode('utf-8')) <= 131072`. maxLength JSON Schema не является байтовым лимитом. Превышение отклоняется явно, без обрезания; HTTP-граница предусматривает 413 PAYLOAD_TOO_LARGE, без автоматического повтора. Получение/нормализацию слишком большого материала Go диагностирует до отправки.
+## HTTP и библиотечная валидация
 
-Пустой title допустим на входе и сам по себе не даёт quality FAIL. Неизвестные published_at, language, author и отсутствующий canonical_url не заполняются догадками. Будущий Chunk требует непустой title: решение до индексации остаётся открытым; это не основание менять R01 или генерировать заголовок в R02.
+HTTP-схемы main и quality schema R02 имеют разный охват. HTTP допускает непрозрачные строковые ID/raw_ref и требует непустой body. R02 требует UUID, `raw-artifact:<UUID>` и принимает пустую строку для явного `EMPTY_TEXT`. Текущие Go fixtures удовлетворяют обоим входам. Вызвавший R02 код должен обработать `DocumentInputError`; прохождение HTTP-схемы само по себе не гарантирует прохождения R02.
 
-ML_PIPELINE_VERSION — версия полной обработки, не retrieval_config_version и не `r01-fixture-v1`. Конкретное поддерживаемое значение пока не выбрано. До появления обработчика и поддерживаемой версии нельзя включать отправку заданий, выдавая R02 за полный пайплайн. Отчёт сверх лимита текущим входом не принимается; протокол частей и объединения не определён.
+## Полная операция
 
-## Хеш и неизменность
+- QUEUED/RUNNING: обработка ещё не завершена.
+- Quality PASS: продолжить индексацию; это не SUCCEEDED.
+- Quality FAIL: может завершить полную операцию FAILED с безопасной причиной.
+- SUCCEEDED: результаты сохранены, чанки/embeddings доступны, обработка событий завершена; `document_version_id = article_version_id`, `event_ids` может быть `[]`.
 
-В проверенном Go content_hash — SHA-256 UTF-8 последовательности `title + NUL + body + NUL + published_at`; известная дата приведена к UTC RFC3339Nano, при неизвестной используется пустая строка. Это не SHA-256 только body. R02 проверяет структуру метаданных и формат хеша; не пересчитывает его по старому ML-описанию «хеш normalized_text». Независимый пересчёт требует точного соблюдения backend-сериализации.
+FAILED содержит структурированные code/message/retryable; терминальный отказ автоматически не создаёт новую операцию. Общую `ML_PIPELINE_VERSION` объявляет владелец полного ML-пайплайна. `ml1-quality-v1` — версия правил компонента, не версия готового сервиса. Отдельный quality-only HTTP не определён.
 
-Оригинал имеет отдельный SHA-256 в raw_artifacts; его checksum не вычисляется ML из body. Go сравнивает текущие content_hash и parser_version с последней версией. Тот же текст A → B → A сохраняет историю; технический повтор той же обработки не создаёт новую article_version. version_no и parser_version хранятся в Go и не становятся обязательными полями POST только из-за потребности алгоритма ML.
+## Проверенная совместимость
 
-## Операция, качество и повторы
+25 октября 2026 проверены payload #27, head `0ff0b10`, вызовом `document_from_backend → check_document`:
 
-| Событие | Результат качества | Состояние полной ML-операции |
+| Пример | Статус | Warnings |
 |---|---|---|
-| Задание принято и сохранено | Ещё нет | QUEUED/RUNNING |
-| Проверка прошла | PASS | RUNNING, если продолжается полный пайплайн |
-| Материал отклонён | FAIL с причиной | FAILED с безопасным error, без бессмысленного повтора |
-| Технический сбой | Решение о качестве не получено | По политике выполнения/ошибок, не фиктивный quality FAIL |
-| Результаты сохранены, чанки/embeddings доступны поиску, обработка событий завершена | PASS был одним из этапов | SUCCEEDED |
+| HTML | PASS | — |
+| RSS | PASS | RSS_SUMMARY |
+| Bank PDF | PASS | UNKNOWN_PUBLICATION_DATE |
+| Два synthetic запроса | PASS | EMPTY_TITLE, UNKNOWN_PUBLICATION_DATE, SOURCE_TRUST_UNRATED |
 
-SUCCEEDED требует document_version_id и event_ids (список может быть пуст). FAILED требует error.code/message/retryable. Ответ POST/GET содержит исходные article_version_id и pipeline_version и стабильный processing_id. Передача error и сохранение last_error_code/last_error/last_error_retryable в свежем Go уже реализованы. Terminal FAILED сам по себе не даёт права создать новое выполнение с прежним ключом; retryable — диагностический признак для политики восстановления.
-
-QualityResult и quality_rules_version — внутренний результат ML, не новый статус HTTP-операции. QualityResult реализован как immutable dataclass с document_id/document_version_id/pipeline_version, quality_rules_version, PASS/FAIL, failures/warnings и text_utf8_bytes; to_dict() даёт JSON-представление. Компонент stateless: результат возвращается вызывающему коду, который отвечает за постоянную запись. Это законченная граница R02 без собственной БД. Если Go должен запускать только quality check, нужен отдельно определённый режим/контракт: текущий `/article-processings` означает всю обработку. Нельзя после PASS вернуть общий SUCCEEDED или бесконечно держать R02 в RUNNING; у Go есть таймаут общей операции.
-
-Idempotency-Key связан с `(article_version_id, pipeline_version)`. Повтор отправляет прежний снимок источника, включая config_version. trace_id исключён из сравнения значимых параметров и не создаёт новое выполнение. Другая pipeline_version — отдельная операция той же версии статьи; изменение quality rules учитывается в версии пайплайна либо отдельном ещё не определённом протоколе переоценки. request_operation_id пользовательского анализа не используется как ключ загрузки корпуса.
-
-## Категории, extraction и страницы
-
-Целевой вход принимает закрытые source_type=news/bank_analytics/expert/regulator и backend alias financial_press → news. Для trust_level допускаются primary/trusted/standard/unknown и reviewed → unknown. Reviewed означает операторскую проверку, а не подтверждённый trusted: R02 выдаёт SOURCE_TRUST_UNRATED, сохраняет backend_trust_level и не повышает доверие. Исходный тип также сохранён в backend_source_type; SOURCE_TYPE_MAPPED сообщает о нормализации. Это завершённая политика R02; произвольные строки/case guessing не принимаются. source_role=external/bank/expert подтверждает Go, не имя файла.
-
-**Целевой POST требует** metadata.extraction_method (full_article/rss_summary/pdf_extracted) и metadata.extraction_errors (массив уникальных кодов). Точные blocking/nonblocking коды закреплены в [document-quality.md](document-quality.md) и quality schema. Старый metadata={} не поддерживается и вызывает ошибку контракта. Текущий Go-снимок исторически отправлял {}, но новая задача явно требует целевого входа без workaround; backend должен обновить отправку до интеграции. full_article не означает доказанную полноту, [] ошибок не доказывает сохранность всех таблиц/блоков. Способ получения сам по себе не основание FAIL.
-
-Страниц PDF в текущих Chunk/SearchResponse нет. До реализации адресных страниц Go должен сохранять привязку диапазонов точного текста к страницам, затем нужно согласовать расширение контракта. R02 эту привязку не восстанавливает и DTO не расширяет. Для банковских отчётов ML1 нужен сценарий индексации без обязательного извлечения события; режим «только индексировать» пока предложение, не поле действующего HTTP-контракта.
-
-## Ожидаемые доработки backend и совместная приёмка
-
-| Задача | Состояние и критерий |
-|---|---|
-| Отправка сохранённого корпуса / новая pipeline_version | В e33715e job создаётся при новой article_version, неизменившаяся статья возвращается раньше. Нужна явная постановка существующих версий без новой загрузки/фиктивных версий и без дублей по паре version/pipeline |
-| Extraction metadata | Целевая структура/коды уже реализованы R02; Go должен передавать обязательные поля по quality schema. Legacy {} не принимается, даже [] не гарантирует полноту |
-| Отдельно подготовленные банковские PDF | Пока вне маршрута Go → ML. Нужна регистрация source/raw/article_version/job либо явно ограниченный локальный corpus. PDF/CSV нельзя объявлять уже интегрированными; клиентский CSV относится к профилю, не к публикациям |
-| Самостоятельный quality-only запуск из Go | Требует отдельного решения; внутренний вызов R02 не равен завершённой article-processing |
-| Проверка ответа ML | Go проверяет часть обязательных полей; усилить проверку всей формы операции, согласованности ID/версий и результатов до завершения задания |
-| Старые задания после миграции 000009 | source_config_version заполнена текущей версией источника. Проверить исторический снимок перед отправкой; не менять параметры принятой операции с прежним ключом |
-| Рабочая конфигурация | Применить 131072 и будущую поддерживаемую pipeline_version; повторно проверить актуальный код, не считать это включённым развёртыванием |
-
-Контрольные примеры — [запрос](../api/examples/article-processing.request.json), [RUNNING](../api/examples/article-processing.running.json), [SUCCEEDED](../api/examples/article-processing.succeeded.json), [FAILED](../api/examples/article-processing.failed.json), [413](../api/examples/article-processing.too-large.json). Это синтетические примеры схем, не доказательство работающего ML HTTP. Проверять также отсутствующую дату, пустой title, 131072/131073 UTF-8 байта, повторы, source snapshot и сохранение причины отказа. Доказательства и версии не удаляются при quality FAIL.
+55 тестов ML1 прошли. Это ручная проверка пяти файлов, не постоянный интеграционный тест, не HTTP-прогон и не проверка всех девяти банковских документов.

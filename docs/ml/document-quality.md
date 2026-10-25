@@ -12,7 +12,7 @@ BackendInput (article + source + pipeline_version + trace_id)
   → QualityResult (PASS | FAIL, failures, warnings, версия правил)
 ```
 
-Каноническая [JSON Schema quality v1](contracts/quality/v1/quality.schema.json) содержит BackendInput, BackendArticle/Source, ExtractionMetadata, SavedDocumentVersion и QualityResult. Вход HTTP ссылается на неё через [OpenAPI](../api/ml-openapi.yaml) и NormalizedArticle; дублирующих или legacy-схем R02 нет. Python-типы — [dto.py](../../ml/ingestion/dto.py); проверка структуры — [validation.py](../../ml/ingestion/validation.py).
+Каноническая [JSON Schema quality v1](contracts/quality/v1/quality.schema.json) содержит BackendInput, BackendArticle/Source, ExtractionMetadata, SavedDocumentVersion и QualityResult. Это внутренний контракт R02. HTTP-контракт из main задан отдельно в [OpenAPI](../api/ml-openapi.yaml) и NormalizedArticle; различия границ перечислены в [article-processing.md](article-processing.md). Python-типы — [dto.py](../../ml/ingestion/dto.py); проверка структуры — [validation.py](../../ml/ingestion/validation.py).
 
 Некорректные ID/даты/типы/категории, несовпадающие source ID, отсутствующие extraction metadata и неизвестные поля/коды вызывают DocumentInputError(code=INVALID_DOCUMENT_INPUT) до gate. Ошибка структуры не маскируется под плохое качество текста. Сообщения не раскрывают исходный текст. Canonical dataclass также проверяет структуру при прямом создании.
 
@@ -29,7 +29,7 @@ Go владеет сохранением статьи, версии и ориг�
 }
 ```
 
-Методы: full_article, rss_summary, pdf_extracted. extraction_errors — массив уникальных кодов из таблицы ниже, [] при отсутствии известных ошибок. Старые metadata={}, пропущенные поля, неизвестные способы/коды не принимаются. Новое задание пользователя утвердило целевой вариант R02; backend должен передавать его, поддержка старого несовместимого POST не добавлена. full_article обозначает способ получения, не доказанную полноту. Даже [] не доказывает сохранность всех таблиц и страниц.
+Методы: full_article, rss_summary, pdf_extracted. extraction_errors — массив уникальных кодов из таблицы ниже, [] при отсутствии известных ошибок. Старые metadata={}, пропущенные поля, неизвестные способы/коды не принимаются. Go после #27 формирует эти поля для новых заданий; legacy metadata={} R02 не принимает. full_article обозначает способ получения, не доказанную полноту. Даже [] не доказывает сохранность всех таблиц и страниц.
 
 raw_ref имеет вид raw-artifact:<UUID> и не загружается ML. Оригиналом RSS может быть снимок ленты. content_hash — 64 lowercase hex символа; ML сохраняет его как утверждение backend, не проверяет пересчётом и не меняет версионирование.
 
@@ -103,7 +103,7 @@ QualityResult не содержит текст документа, timestamps в
 
 - Размеры чанков, перекрытие, embeddings и индексы — R05+.
 - Политика непустого title будущего Chunk; R02 хранит исходный title и предупреждение, не генерирует заголовок.
-- Привязка диапазонов текста к страницам PDF и её представление в Chunk — требуется backend metadata и отдельное расширение контракта; R02 страниц не выдумывает.
+- Привязка диапазонов текста к страницам PDF и её представление в Chunk — Go хранит page mapping отдельно; его подключение к ML ещё не реализовано. R02 страниц не выдумывает.
 - Вес trust_level в ранжировании — последующий поиск; преобразование reviewed в unknown уже завершено в R02.
 - Полный HTTP lifecycle, запись результатов и глобальная ML_PIPELINE_VERSION — ML2/backend. ml1-quality-v1 идентифицирует готовые правила компонента, а не объявляет полный пайплайн работающим.
 - Актуальность банковской аналитики и смысл CSV — продукт/ML2/владелец данных, не quality rules.

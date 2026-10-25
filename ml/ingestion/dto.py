@@ -48,6 +48,7 @@ class _OptionalArticleFields(TypedDict, total=False):
 
 class BackendArticle(_OptionalArticleFields):
     article_id: str
+    version_no: int
     article_version_id: str
     source_id: str
     title: str

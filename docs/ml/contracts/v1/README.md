@@ -4,8 +4,6 @@
 
 Включайте проверку format в выбранном валидаторе. Верхний объект — контейнер определений: валидация против него без выбора `$ref` не проверяет форму сообщения. Правила доступа, пары запрос/ответ, снимка истории и смысла evidence описаны в [contracts.md](../../contracts.md).
 
-Приём NormalizedArticle от Go — отдельная граница [article-processing.md](../../article-processing.md); её HTTP-схемы находятся в docs/api. R02 не добавляет quality/extraction/page поля в текущий contracts.schema.json и не переименовывает document_id/document_version_id.
-
 ## Проверка без зависимостей
 
 Из корня репозитория:

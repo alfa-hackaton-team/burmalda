@@ -22,7 +22,7 @@ COPY . /app
 
 RUN groupadd --system --gid 10001 burmalda \
     && useradd --system --uid 10001 --gid burmalda --home-dir /home/burmalda burmalda \
-    && mkdir -p /models/hf \
+    && mkdir -p /models/hf /home/burmalda \
     && chown -R burmalda:burmalda /app /models /home/burmalda
 
 USER 10001:10001

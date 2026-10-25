@@ -51,3 +51,24 @@ ML1_TEST_POSTGRES_DSN='<disposable admin test DSN>' python -m unittest ml.tests.
 Проверено: 143 runtime PASS без skips, включая pretrained Qwen smoke; 13 doc tests и обе проверки контрактов; PostgreSQL 18.4. Миграция применена также к локальной `ml1_test`, владелец таблиц — ml_migrator, runtime — ml_runtime. PostgreSQL 17 ещё не проверен.
 
 Операции/Idempotency-Key, worker recovery, HTTP lifecycle и ready/SUCCEEDED пока не реализованы. Снимок содержимого не заменяет журнал операций и не предотвращает повторный запуск модели. Vector baseline описан в [RETRIEVAL.md](RETRIEVAL.md); retention и backfill — следующие этапы.
+
+## Каталог и события ML2
+
+Миграция `000002_pipeline_state_and_events.sql` добавляет в ту же ML-схему:
+
+| Таблица | Назначение |
+| --- | --- |
+| `document_version_catalog` | Backend `version_no`, UUID документа/версии, `ready`, `indexed_at`; pending допускается до quality PASS, поэтому FK на snapshot отсутствует |
+| `article_processings` | `processing_id`, постоянный вход, fingerprint SHA-256 (32 bytes), уникальный Idempotency-Key и `(article_version_id,pipeline_version)`, состояния/результат/ошибка |
+| `events` | События: тип, заголовок, summary, nullable дата, geography, статус, confidence |
+| `event_documents` | Связь события с версией: role/primary, quotes, nullable candidate fingerprint, обе версии конфигурации |
+| `event_facts` | Факты события со статусом проверки |
+| `fact_evidence` | Точные chunk UUID и цитаты фактов; FK только на ML-таблицы |
+
+`ML1Pipeline.index(payload)` использует `article.version_no` из актуального Backend. Старые fixture-входы без него поддерживаются только при явном `version=DocumentVersion(...)`. SavedDocumentVersion и chunking не меняются. Каталог сначала сохраняет pending; snapshot/chunks/embeddings/readiness затем фиксируются одной транзакцией. Quality FAIL может оставить только pending metadata, без snapshot/chunks. После рестарта `from_local_models` загружает каталог из БД; allowlists по-прежнему передаёт доверенное приложение. Исторические snapshots без номера автоматически не нумеруются: нужна повторная доставка Backend metadata.
+
+Таблица операций подготовлена для HTTP worker, но сама миграция **не реализует** POST/GET, fingerprint computation, захват выполнения или recovery. `trace_id` должен исключаться из fingerprint в обработчике. Входные поля операций immutable для runtime-role; доступны только обновления состояния/результата/ошибки. Runtime не получает DDL/DELETE/доступ к Go.
+
+ML2: `pipeline_version` — версия общей обработки, `event_pipeline_config_version` — отдельная версия event-конфигурации; они не считаются автоматически равными. PK связи `(event_id, document_version_id, event_pipeline_config_version)`; кандидат уникален внутри `(document_version_id,event_pipeline_config_version,candidate_fingerprint)`, если fingerprint задан. Нет глобальной уникальности по общему заголовку при неизвестных дате/географии. Проверку цитаты и claim выполняет ML2; SQL FK не проверяет entailment.
+
+Применение: прежний `ML_MIGRATION_DATABASE_URL=... python -m ml.migrate --runtime-role ml_runtime`. Миграцию выполнять migration-role, не Go/runtime-role.

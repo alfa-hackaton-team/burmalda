@@ -16,4 +16,4 @@ python docs/ml/scripts/check_ml_contracts.py --full
 python docs/ml/scripts/check_api_contracts.py
 ```
 
-Существующая API-проверка теперь разрешает quality schema, проверяет целевой article-processing request и отклоняет старые metadata={}; corpus проходит через реальный адаптер и gate в тестах R02. Синтетические pipeline версии примеров не означают поддерживаемую версию полного HTTP-сервиса.
+HTTP-схемы из main проверяются отдельно и не ссылаются на quality schema. Runtime R02 валидирует эту схему самостоятельно; corpus проверяется тестами R02. Синтетическая pipeline_version не означает готовность полного HTTP-сервиса.

@@ -14,7 +14,8 @@
     },
     "language": "ru",
     "canonical_url": "https://example.org/corpus/6",
-    "published_at": "2026-10-20T09:00:00Z"
+    "published_at": "2026-10-20T09:00:00Z",
+    "version_no": 1
   },
   "source": {
     "source_id": "20000000-0000-4000-8000-000000000063",

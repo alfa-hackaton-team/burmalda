@@ -227,7 +227,7 @@ class DocumentQualityTests(unittest.TestCase):
             del payload[key]
             with self.subTest(root=key), self.assertRaises(DocumentInputError):
                 document_from_backend(payload)
-        for key in ('article_id', 'article_version_id', 'source_id', 'title', 'body',
+        for key in ('article_id', 'version_no', 'article_version_id', 'source_id', 'title', 'body',
                     'fetched_at', 'raw_ref', 'content_hash', 'metadata'):
             payload = deepcopy(self.payload)
             del payload['article'][key]

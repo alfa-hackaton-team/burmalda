@@ -103,6 +103,19 @@ def grant_runtime_access(connection, role: str, *, schema: str = ML_SCHEMA):
             connection.execute(sql.SQL(
                 'GRANT UPDATE (embedding, embedding_model, embedding_version) ON {} TO {}'
             ).format(chunks, runtime))
+            catalog = sql.Identifier(schema, 'document_version_catalog')
+            operations = sql.Identifier(schema, 'article_processings')
+            for name in ('document_version_catalog', 'article_processings', 'events',
+                         'event_documents', 'event_facts', 'fact_evidence'):
+                table = sql.Identifier(schema, name)
+                connection.execute(sql.SQL('REVOKE ALL ON TABLE {} FROM {}').format(table, runtime))
+                connection.execute(sql.SQL('GRANT SELECT, INSERT ON {} TO {}').format(table, runtime))
+                if name in ('events', 'event_documents', 'event_facts', 'fact_evidence'):
+                    connection.execute(sql.SQL('GRANT UPDATE ON {} TO {}').format(table, runtime))
+            connection.execute(sql.SQL('GRANT UPDATE (ready, indexed_at) ON {} TO {}').format(catalog, runtime))
+            connection.execute(sql.SQL(
+                'GRANT UPDATE (state, document_version_id, result, error, updated_at) ON {} TO {}'
+            ).format(operations, runtime))
     except psycopg.DatabaseError:
         raise MigrationError('ML runtime permission setup failed') from None
 
