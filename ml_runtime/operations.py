@@ -6,15 +6,20 @@ The in-memory store supports local development. PostgresOperationStore in
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from threading import RLock
 from typing import Any, Protocol
 from uuid import UUID, uuid4
 
+from .agent import ModelCallError
 from .article_processing import ArticleProcessingInput, ProcessingContractError
 from .event_extraction import EventTextChunk
 from .quality_gate import DocumentQualityGate
+
+
+_logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -269,6 +274,7 @@ class ArticleProcessingCoordinator:
                 },
             ).to_wire()
         quality_result: dict[str, Any] | None = None
+        stage = "quality_gate"
         try:
             quality_result = self.quality_gate.assess(request)
             if not isinstance(quality_result, dict) or quality_result.get("status") not in {"PASS", "FAIL"}:
@@ -286,6 +292,7 @@ class ArticleProcessingCoordinator:
                     },
                     quality_result=quality_result,
                 ).to_wire()
+            stage = "indexer"
             indexed = self.indexer.index(request)
             if not isinstance(indexed, IndexedArticleVersion):
                 raise RuntimeError("ML1 indexer returned an invalid indexed article result")
@@ -294,10 +301,20 @@ class ArticleProcessingCoordinator:
                 raise RuntimeError("ML1 indexer returned no document_version_id")
             if document_version_id != request.article["article_version_id"]:
                 raise RuntimeError("ML1 document_version_id does not match the submitted article_version_id")
+            stage = "event_processor"
             event_ids = self.event_processor.process(request, indexed)
             if not isinstance(event_ids, list) or any(not isinstance(item, str) or not item.strip() for item in event_ids):
                 raise RuntimeError("ML2 event processor returned invalid event_ids")
-        except Exception:
+        except Exception as exc:
+            details: dict[str, Any] = {
+                "stage": stage,
+                "processing_id": processing_id,
+                "exception_type": type(exc).__name__,
+            }
+            if isinstance(exc, ModelCallError):
+                details["model_error_code"] = exc.code
+                details["retryable"] = exc.retryable
+            _logger.error("Article processing stage failed: %s", details)
             return self.store.transition(
                 processing_id,
                 "RUNNING",

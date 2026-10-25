@@ -2,6 +2,10 @@
 
 This contract separates event extraction from PostgreSQL persistence. ML2 receives a saved document and its indexed chunks, then returns typed event candidates. The storage adapter owns event IDs, persistence, and stable replay behavior.
 
+The 120-second default is an internal ML inference deadline for extraction plus semantic verification. It is not an HTTP contract guarantee; callers can pass a shorter explicit deadline.
+
+`occurred_at` must be an ISO 8601 timestamp with an explicit timezone or offset, and only when the source states that instant clearly. A date without a time, or a time without a timezone, maps to `null`; extraction never guesses a timezone or invents midnight.
+
 ## Function boundary
 
 ```python
@@ -9,7 +13,7 @@ LLMEventExtractor.extract(
     request: ArticleProcessingInput,
     *,
     chunks: list[EventTextChunk] | None = None,
-    timeout_seconds: float = 45.0,
+    timeout_seconds: float = 120.0,
 ) -> EventExtractionResult
 ```
 

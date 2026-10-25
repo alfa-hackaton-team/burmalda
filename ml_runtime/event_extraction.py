@@ -17,6 +17,7 @@ from .model_policy import DEFAULT_AGENT_MODEL, DEFAULT_VERIFIER_MODEL, require_a
 _SPACE = re.compile(r"\s+")
 EVENT_EXTRACTION_CONTRACT_VERSION = "v1"
 DEFAULT_EVENT_PIPELINE_CONFIG_VERSION = "event-extraction-v1"
+DEFAULT_EVENT_EXTRACTION_TIMEOUT_SECONDS = 120.0
 
 
 @dataclass(frozen=True)
@@ -31,8 +32,11 @@ _SYSTEM_PROMPT = """Ты извлекаешь только кандидатов 
 
 Одному событию соответствует одно конкретное изменение/действие, а не тема или
 мнение автора. Не объединяй разные события из одной статьи. Если событие нельзя
-выделить из текста, верни пустой список. Не путай дату публикации с датой события;
-если время события не указано однозначно, верни null. Географию указывай только
+выделить из текста, верни пустой список. Не путай дату публикации с датой события.
+Для occurred_at используй ISO 8601 только если в источнике явно указан момент
+с часовым поясом/смещением; если дана только дата, время без зоны или момент
+нельзя однозначно установить, верни null. Не добавляй время или часовой пояс.
+Географию указывай только
 если она явно названа. Для каждого события верни одну или больше точных цитат из
 одного из переданных chunks, подтверждающих его summary. Цитаты копируй дословно.
 
@@ -162,7 +166,7 @@ class LLMEventExtractor:
         request: ArticleProcessingInput,
         *,
         chunks: list[EventTextChunk] | None = None,
-        timeout_seconds: float = 45.0,
+        timeout_seconds: float = DEFAULT_EVENT_EXTRACTION_TIMEOUT_SECONDS,
     ) -> EventExtractionResult:
         if timeout_seconds <= 0:
             raise TimeoutError("event extraction deadline expired")

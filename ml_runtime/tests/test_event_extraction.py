@@ -6,7 +6,12 @@ import unittest
 from typing import Any
 
 from ml_runtime.article_processing import parse_article_processing
-from ml_runtime.event_extraction import EventExtractionError, LLMEventExtractor, validate_candidate_events
+from ml_runtime.event_extraction import (
+    DEFAULT_EVENT_EXTRACTION_TIMEOUT_SECONDS,
+    EventExtractionError,
+    LLMEventExtractor,
+    validate_candidate_events,
+)
 from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, payload
 
 
@@ -69,6 +74,7 @@ class EventExtractionTests(unittest.TestCase):
         extractor = LLMEventExtractor(client)
         self.assertEqual(extractor.extract(self.request).events, ())
         self.assertEqual(len(client.calls), 1)
+        self.assertEqual(client.calls[0]["timeout_seconds"], DEFAULT_EVENT_EXTRACTION_TIMEOUT_SECONDS)
 
     def test_rejects_quote_not_found_in_saved_body(self):
         with self.assertRaises(EventExtractionError):

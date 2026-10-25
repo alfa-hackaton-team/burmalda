@@ -61,7 +61,9 @@ class PostgresOperationStore:
                            idempotency_key, request_fingerprint, request_snapshot,
                            trace_id, request_payload
                        ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s)
-                       ON CONFLICT (idempotency_key) DO NOTHING
+                       -- Both the idempotency key and article/version pair
+                       -- are unique; concurrent identical posts may hit either.
+                       ON CONFLICT DO NOTHING
                        RETURNING """ + _COLUMNS,
                     (
                         processing_id,

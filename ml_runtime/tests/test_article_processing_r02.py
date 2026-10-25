@@ -216,6 +216,27 @@ class ArticleProcessingR02Tests(unittest.TestCase):
         self.assertEqual(result["error"]["code"], "ML_PROCESSING_ERROR")
         self.assertEqual(calls, ["index"])
 
+    def test_stage_failure_is_logged_without_exception_message(self):
+        class FailingEventProcessor:
+            def process(self, request, indexed):
+                raise RuntimeError("private article text must not be logged")
+
+        coordinator = ArticleProcessingCoordinator(
+            store=InMemoryOperationStore(),
+            quality_gate=FakeQualityGate("PASS"),
+            indexer=FakeIndexer([]),
+            event_processor=FailingEventProcessor(),
+        )
+        accepted, _ = coordinator.submit(parse(payload()))
+
+        with self.assertLogs("ml_runtime.operations", level="ERROR") as captured:
+            result = coordinator.execute(accepted["processing_id"])
+
+        self.assertEqual(result["state"], "FAILED")
+        self.assertIn("'stage': 'event_processor'", captured.output[0])
+        self.assertIn("'exception_type': 'RuntimeError'", captured.output[0])
+        self.assertNotIn("private article text", captured.output[0])
+
 
 if __name__ == "__main__":
     unittest.main()
