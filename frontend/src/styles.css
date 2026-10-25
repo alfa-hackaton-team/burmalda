@@ -16,7 +16,7 @@
 }
 body {
   margin: 0;
-  min-width: 360px;
+  min-width: 320px;
 }
 button,
 input,
@@ -1331,7 +1331,7 @@ p {
     display: none;
   }
   .main-content {
-    padding: 22px 18px;
+    padding: 22px 18px 120px;
   }
   .breadcrumbs {
     margin-bottom: 25px;
@@ -1427,6 +1427,21 @@ p {
   }
   .suggestions button {
     font-size: 12px;
+  }
+}
+@media (max-width: 480px) {
+  .topbar {
+    padding-inline: 14px;
+  }
+  .brand {
+    font-size: 15px;
+  }
+  .brand small {
+    font-size: 9px;
+  }
+  .demo-badge,
+  .avatar {
+    display: none;
   }
 }
 @media (prefers-reduced-motion: reduce) {

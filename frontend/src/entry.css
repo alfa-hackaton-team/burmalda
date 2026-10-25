@@ -905,7 +905,15 @@
   }
   .bank-login-content {
     min-height: 450px;
-    padding: 60px 26px 26px;
+    padding: 12px 26px 26px;
+  }
+  .bank-login-close {
+    position: sticky;
+    top: 12px;
+    right: auto;
+    z-index: 2;
+    align-self: flex-end;
+    margin-bottom: 10px;
   }
 }
 

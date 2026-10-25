@@ -26,3 +26,8 @@ if (!HTMLDialogElement.prototype.showModal) {
     this.open = true;
   };
 }
+if (!HTMLDialogElement.prototype.close) {
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false;
+  };
+}

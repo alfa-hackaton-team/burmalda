@@ -51,6 +51,7 @@ import type {
   Trace,
   User,
 } from './types';
+import { Burmalda } from './Burmalda';
 
 const topics: Record<string, string> = {
   financing: 'Финансирование',
@@ -289,6 +290,7 @@ export function App({
           </footer>
         </main>
       </div>
+      <Burmalda />
       {about && <AboutDialog onClose={() => setAbout(false)} demo={demo} />}
     </div>
   );

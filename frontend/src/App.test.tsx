@@ -5,6 +5,21 @@ import { App } from './App';
 import { createDemoApi } from './demo';
 
 describe('client scenario', () => {
+  it('opens Burmalda even without an available company context', async () => {
+    render(<App api={createDemoApi('no-contexts')} demo />);
+    expect(
+      within(screen.getByLabelText('Навигация')).queryByRole('button', { name: 'Бурмалда' }),
+    ).not.toBeInTheDocument();
+    await userEvent
+      .setup()
+      .click(screen.getByRole('button', { name: 'Бурмалда — открыть колесо случайных новостей' }));
+    expect(screen.getByRole('dialog')).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Какая новость выпадет?' })).toBeVisible();
+    expect(
+      screen.queryByRole('combobox', { name: 'Компания и ракурс анализа' }),
+    ).not.toBeInTheDocument();
+  });
+
   it('opens an analysis, exposes evidence, saves feedback and restores the conversation between tabs', async () => {
     sessionStorage.clear();
     const user = userEvent.setup();
