@@ -12,7 +12,7 @@ from uuid import uuid4
 from .analysis_validation import AnalysisRequestError, validate_analysis_request, validate_contract_message
 from .drafting import build_evidence_draft
 from .model_policy import DEFAULT_AGENT_MODEL, require_allowed_model
-from .verification import OutputVerificationError, verify_analysis_response
+from .verification import OutputVerificationError, SemanticVerifier, verify_analysis_response
 
 
 class StructuredModelClient(Protocol):
@@ -62,10 +62,14 @@ class AnalysisAgent:
     """One bounded model turn over trusted request data and already-fetched evidence."""
 
     def __init__(
-        self, client: StructuredModelClient, model_name: str = DEFAULT_AGENT_MODEL
+        self,
+        client: StructuredModelClient,
+        model_name: str = DEFAULT_AGENT_MODEL,
+        semantic_verifier: SemanticVerifier | None = None,
     ) -> None:
         self.client = client
         self.model_name = require_allowed_model(model_name)
+        self.semantic_verifier = semantic_verifier
 
     def run(
         self,
@@ -101,7 +105,9 @@ class AnalysisAgent:
         if response["analysis_run_id"] != run_id:
             raise AgentExecutionError("model response analysis_run_id does not match assigned run", "VERIFICATION_FAILED")
         try:
-            report = verify_analysis_response(request, response, chunks)
+            report = verify_analysis_response(
+                request, response, chunks, self.semantic_verifier
+            )
         except OutputVerificationError as exc:
             raise AgentExecutionError(str(exc), "VERIFICATION_FAILED", False) from exc
         response["warnings"].extend(report.warnings)

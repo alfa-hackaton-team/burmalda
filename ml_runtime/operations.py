@@ -1,7 +1,7 @@
 """Article-processing lifecycle and ML1/ML2 stage boundaries.
 
-The included store is process-local scaffolding only. Production must provide a
-transactional durable store before exposing POST/GET to the Go worker.
+The in-memory store supports local development. PostgresOperationStore in
+``postgres_store`` provides durable operation state for service deployments.
 """
 
 from __future__ import annotations
@@ -54,6 +54,10 @@ class OperationStore(Protocol):
 
     def get_input(self, processing_id: str) -> ArticleProcessingInput | None: ...
 
+    def claim(self, processing_id: str) -> tuple[ArticleProcessingOperation, bool]: ...
+
+    def claim_next(self) -> ArticleProcessingOperation | None: ...
+
     def transition(self, processing_id: str, expected: str, target: str, **updates: Any) -> ArticleProcessingOperation: ...
 
 
@@ -95,6 +99,26 @@ class InMemoryOperationStore:
     def get_input(self, processing_id: str) -> ArticleProcessingInput | None:
         with self._lock:
             return self._inputs.get(processing_id)
+
+    def claim(self, processing_id: str) -> tuple[ArticleProcessingOperation, bool]:
+        """Atomically grant one in-process worker the queued operation."""
+        with self._lock:
+            operation = self._by_id.get(processing_id)
+            if operation is None:
+                raise KeyError(processing_id)
+            if operation.state != "QUEUED":
+                return operation, False
+            operation.state = "RUNNING"
+            return operation, True
+
+    def claim_next(self) -> ArticleProcessingOperation | None:
+        """Claim the oldest queued operation, including after process restart."""
+        with self._lock:
+            for operation in self._by_id.values():
+                if operation.state == "QUEUED":
+                    operation.state = "RUNNING"
+                    return operation
+        return None
 
     def transition(self, processing_id: str, expected: str, target: str, **updates: Any) -> ArticleProcessingOperation:
         with self._lock:
@@ -156,10 +180,32 @@ class ArticleProcessingCoordinator:
             raise KeyError(processing_id)
         if operation.state != "QUEUED":
             return operation.to_wire()
+        operation, claimed = self.store.claim(processing_id)
+        if not claimed:
+            return operation.to_wire()
+        return self._execute_claimed(operation)
+
+    def execute_next(self) -> dict[str, Any] | None:
+        """Process one durable queued operation; a worker can call this on startup."""
+        operation = self.store.claim_next()
+        if operation is None:
+            return None
+        return self._execute_claimed(operation)
+
+    def _execute_claimed(self, operation: ArticleProcessingOperation) -> dict[str, Any]:
+        processing_id = operation.processing_id
         request = self.store.get_input(processing_id)
         if request is None:
-            raise RuntimeError("operation payload is missing from the operation store")
-        self.store.transition(processing_id, "QUEUED", "RUNNING")
+            return self.store.transition(
+                processing_id,
+                "RUNNING",
+                "FAILED",
+                error={
+                    "code": "INTERNAL_ERROR",
+                    "message": "Saved article-processing input is unavailable",
+                    "retryable": False,
+                },
+            ).to_wire()
         quality_result: dict[str, Any] | None = None
         try:
             quality_result = self.quality_gate.assess(request)
@@ -180,6 +226,8 @@ class ArticleProcessingCoordinator:
             document_version_id = self.indexer.index(request)
             if not isinstance(document_version_id, str) or not document_version_id.strip():
                 raise RuntimeError("ML1 indexer returned no document_version_id")
+            if document_version_id != request.article["article_version_id"]:
+                raise RuntimeError("ML1 document_version_id does not match the submitted article_version_id")
             event_ids = self.event_processor.process(request, document_version_id)
             if not isinstance(event_ids, list) or any(not isinstance(item, str) or not item.strip() for item in event_ids):
                 raise RuntimeError("ML2 event processor returned invalid event_ids")

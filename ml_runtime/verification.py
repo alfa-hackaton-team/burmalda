@@ -1,4 +1,4 @@
-"""A05: structural and provenance checks before returning an ML v1 response."""
+"""Structural, provenance, and required semantic checks before ML v1 success."""
 
 from __future__ import annotations
 
@@ -32,7 +32,8 @@ def verify_analysis_response(
     """Validate schema, request/response identity, IDs, support and exact quotes.
 
     Without a semantic verifier this cannot prove that a paraphrase or inference
-    is entailed by its citations. Fixture mode reports that limitation explicitly.
+    is entailed by its citations. A successful response is rejected unless a
+    semantic verifier is injected; non-success statuses need no entailment test.
     """
     try:
         validate_contract_message(response, "AnalysisResponse")
@@ -97,9 +98,8 @@ def verify_analysis_response(
             raise OutputVerificationError("bank_view has no matching bank-supported claim")
 
     if semantic_verifier is None:
-        return VerificationReport(
-            False,
-            ("Fixture mode checked evidence links and exact quotes, not semantic entailment.",),
+        raise OutputVerificationError(
+            "A semantic verifier is required before a successful analysis can be published"
         )
     valid, explanation = semantic_verifier(request, response, chunks)
     if not valid:

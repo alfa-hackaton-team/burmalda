@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Collection
 from urllib.parse import urlparse
+from uuid import UUID
 
 
 class ProcessingContractError(ValueError):
@@ -98,6 +99,8 @@ def parse_article_processing(
 
     for field in ("article_id", "article_version_id", "source_id", "fetched_at", "raw_ref", "content_hash"):
         _nonempty_string(article[field], f"article.{field}")
+    for field in ("article_id", "article_version_id", "source_id"):
+        _uuid(article[field], f"article.{field}")
     title = article["title"]
     if not isinstance(title, str):
         raise _invalid("article.title must be a string")
@@ -131,6 +134,7 @@ def parse_article_processing(
 
     for field in _SOURCE_REQUIRED:
         _nonempty_string(source[field], f"source.{field}")
+    _uuid(source["source_id"], "source.source_id")
     if source["source_role"] not in _SOURCE_ROLES:
         raise _invalid("source.source_role is unsupported")
     if source["source_type"] not in _SOURCE_TYPES:
@@ -209,6 +213,13 @@ def _validate_extraction_metadata(value: Any) -> None:
 def _nonempty_string(value: Any, label: str, status: int = 400) -> None:
     if not isinstance(value, str) or not value.strip():
         raise ProcessingContractError(status, "VALIDATION_ERROR", f"{label} must be a non-empty string")
+
+
+def _uuid(value: str, label: str) -> None:
+    try:
+        UUID(value)
+    except (ValueError, AttributeError) as exc:
+        raise _invalid(f"{label} must be a UUID") from exc
 
 
 def _datetime(value: Any, label: str) -> None:

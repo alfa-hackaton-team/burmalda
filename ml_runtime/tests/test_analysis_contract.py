@@ -49,7 +49,10 @@ class FixtureModelClient:
 
 class AnalysisContractIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
-        agent = AnalysisAgent(FixtureModelClient())
+        agent = AnalysisAgent(
+            FixtureModelClient(),
+            semantic_verifier=lambda _request, _response, _chunks: (True, None),
+        )
         self.service = AnalysisService(
             retriever=InMemoryRetriever.from_fixtures(),
             agent=agent,
@@ -71,6 +74,35 @@ class AnalysisContractIntegrationTests(unittest.TestCase):
         self.assertIsNone(response["insight"])
         self.assertEqual(response["message"]["conversation_id"], request["follow_up"]["conversation_id"])
         self.assertEqual(response["message"]["parent_message_id"], request["follow_up"]["request_message_id"])
+
+    def test_analysis_without_semantic_verifier_fails_closed(self) -> None:
+        service = AnalysisService(
+            retriever=InMemoryRetriever.from_fixtures(),
+            agent=AnalysisAgent(FixtureModelClient()),
+            planner=FixtureSearchPlanner(FIXTURES),
+        )
+
+        response = service.analyze(load_fixture("analysis.request.json"))
+
+        self.assertEqual(response["status"], "failed")
+        self.assertEqual(response["error"]["code"], "VERIFICATION_FAILED")
+
+    def test_semantic_verifier_rejection_fails_closed(self) -> None:
+        service = AnalysisService(
+            retriever=InMemoryRetriever.from_fixtures(),
+            agent=AnalysisAgent(
+                FixtureModelClient(),
+                semantic_verifier=lambda _request, _response, _chunks: (
+                    False, "Claim is not supported by its cited quote"
+                ),
+            ),
+            planner=FixtureSearchPlanner(FIXTURES),
+        )
+
+        response = service.analyze(load_fixture("analysis.request.json"))
+
+        self.assertEqual(response["status"], "failed")
+        self.assertEqual(response["error"]["code"], "VERIFICATION_FAILED")
 
 
 if __name__ == "__main__":

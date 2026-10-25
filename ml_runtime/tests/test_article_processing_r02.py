@@ -69,12 +69,13 @@ class FakeQualityGate:
 
 
 class FakeIndexer:
-    def __init__(self, calls: list[str]) -> None:
+    def __init__(self, calls: list[str], document_version_id: str | None = None) -> None:
         self.calls = calls
+        self.document_version_id = document_version_id
 
     def index(self, request):
         self.calls.append("index")
-        return request.article["article_version_id"]
+        return self.document_version_id or request.article["article_version_id"]
 
 
 class FakeEventProcessor:
@@ -151,6 +152,39 @@ class ArticleProcessingR02Tests(unittest.TestCase):
         self.assertEqual(result["event_ids"], [])
         self.assertEqual(calls, ["index", "events"])
         self.assertEqual(store.get(accepted["processing_id"]).quality_result["status"], "PASS")
+
+    def test_worker_can_drain_a_persisted_queued_operation(self):
+        calls: list[str] = []
+        store = InMemoryOperationStore()
+        coordinator = ArticleProcessingCoordinator(
+            store=store,
+            quality_gate=FakeQualityGate("PASS"),
+            indexer=FakeIndexer(calls),
+            event_processor=FakeEventProcessor(calls),
+        )
+        coordinator.submit(parse(payload()))
+
+        result = coordinator.execute_next()
+
+        self.assertEqual(result["state"], "SUCCEEDED")
+        self.assertEqual(coordinator.execute_next(), None)
+        self.assertEqual(calls, ["index", "events"])
+
+    def test_document_version_id_must_match_submitted_article_version(self):
+        calls: list[str] = []
+        coordinator = ArticleProcessingCoordinator(
+            store=InMemoryOperationStore(),
+            quality_gate=FakeQualityGate("PASS"),
+            indexer=FakeIndexer(calls, "10000000-0000-4000-8000-000000000099"),
+            event_processor=FakeEventProcessor(calls),
+        )
+        accepted, _ = coordinator.submit(parse(payload()))
+
+        result = coordinator.execute(accepted["processing_id"])
+
+        self.assertEqual(result["state"], "FAILED")
+        self.assertEqual(result["error"]["code"], "ML_PROCESSING_ERROR")
+        self.assertEqual(calls, ["index"])
 
 
 if __name__ == "__main__":
