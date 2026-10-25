@@ -12,6 +12,7 @@ func TestParseFeedAdapterConfig(t *testing.T) {
 	for _, raw := range []string{`null`, `[]`, `{"article_html":null}`, `{"article_html":"yes"}`, `{"other":true}`,
 		`{"article_container_id":"article"}`, `{"article_html":true,"article_exclude_classes":["heading"]}`,
 		`{"article_html":true,"article_container_id":""}`,
+		`{"ARTICLE_HTML":true}`, `{"article_html":false,"Article_Html":true}`,
 		`{"article_html":true,"article_container_id":null}`, `{"article_html":true,"article_container_id":"article","article_exclude_classes":null}`,
 		`{"article_html":true,"article_container_id":"article","article_exclude_classes":["bad class"]}`} {
 		if _, err := ParseFeedAdapterConfig([]byte(raw)); err == nil {
