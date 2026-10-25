@@ -1,0 +1,2131 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Burmalda: общие форматы обмена данными",
+    "version": "0.1.0",
+    "description": "Общие форматы обмена между интерфейсом, сервером и ML. Схемы задают структуру контекста, доказательств и ответов, но не физические таблицы PostgreSQL. Семантические правила применяются вместе с JSON Schema."
+  },
+  "paths": {},
+  "components": {
+    "schemas": {
+      "CompanyContext": {
+        "type": "object",
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "kind": {
+            "const": "COMPANY"
+          },
+          "company_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "context_id",
+          "kind",
+          "company_id"
+        ]
+      },
+      "GroupContext": {
+        "type": "object",
+        "properties": {
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "kind": {
+            "const": "GROUP"
+          },
+          "group_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "context_id",
+          "kind",
+          "group_id"
+        ]
+      },
+      "BusinessContext": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/CompanyContext"
+          },
+          {
+            "$ref": "#/components/schemas/GroupContext"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "COMPANY": "#/components/schemas/CompanyContext",
+            "GROUP": "#/components/schemas/GroupContext"
+          }
+        }
+      },
+      "ProfileRef": {
+        "type": "object",
+        "properties": {
+          "profile_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "profile_id",
+          "version"
+        ]
+      },
+      "MaterialRef": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "document_version_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "chunk_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "article_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "article_version_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "document_version_id",
+          "chunk_id"
+        ]
+      },
+      "FeatureRef": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/ProfileRef"
+          },
+          "feature_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "contributing_company_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "feature_id",
+          "contributing_company_ids"
+        ]
+      },
+      "Provenance": {
+        "type": "object",
+        "properties": {
+          "source_snapshot_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "record_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "derivation_version": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source_snapshot_id",
+          "record_refs",
+          "derivation_version"
+        ]
+      },
+      "MaterialEvidence": {
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "evidence_type": {
+            "type": "string",
+            "enum": [
+              "EXTERNAL_NEWS",
+              "ALFA_ANALYTICS"
+            ]
+          },
+          "reference": {
+            "$ref": "#/components/schemas/MaterialRef"
+          },
+          "excerpt": {
+            "type": "string"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "evidence_type",
+          "reference",
+          "excerpt",
+          "published_at",
+          "fetched_at"
+        ]
+      },
+      "CompanyEvidence": {
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "evidence_type": {
+            "const": "COMPANY_DATA"
+          },
+          "reference": {
+            "$ref": "#/components/schemas/FeatureRef"
+          },
+          "content": {
+            "type": "string"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "evidence_type",
+          "reference",
+          "content",
+          "provenance"
+        ]
+      },
+      "Evidence": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/MaterialEvidence"
+          },
+          {
+            "$ref": "#/components/schemas/CompanyEvidence"
+          }
+        ]
+      },
+      "EvidenceLink": {
+        "type": "object",
+        "properties": {
+          "evidence_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "relation": {
+            "type": "string",
+            "enum": [
+              "SUPPORT",
+              "CONTRADICT",
+              "CONTEXT"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "evidence_id",
+          "relation"
+        ]
+      },
+      "Claim": {
+        "type": "object",
+        "properties": {
+          "claim_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "text": {
+            "type": "string"
+          },
+          "claim_type": {
+            "type": "string",
+            "enum": [
+              "FACT",
+              "ALFA_ANALYTICS",
+              "AI_INFERENCE",
+              "FORECAST"
+            ]
+          },
+          "verification_status": {
+            "type": "string",
+            "enum": [
+              "SUPPORTED",
+              "PARTIALLY_SUPPORTED",
+              "UNSUPPORTED"
+            ]
+          },
+          "evidence_links": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceLink"
+            }
+          },
+          "assumptions": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "time_horizon": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "claim_id",
+          "text",
+          "claim_type",
+          "verification_status",
+          "evidence_links",
+          "assumptions"
+        ],
+        "description": "Публичный DTO; claim_type соответствует knowledge_type ML v1, а не бизнес-назначению claim_type ML v1. UNSUPPORTED доступен для проверки. Клиентское представление исключает неподтверждённые факты; существенные утверждения должны иметь ссылки на поддерживающие доказательства. Обязательные смысловые правила проверяет приложение, не только JSON Schema."
+      },
+      "SourceRef": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "name": {
+            "type": "string"
+          },
+          "source_role": {
+            "type": "string",
+            "enum": [
+              "external",
+              "bank",
+              "expert"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "name",
+          "source_role"
+        ]
+      },
+      "Limitation": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "related_claim_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message"
+        ]
+      },
+      "EventRef": {
+        "type": "object",
+        "properties": {
+          "event_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "occurred_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "event_id",
+          "title",
+          "summary"
+        ]
+      },
+      "ProfileFeature": {
+        "type": "object",
+        "properties": {
+          "feature_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "name": {
+            "type": "string"
+          },
+          "value": {},
+          "availability": {
+            "type": "string",
+            "enum": [
+              "PRESENT",
+              "MISSING",
+              "AMBIGUOUS"
+            ]
+          },
+          "unit": {
+            "type": "string"
+          },
+          "contributing_company_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+            }
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/Provenance"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "feature_id",
+          "name",
+          "value",
+          "availability",
+          "contributing_company_ids",
+          "provenance"
+        ],
+        "description": "Тип value определяется словарём признаков после EDA; отсутствие данных не равно нулю или false."
+      },
+      "CompanyProfile": {
+        "type": "object",
+        "properties": {
+          "profile": {
+            "$ref": "#/components/schemas/ProfileRef"
+          },
+          "context": {
+            "$ref": "#/components/schemas/BusinessContext"
+          },
+          "built_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProfileFeature"
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Limitation"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "profile",
+          "context",
+          "built_at",
+          "features",
+          "limitations"
+        ]
+      },
+      "ImpactState": {
+        "type": "object",
+        "properties": {
+          "label": {
+            "type": "string"
+          },
+          "explanation": {
+            "type": "string"
+          },
+          "policy_version": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "label",
+          "explanation",
+          "policy_version"
+        ],
+        "description": "Понятная пользователю оценка влияния и её объяснение. label связан с версией правил; примеры high/medium обозначают качественные уровни, а не точную вероятность. Численные критерии оцениваются по экспертной разметке."
+      },
+      "FeedItem": {
+        "type": "object",
+        "properties": {
+          "preview_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "event": {
+            "$ref": "#/components/schemas/EventRef"
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "topic": {
+            "type": "string"
+          },
+          "why_relevant": {
+            "type": "string"
+          },
+          "feature_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeatureRef"
+            }
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceRef"
+            }
+          },
+          "impact": {
+            "$ref": "#/components/schemas/ImpactState"
+          },
+          "alert_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "preview_id",
+          "event",
+          "published_at",
+          "topic",
+          "why_relevant",
+          "feature_refs",
+          "sources",
+          "impact"
+        ]
+      },
+      "Alert": {
+        "type": "object",
+        "properties": {
+          "alert_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "context": {
+            "$ref": "#/components/schemas/BusinessContext"
+          },
+          "event": {
+            "$ref": "#/components/schemas/EventRef"
+          },
+          "impact": {
+            "$ref": "#/components/schemas/ImpactState"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "alert_id",
+          "context",
+          "event",
+          "impact",
+          "created_at"
+        ]
+      },
+      "InsightSection": {
+        "type": "object",
+        "properties": {
+          "section_type": {
+            "type": "string",
+            "enum": [
+              "WHAT_HAPPENED",
+              "WHY_RELEVANT",
+              "RISKS",
+              "OPPORTUNITIES",
+              "SCENARIOS_ACTIONS",
+              "BANK_VIEW",
+              "AI_ANALYSIS"
+            ]
+          },
+          "claim_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "section_type",
+          "claim_ids"
+        ]
+      },
+      "AgentResponse": {
+        "type": "object",
+        "properties": {
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "claims": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Claim"
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            }
+          },
+          "sections": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InsightSection"
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Limitation"
+            }
+          },
+          "model_config_ref": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "trace_id",
+          "claims",
+          "evidence",
+          "sections",
+          "limitations",
+          "model_config_ref"
+        ]
+      },
+      "Insight": {
+        "type": "object",
+        "properties": {
+          "insight_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "revision": {
+            "type": "string"
+          },
+          "primary_event": {
+            "$ref": "#/components/schemas/EventRef"
+          },
+          "supporting_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+            }
+          },
+          "context": {
+            "$ref": "#/components/schemas/BusinessContext"
+          },
+          "role_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ProfileRef"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "response": {
+            "$ref": "#/components/schemas/AgentResponse"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "insight_id",
+          "revision",
+          "primary_event",
+          "supporting_event_ids",
+          "context",
+          "role_id",
+          "profile",
+          "created_at",
+          "response"
+        ]
+      },
+      "Generation": {
+        "type": "object",
+        "properties": {
+          "generation_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "INSUFFICIENT_EVIDENCE",
+              "FAILED"
+            ]
+          },
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "insight_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "message_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "generation_id",
+          "state",
+          "trace_id",
+          "created_at"
+        ],
+        "description": "Состояние асинхронной генерации. Конечное состояние согласовано с результатом: успешное выполнение ссылается на сохранённый ресурс, ошибка содержит причину, недостаток доказательств обозначается отдельно."
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "enum": [
+              "VALIDATION_ERROR",
+              "NOT_FOUND",
+              "FORBIDDEN_CONTEXT",
+              "SOURCE_UNAVAILABLE",
+              "ML_PROCESSING_ERROR",
+              "INSUFFICIENT_EVIDENCE",
+              "TIMEOUT",
+              "BUDGET_EXHAUSTED",
+              "CONFLICT",
+              "PROFILE_NOT_READY",
+              "UNSUPPORTED_ADAPTER",
+              "UNSUPPORTED_PIPELINE_VERSION",
+              "PAYLOAD_TOO_LARGE",
+              "INVALID_ML_RESPONSE",
+              "INTERNAL_ERROR",
+              "UNAUTHENTICATED",
+              "FORBIDDEN"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "retryable": {
+            "type": "boolean"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "description": "Нет стеков ошибок, секретов и скрытых сведений о ресурсах. INSUFFICIENT_EVIDENCE может быть структурированным ограниченным результатом, если безопасная полезная часть доступна."
+      },
+      "Conversation": {
+        "type": "object",
+        "properties": {
+          "conversation_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "insight_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "insight_revision": {
+            "type": "string"
+          },
+          "context": {
+            "$ref": "#/components/schemas/BusinessContext"
+          },
+          "role_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "conversation_id",
+          "insight_id",
+          "insight_revision",
+          "context",
+          "role_id",
+          "created_at"
+        ]
+      },
+      "Message": {
+        "type": "object",
+        "properties": {
+          "message_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "conversation_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "sequence": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "author": {
+            "type": "string",
+            "enum": [
+              "USER",
+              "ASSISTANT"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "text": {
+            "type": "string"
+          },
+          "response": {
+            "$ref": "#/components/schemas/AgentResponse"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "message_id",
+          "conversation_id",
+          "sequence",
+          "author",
+          "created_at"
+        ],
+        "description": "USER содержит text; ASSISTANT — структурированный response. Правило проверяется на сервере. Скрытые рассуждения LLM не передаются."
+      },
+      "FollowUpResult": {
+        "type": "object",
+        "properties": {
+          "user_message": {
+            "$ref": "#/components/schemas/Message"
+          },
+          "assistant_message": {
+            "$ref": "#/components/schemas/Message"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "user_message",
+          "assistant_message"
+        ]
+      },
+      "FeedbackInput": {
+        "type": "object",
+        "properties": {
+          "insight_revision": {
+            "type": "string"
+          },
+          "rating": {
+            "type": "string",
+            "enum": [
+              "POSITIVE",
+              "NEGATIVE"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "IRRELEVANT",
+              "INCORRECT_CONCLUSION",
+              "POOR_SOURCES",
+              "TOO_GENERIC",
+              "OTHER"
+            ]
+          },
+          "comment": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "insight_revision",
+          "rating"
+        ],
+        "description": "Отрицательная оценка допускает причину из перечисления и комментарий, но не требует текста. Оценка относится к конкретной редакции разбора."
+      },
+      "Feedback": {
+        "type": "object",
+        "properties": {
+          "feedback_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "insight_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "input": {
+            "$ref": "#/components/schemas/FeedbackInput"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "feedback_id",
+          "insight_id",
+          "created_at",
+          "input"
+        ]
+      },
+      "SourceConfigInput": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "news",
+              "bank_analytics",
+              "expert",
+              "regulator",
+              "financial_press"
+            ]
+          },
+          "source_role": {
+            "type": "string",
+            "enum": [
+              "external",
+              "bank",
+              "expert"
+            ]
+          },
+          "trust_level": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "trusted",
+              "standard",
+              "unknown",
+              "reviewed"
+            ]
+          },
+          "adapter_type": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "polling_interval_seconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 86400
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "adapter_config": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Для rss/atom поддерживаются article_html boolean и при его включении article_container_id со списком article_exclude_classes. Без контейнера HTML-режим ищет article/main. Ссылки статей должны вести на тот же host."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "source_type",
+          "source_role",
+          "trust_level",
+          "adapter_type",
+          "endpoint",
+          "enabled",
+          "polling_interval_seconds"
+        ],
+        "description": "Только поддерживаемая конфигурация; adapter_config проверяется по схеме адаптера. Значения секретов не передаются. Изменение полей и уровня доверия ограничено административными полномочиями и правилами реестра."
+      },
+      "SourceUpdate": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "source_type": {
+            "type": "string",
+            "enum": [
+              "news",
+              "bank_analytics",
+              "expert",
+              "regulator",
+              "financial_press"
+            ]
+          },
+          "source_role": {
+            "type": "string",
+            "enum": [
+              "external",
+              "bank",
+              "expert"
+            ]
+          },
+          "trust_level": {
+            "type": "string",
+            "enum": [
+              "primary",
+              "trusted",
+              "standard",
+              "unknown",
+              "reviewed"
+            ]
+          },
+          "adapter_type": {
+            "type": "string"
+          },
+          "endpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "polling_interval_seconds": {
+            "type": "integer",
+            "minimum": 60,
+            "maximum": 86400
+          },
+          "credential_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "adapter_config": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Для rss/atom поддерживаются article_html boolean и при его включении article_container_id со списком article_exclude_classes."
+          }
+        },
+        "additionalProperties": false,
+        "description": "PATCH принимает только разрешённые поля. При одновременном изменении проверяется config_version; уровень доверия не меняется без соответствующих полномочий."
+      },
+      "Source": {
+        "type": "object",
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "config_version": {
+            "type": "string"
+          },
+          "config": {
+            "$ref": "#/components/schemas/SourceConfigInput"
+          },
+          "health": {
+            "type": "string",
+            "enum": [
+              "UNKNOWN",
+              "HEALTHY",
+              "DEGRADED",
+              "UNAVAILABLE"
+            ]
+          },
+          "last_sync_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_success_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "last_error": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "config_version",
+          "config",
+          "health",
+          "last_sync_at",
+          "last_success_at"
+        ],
+        "description": "credential_ref — ссылка, не значение секрета. Её выдача ограничивается административным представлением и правами пользователя."
+      },
+      "SyncOperation": {
+        "type": "object",
+        "properties": {
+          "sync_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "PARTIAL",
+              "FAILED"
+            ]
+          },
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "sync_id",
+          "source_id",
+          "state",
+          "trace_id",
+          "created_at"
+        ]
+      },
+      "TraceStage": {
+        "type": "object",
+        "properties": {
+          "stage_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "parent_stage_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "stage_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "finished_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "evidence_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+            }
+          },
+          "feature_refs": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeatureRef"
+            }
+          },
+          "summary": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "stage_id",
+          "stage_type",
+          "status",
+          "started_at",
+          "finished_at",
+          "evidence_ids",
+          "feature_refs"
+        ],
+        "description": "Только разрешённое представление без чувствительных данных. Нет скрытых рассуждений и полных запросов к модели."
+      },
+      "Trace": {
+        "type": "object",
+        "properties": {
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TraceStage"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "trace_id",
+          "stages"
+        ]
+      },
+      "ClientAnalyticsEvent": {
+        "type": "object",
+        "properties": {
+          "analytics_event_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "schema_version": {
+            "type": "string"
+          },
+          "event_type": {
+            "type": "string",
+            "enum": [
+              "FEED_OPENED",
+              "INSIGHT_OPENED",
+              "SOURCE_CLICKED",
+              "ALERT_OPENED"
+            ]
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "context_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "insight_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "source_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "alert_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "analytics_event_id",
+          "schema_version",
+          "event_type",
+          "occurred_at",
+          "context_id"
+        ],
+        "description": "Пользователя определяет сервер; внутренние события качества сюда не принимаются."
+      },
+      "Metric": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "value": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": "string"
+          },
+          "sample_size": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "config_version": {
+            "type": "string"
+          },
+          "dataset_version": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "AVAILABLE",
+              "NO_DATA",
+              "UNAVAILABLE"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "value",
+          "unit",
+          "sample_size",
+          "status"
+        ]
+      },
+      "QualityReport": {
+        "type": "object",
+        "properties": {
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "metrics": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Metric"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "from",
+          "to",
+          "metrics"
+        ]
+      },
+      "TrustedRequestContext": {
+        "type": "object",
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "user_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "context": {
+            "$ref": "#/components/schemas/BusinessContext"
+          },
+          "role_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ProfileRef"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "trace_id",
+          "user_id",
+          "context",
+          "role_id",
+          "profile"
+        ],
+        "description": "Контекст, сформированный Go из проверенной серверной сессии и разрешений в БД. ML принимает его только после проверки Bearer SERVICE_TOKEN и проверяет соответствие профиля контексту, разбора и диалога. Служебный токен подтверждает Go, а не корректность произвольного JSON."
+      },
+      "EvidencePackage": {
+        "type": "object",
+        "properties": {
+          "package_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "request_context": {
+            "$ref": "#/components/schemas/TrustedRequestContext"
+          },
+          "primary_event_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "supporting_event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+            }
+          },
+          "evidence": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Evidence"
+            }
+          },
+          "limitations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Limitation"
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "package_id",
+          "request_context",
+          "primary_event_id",
+          "supporting_event_ids",
+          "evidence",
+          "limitations"
+        ]
+      },
+      "NormalizedArticle": {
+        "type": "object",
+        "properties": {
+          "article_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "version_no": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Возрастающий номер сохранённой версии внутри article_id; при повторной доставке не меняется."
+          },
+          "article_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "source_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "external_id": {
+            "type": "string"
+          },
+          "canonical_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string",
+            "description": "Может быть пустым, если источник не содержит заголовка."
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Непустой извлечённый текст; пробельный текст отклоняется ML. Предел ML_MAX_TEXT_BYTES относится к размеру этого поля в байтах UTF-8, без заголовка. Превышение отклоняется без обрезания."
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "language": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "raw_ref": {
+            "type": "string",
+            "pattern": "^raw-artifact:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+          },
+          "content_hash": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "metadata": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "extraction_method": {
+                "type": "string",
+                "enum": [
+                  "full_article",
+                  "rss_summary",
+                  "pdf_extracted"
+                ]
+              },
+              "extraction_errors": {
+                "type": "array",
+                "uniqueItems": true,
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "TEXT_TRUNCATED",
+                    "MISSING_PAGES",
+                    "MISSING_TABLES",
+                    "MISSING_FOOTNOTES",
+                    "EXTRACTION_FAILED",
+                    "LAYOUT_LOSS",
+                    "READING_ORDER_UNCERTAIN"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "extraction_method",
+              "extraction_errors"
+            ],
+            "description": "Сохранённый способ получения текста и известные проблемы извлечения; пустой список не гарантирует полноту."
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "article_id",
+          "version_no",
+          "article_version_id",
+          "source_id",
+          "title",
+          "body",
+          "fetched_at",
+          "raw_ref",
+          "content_hash",
+          "metadata"
+        ],
+        "description": "Материал, загруженный, сохранённый, нормализованный и технически дедуплицированный Go-воркером. Go извлекает текст из PDF/HTML. ML выполняет смысловую обработку и не скачивает оригинал по raw_ref; это ссылка на сохранённые исходные байты для происхождения материала. Дата публикации, язык и автор могут отсутствовать. Текст сверх согласованного лимита отклоняется явно, без незаметного обрезания."
+      },
+      "AnalysisOperation": {
+        "type": "object",
+        "properties": {
+          "analysis_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "INSUFFICIENT_EVIDENCE",
+              "FAILED"
+            ]
+          },
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "response": {
+            "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisResponse"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "analysis_id",
+          "state",
+          "trace_id",
+          "created_at"
+        ],
+        "description": "Внутренняя операция анализа. QUEUED и RUNNING не содержат response; терминальные состояния содержат AnalysisResponse v1 с соответствующим status. analysis_id совпадает с analysis_run_id результата. Go сохраняет публичный ответ до завершения своей операции; generation_id принадлежит Go.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "QUEUED",
+                    "RUNNING"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "response"
+                ]
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "enum": [
+                    "SUCCEEDED",
+                    "INSUFFICIENT_EVIDENCE",
+                    "FAILED"
+                  ]
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "required": [
+                "response"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "SUCCEEDED"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "properties": {
+                "response": {
+                  "properties": {
+                    "status": {
+                      "const": "succeeded"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "INSUFFICIENT_EVIDENCE"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "properties": {
+                "response": {
+                  "properties": {
+                    "status": {
+                      "const": "insufficient_evidence"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "FAILED"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "properties": {
+                "response": {
+                  "properties": {
+                    "status": {
+                      "const": "failed"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "ProfileRebuildOperation": {
+        "type": "object",
+        "properties": {
+          "rebuild_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED"
+            ]
+          },
+          "trace_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ProfileRef"
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "rebuild_id",
+          "state",
+          "trace_id",
+          "created_at"
+        ],
+        "description": "Состояние фонового перестроения профиля. SUCCEEDED содержит ссылку на созданную версию профиля; операция не является генерацией персонального разбора."
+      },
+      "Me": {
+        "type": "object",
+        "properties": {
+          "user_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "display_name": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "user_id"
+        ],
+        "description": "Сведения о текущем пользователе, определённом доверенным механизмом доступа. Этот ответ не является операцией входа или передачи учётных данных."
+      },
+      "AvailableContext": {
+        "type": "object",
+        "properties": {
+          "context": {
+            "$ref": "#/components/schemas/BusinessContext"
+          },
+          "display_name": {
+            "type": "string"
+          },
+          "role_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Идентификатор предметной области со скрытой внутренней структурой; не исходный ключ набора и не обязательный UUID в БД."
+          },
+          "profile": {
+            "$ref": "#/components/schemas/ProfileRef"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "context",
+          "display_name",
+          "role_id"
+        ],
+        "description": "Контексты, доступные пользователю по серверной проверке. Связь физлица с компанией или компании с группой сама по себе не предоставляет доступ."
+      },
+      "ContextPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AvailableContext"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "description": "Курсор связан с зафиксированной выдачей, параметрами запроса и версиями профиля и конфигурации. Изменение контекста или фильтров начинает новый проход; срок действия контролируется сервером."
+      },
+      "FeedPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/FeedItem"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "description": "Курсор связан с зафиксированной выдачей, параметрами запроса и версиями профиля и конфигурации. Изменение контекста или фильтров начинает новый проход; срок действия контролируется сервером."
+      },
+      "AlertPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Alert"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "description": "Курсор связан с зафиксированной выдачей, параметрами запроса и версиями профиля и конфигурации. Изменение контекста или фильтров начинает новый проход; срок действия контролируется сервером."
+      },
+      "SourcePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Source"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "description": "Курсор продолжает выдачу по устойчивому порядку создания источников (created_at, source_id). Новые источники после первой страницы попадут в следующий проход списка."
+      },
+      "ConversationPage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Conversation"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "description": "Курсор связан с зафиксированной выдачей, параметрами запроса и версиями профиля и конфигурации. Изменение контекста или фильтров начинает новый проход; срок действия контролируется сервером."
+      },
+      "MessagePage": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Message"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor"
+        ],
+        "description": "Курсор связан с зафиксированной выдачей, параметрами запроса и версиями профиля и конфигурации. Изменение контекста или фильтров начинает новый проход; срок действия контролируется сервером."
+      },
+      "ArticleProcessingOperation": {
+        "type": "object",
+        "properties": {
+          "processing_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "article_version_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "pipeline_version": {
+            "type": "string",
+            "minLength": 1,
+            "description": "Версия набора правил, переданная Go при создании операции. ML возвращает то же значение при каждом POST и GET, включая повторы."
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "QUEUED",
+              "RUNNING",
+              "SUCCEEDED",
+              "FAILED"
+            ]
+          },
+          "trace_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "document_version_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "event_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "error": {
+            "$ref": "#/components/schemas/Error"
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "processing_id",
+          "article_version_id",
+          "pipeline_version",
+          "state",
+          "trace_id",
+          "created_at"
+        ],
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "SUCCEEDED"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "required": [
+                "document_version_id",
+                "event_ids"
+              ]
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "state": {
+                  "const": "FAILED"
+                }
+              },
+              "required": [
+                "state"
+              ]
+            },
+            "then": {
+              "required": [
+                "error"
+              ]
+            }
+          }
+        ],
+        "description": "Вычислительная обработка материала от Go; не синхронизация источника. SUCCEEDED означает доступность чанков и embeddings для поиска и сохранённый результат обработки событий. event_ids может быть пустым. SUCCEEDED содержит document_version_id и event_ids, включая пустой список, если событие не выделено. FAILED содержит безопасную ошибку. Повтор с тем же ключом возвращает ту же операцию."
+      }
+    }
+  },
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

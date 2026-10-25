@@ -63,6 +63,22 @@ func run() error {
 	dataset.DatasetHandler{DB: pool, Token: os.Getenv("DATASET_API_TOKEN")}.Register(mux)
 	sessionStore := authn.NewPostgresStore(pool)
 	userStore := userapi.NewPostgresStore(pool)
+	userStore.Settings = manager.Current
+	if readURL := os.Getenv("ML_READ_DATABASE_URL"); readURL != "" {
+		readCfg := cfg
+		readCfg.DatabaseURL = readURL
+		readPool, err := database.Open(ctx, readCfg)
+		if err != nil {
+			return err
+		}
+		defer readPool.Close()
+		userStore.SetCorpusPool(readPool)
+	}
+	userStore.ConfigureML(cfg.MLBaseURL, cfg.MLServiceToken, os.Getenv("ML_ANALYSIS_CONFIG_VERSION"))
+	analysisCtx, stopAnalyses := context.WithCancel(ctx)
+	analysisDone := make(chan struct{})
+	go func() { defer close(analysisDone); _ = userStore.RunAnalyses(analysisCtx) }()
+	defer func() { stopAnalyses(); <-analysisDone }()
 	cursorSigningKey, err := userapi.ParseCursorSigningKey(os.Getenv("CURSOR_SIGNING_KEY"))
 	if err != nil {
 		return err
@@ -82,6 +98,8 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	mux.Handle("/login", userapi.LoginPage(os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true"))
+	mux.Handle("/v0.1/auth/login", httpsecurity.Protect(userStore.LoginHandler(allowedOrigins, os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true", os.Getenv("AUTH_COOKIE_SECURE") != "false"), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 16 << 10, AllowedOrigins: allowedOrigins}))
 	mux.Handle("/v0.1/", apiHandler)
 
 	server := &http.Server{
@@ -121,6 +139,7 @@ func newAPIHandler(sessions authn.Store, users userapi.Store, registry sources.R
 	routes := http.NewServeMux()
 	routes.Handle("/v0.1/admin/sources", sourceHandler)
 	routes.Handle("/v0.1/admin/sources/", sourceHandler)
+	routes.Handle("/v0.1/admin/", sourceHandler)
 	routes.Handle("/v0.1/", userapi.Handler(users, cursorKey))
 	return httpsecurity.Protect(authn.Middleware(sessions,
 		httpsecurity.RequireMutationProof(routes, options.AllowedOrigins)), options), nil

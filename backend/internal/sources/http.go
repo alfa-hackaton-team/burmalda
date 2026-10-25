@@ -40,6 +40,12 @@ func AdminHandler(registry Registry, authorize Authorize, cursorKey [sha256.Size
 	mux.HandleFunc("POST /v0.1/admin/sources", h.create)
 	mux.HandleFunc("GET /v0.1/admin/sources/{source_id}", h.get)
 	mux.HandleFunc("PATCH /v0.1/admin/sources/{source_id}", h.patch)
+	mux.HandleFunc("POST /v0.1/admin/sources/{source_id}/syncs", h.syncNow)
+	mux.HandleFunc("/v0.1/admin/sources/{source_id}/syncs", sourceMethodNotAllowed("POST"))
+	mux.HandleFunc("GET /v0.1/admin/source-syncs/{sync_id}", h.getSync)
+	mux.HandleFunc("/v0.1/admin/source-syncs/{sync_id}", sourceMethodNotAllowed("GET, HEAD"))
+	mux.HandleFunc("GET /v0.1/admin/quality", h.quality)
+	mux.HandleFunc("/v0.1/admin/quality", sourceMethodNotAllowed("GET, HEAD"))
 	mux.HandleFunc("/v0.1/admin/sources", sourceMethodNotAllowed("GET, HEAD, POST"))
 	mux.HandleFunc("/v0.1/admin/sources/{source_id}", sourceMethodNotAllowed("GET, HEAD, PATCH"))
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
@@ -213,6 +219,12 @@ func (h adminHandler) patch(w http.ResponseWriter, r *http.Request) {
 	if _, hasRole := fields["source_role"]; hasRole && !h.allowed(w, r, SetTrust) {
 		return
 	}
+	for _, field := range []string{"endpoint", "adapter_type", "adapter_config", "name", "source_type", "credential_ref"} {
+		if _, present := fields[field]; present && !h.allowed(w, r, SetTrust) {
+			return
+		}
+	}
+
 	source, err := h.registry.Update(r.Context(), r.PathValue("source_id"), version, body)
 	if err != nil {
 		respondError(w, r.Context(), err)
