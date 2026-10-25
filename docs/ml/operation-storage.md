@@ -15,6 +15,10 @@ Run migrations from the repository root after configuring the migration role loc
 .venv/bin/python -m ml_runtime.migrate
 ```
 
+The authenticated Go-facing routes are provided by `ml_runtime.article_processing_api.create_article_processing_app`. The caller injects an `ArticleProcessingCoordinator`, service token, text-byte limit, and supported pipeline-version set. `POST /internal/v0.1/article-processings` validates and persists the request, then returns `202` with `QUEUED`; it does not run model work in the request process. `GET /internal/v0.1/article-processings/{processing_id}` returns the same stored operation. A worker calls `ArticleProcessingWorker.run_once()` to claim and execute one durable queued operation. `create_article_processing_app_from_env` reads `ML_SERVICE_TOKEN`, `ML_MAX_TEXT_BYTES`, and comma-separated `ML_PIPELINE_VERSIONS` while still requiring the coordinator to be supplied.
+
+This repository does not yet provide a complete deployment bootstrap for the article pipeline: the app factory must be given concrete ML1 indexing and ML2 event-processing adapters. Until those are wired, the HTTP layer can be exercised with test adapters, but it is not a standalone production service.
+
 Each file in `ml_runtime/migrations/` has an independent ML version and checksum. The runner applies pending files in one transaction under a PostgreSQL advisory lock and refuses to run an already applied version whose contents changed.
 
 ## Operation guarantees
