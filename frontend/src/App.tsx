@@ -200,10 +200,6 @@ export function App({
             Бизнес-пульс
             <span className="nav-dot" />
           </a>
-          <a className="nav-item" href="#company">
-            <Building2 size={20} />
-            Контекст компании
-          </a>
           <div className="sidebar-bottom">
             <div className="sidebar-note">
               <ShieldCheck size={22} />
