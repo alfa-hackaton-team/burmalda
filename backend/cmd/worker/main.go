@@ -166,7 +166,7 @@ func run() error {
 	workers := 2
 	if addr := os.Getenv("METRICS_ADDR"); addr != "" {
 		mux := http.NewServeMux()
-		mux.Handle("GET /metrics", observability.WorkerHandler())
+		mux.Handle("GET /metrics", observability.WorkerHandler(observability.NewPoolCollector(pool)))
 		server := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 		workers++
 		go func() {

@@ -21,10 +21,12 @@ var (
 	recovered       = prometheus.NewCounter(prometheus.CounterOpts{Name: "ingestion_source_leases_recovered_total", Help: "Source polls recovered after lease expiry."})
 )
 
-func WorkerHandler() http.Handler {
+func WorkerHandler(extra ...prometheus.Collector) http.Handler {
 	registry := prometheus.NewRegistry()
 	registry.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}),
-		polls, pollDuration, pollEntries, articleJobs, articleDuration, mlJobs, mlDuration, upstream, recovered)
+		polls, pollDuration, pollEntries, articleJobs, articleDuration, mlJobs, mlDuration, upstream, recovered, upstreamDuration, upstreamErrors)
+	registry.MustRegister(IOCollectors()...)
+	registry.MustRegister(extra...)
 	return promhttp.HandlerFor(registry, promhttp.HandlerOpts{})
 }
 

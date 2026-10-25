@@ -142,11 +142,13 @@ func sameHost(a, b *url.URL) bool {
 	return strings.EqualFold(a.Host, b.Host)
 }
 
-func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxBytes int64, etag, modified *string, allowedHost string) (Response, error) {
+func (f *SafeFetcher) fetch(ctx context.Context, u *url.URL, accept string, maxBytes int64, etag, modified *string, allowedHost string) (out Response, fetchErr error) {
 	upstreamName := "feed"
 	if allowedHost != "" {
 		upstreamName = "article"
 	}
+	started := time.Now()
+	defer func() { observability.UpstreamTiming(upstreamName, started, out.Status, fetchErr) }()
 	ctx, span := otel.Tracer("ingestion/feeds").Start(ctx, "http.fetch."+upstreamName)
 	defer span.End()
 	span.SetAttributes(attribute.String("server.address", u.Hostname()))

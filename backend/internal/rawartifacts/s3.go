@@ -59,7 +59,7 @@ func NewS3(ctx context.Context, cfg config.Config) (*S3, error) {
 			options.UsePathStyle = true
 		}
 	})
-	store := &S3{client: client, bucket: cfg.S3Bucket}
+	store := &S3{client: instrumentedS3{client}, bucket: cfg.S3Bucket}
 	store.SetRequestTimeout(cfg.Runtime.RawStorage.RequestTimeout.Std())
 	return store, nil
 }

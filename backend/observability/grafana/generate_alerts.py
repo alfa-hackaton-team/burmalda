@@ -3,6 +3,21 @@ from pathlib import Path
 
 
 def rule(uid, title, expression, threshold, pending, severity, panel, no_data="Alerting"):
+    references = {
+        1: ("ingestion-overview", "Воркеры"),
+        2: ("ingestion-sources", "Устарели"),
+        4: ("ingestion-sources", "Статей DEAD"),
+        5: ("ingestion-sources", "Возраст очереди"),
+        6: ("ingestion-overview", "Сбор БД"),
+        7: ("ingestion-sources", "Опросы по результату · в минуту"),
+        11: ("ingestion-http", "429 и 503 · за 30 минут"),
+        14: ("ingestion-ml", "Отставание"),
+        27: ("ingestion-s3", "Нет оригинала"),
+    }
+    dashboard_uid, panel_title = references[panel]
+    dashboards = [json.loads(path.read_text()) for path in (Path(__file__).parent / "dashboards").glob("*.json")]
+    dashboard = next(d for d in dashboards if d["uid"] == dashboard_uid)
+    panel_id = next(p["id"] for p in dashboard["panels"] if p["title"] == panel_title)
     return {
         "uid": uid,
         "title": title,
@@ -26,8 +41,8 @@ def rule(uid, title, expression, threshold, pending, severity, panel, no_data="A
         "for": pending,
         "labels": {"severity": severity, "component": "ingestion"},
         "annotations": {"summary": title},
-        "dashboardUid": "ingestion-overview",
-        "panelId": panel,
+        "dashboardUid": dashboard_uid,
+        "panelId": panel_id,
     }
 
 
