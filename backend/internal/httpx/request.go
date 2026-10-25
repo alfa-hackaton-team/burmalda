@@ -7,6 +7,7 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"reflect"
 	"strings"
 )
 
@@ -30,7 +31,7 @@ func DecodeJSONObject(w http.ResponseWriter, r *http.Request, destination any) b
 		return false
 	}
 	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || hasDuplicateJSONKey(trimmed) {
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || !validJSONFields(trimmed, reflect.TypeOf(destination)) {
 		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "request body must be one JSON object", false)
 		return false
 	}
@@ -69,13 +70,16 @@ func writeJSONDecodeError(w http.ResponseWriter, err error) {
 	WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid JSON body", false)
 }
 
-func hasDuplicateJSONKey(data []byte) bool {
+func validJSONFields(data []byte, destination reflect.Type) bool {
 	decoder := json.NewDecoder(bytes.NewReader(data))
-	duplicate, err := inspectJSONValue(decoder)
-	return err != nil || duplicate
+	invalid, err := inspectJSONValue(decoder, destination)
+	return err == nil && !invalid
 }
 
-func inspectJSONValue(decoder *json.Decoder) (bool, error) {
+func inspectJSONValue(decoder *json.Decoder, destination reflect.Type) (bool, error) {
+	for destination != nil && destination.Kind() == reflect.Pointer {
+		destination = destination.Elem()
+	}
 	token, err := decoder.Token()
 	if err != nil {
 		return false, err
@@ -87,6 +91,10 @@ func inspectJSONValue(decoder *json.Decoder) (bool, error) {
 	switch delimiter {
 	case '{':
 		keys := map[string]struct{}{}
+		var fields map[string]reflect.Type
+		if destination != nil && destination.Kind() == reflect.Struct {
+			fields = exactJSONFields(destination)
+		}
 		for decoder.More() {
 			keyToken, err := decoder.Token()
 			if err != nil {
@@ -100,7 +108,17 @@ func inspectJSONValue(decoder *json.Decoder) (bool, error) {
 				return true, nil
 			}
 			keys[key] = struct{}{}
-			duplicate, err := inspectJSONValue(decoder)
+			var fieldType reflect.Type
+			if fields != nil {
+				var exists bool
+				fieldType, exists = fields[key]
+				if !exists {
+					return true, nil
+				}
+			} else if destination != nil && destination.Kind() == reflect.Map {
+				fieldType = destination.Elem()
+			}
+			duplicate, err := inspectJSONValue(decoder, fieldType)
 			if err != nil || duplicate {
 				return duplicate, err
 			}
@@ -108,8 +126,12 @@ func inspectJSONValue(decoder *json.Decoder) (bool, error) {
 		_, err = decoder.Token()
 		return false, err
 	case '[':
+		var elementType reflect.Type
+		if destination != nil && (destination.Kind() == reflect.Slice || destination.Kind() == reflect.Array) {
+			elementType = destination.Elem()
+		}
 		for decoder.More() {
-			duplicate, err := inspectJSONValue(decoder)
+			duplicate, err := inspectJSONValue(decoder, elementType)
 			if err != nil || duplicate {
 				return duplicate, err
 			}
@@ -119,4 +141,65 @@ func inspectJSONValue(decoder *json.Decoder) (bool, error) {
 	default:
 		return false, errors.New("invalid JSON delimiter")
 	}
+}
+
+// Match encoding/json's embedded-field precedence, but never its case-insensitive
+// fallback. Map keys remain unrestricted; map values and array elements still
+// inherit the DTO type so nested structs receive the same exact-name check.
+func exactJSONFields(destination reflect.Type) map[string]reflect.Type {
+	type candidate struct {
+		typeOf reflect.Type
+		depth  int
+		tagged bool
+	}
+	candidates := map[string][]candidate{}
+	visiting := map[reflect.Type]bool{}
+	var collect func(reflect.Type, int)
+	collect = func(current reflect.Type, depth int) {
+		if visiting[current] {
+			return
+		}
+		visiting[current] = true
+		defer delete(visiting, current)
+		for index := 0; index < current.NumField(); index++ {
+			field := current.Field(index)
+			embeddedType := field.Type
+			if embeddedType.Kind() == reflect.Pointer {
+				embeddedType = embeddedType.Elem()
+			}
+			if field.PkgPath != "" && (!field.Anonymous || embeddedType.Kind() != reflect.Struct) {
+				continue
+			}
+			name := strings.Split(field.Tag.Get("json"), ",")[0]
+			if name == "-" {
+				continue
+			}
+			if field.Anonymous && name == "" && embeddedType.Kind() == reflect.Struct {
+				collect(embeddedType, depth+1)
+				continue
+			}
+			tagged := name != ""
+			if name == "" {
+				name = field.Name
+			}
+			candidates[name] = append(candidates[name], candidate{field.Type, depth, tagged})
+		}
+	}
+	collect(destination, 0)
+	fields := map[string]reflect.Type{}
+	for name, options := range candidates {
+		best := options[0]
+		count := 1
+		for _, option := range options[1:] {
+			if option.depth < best.depth || (option.depth == best.depth && option.tagged && !best.tagged) {
+				best, count = option, 1
+			} else if option.depth == best.depth && option.tagged == best.tagged {
+				count++
+			}
+		}
+		if count == 1 {
+			fields[name] = best.typeOf
+		}
+	}
+	return fields
 }
