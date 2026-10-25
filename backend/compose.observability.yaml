@@ -43,6 +43,13 @@ services:
       BACKEND_CONFIG_FILE: /app/config.yaml
       METRICS_ADDR: :19091
       OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+      RAW_STORAGE_BACKEND: ${RAW_STORAGE_BACKEND:-postgres}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_REGION: ${S3_REGION:-}
+      S3_ENDPOINT: ${S3_ENDPOINT:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
     depends_on:
       migrate:
         condition: service_completed_successfully

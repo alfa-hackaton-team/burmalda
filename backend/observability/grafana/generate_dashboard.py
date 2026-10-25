@@ -71,13 +71,29 @@ metric("Отсутствуют оригиналы в S3", "ingestion_raw_missing
 metric("Объекты S3 без ссылки", "ingestion_raw_orphan_objects", 8, 53, 8, 6, "stat", legend="")
 metric("Ошибки сверки S3 · за сутки", "increase(ingestion_raw_reconciliation_errors_total[24h]) or vector(0)", 16, 53, 8, 6, "stat", legend="", thresholds=1)
 
+storage_panel_start = len(panels)
+metric("PostgreSQL", 'ingestion_storage_used_bytes{storage="postgres"}', 0, 59, 6, 5, "stat", "bytes", "Размер текущей БД, включая таблицы, индексы и TOAST. Не включает WAL, резервные копии и другие БД. Не является занятостью диска.", "PostgreSQL")
+metric("S3 · объём", 'ingestion_storage_used_bytes{storage="s3"}', 6, 59, 6, 5, "stat", "bytes", "Сумма размеров текущих объектов всего настроенного bucket, включая объекты без ссылок из БД. Без старых версий, multipart-загрузок, репликации и накладных расходов диска. Без S3 панель пуста.", "S3")
+metric("Объекты S3", 'ingestion_storage_objects{storage="s3"}', 12, 59, 6, 5, "stat", "short", "Все текущие объекты bucket. При ошибке инвентаризации значение отсутствует, а не равно нулю.", "S3")
+metric("Сбор метрик", 'ingestion_storage_collection_up', 18, 59, 6, 5, "stat", "short", "1 — последний замер успешен; 0 — ошибка или замер ещё не завершён. Отсутствующая серия означает недоступный observer либо отключённый S3.", "{{storage}}")
+panels[-1]["fieldConfig"]["defaults"]["thresholds"] = {"mode": "absolute", "steps": [{"color": "red", "value": None}, {"color": "green", "value": 1}]}
+panels[-1]["fieldConfig"]["defaults"]["color"] = {"mode": "thresholds"}
+
+metric("Объём хранилищ", "ingestion_storage_used_bytes", 0, 64, 12, 8, unit="bytes", description="Замеры в фоне раз в storage_metrics.interval; Prometheus сохраняет историю. PostgreSQL и S3 измеряют разные виды объёма, их не следует суммировать.", legend="{{storage}}")
+metric("Изменение за сутки", "ingestion_storage_used_bytes - ingestion_storage_used_bytes offset 24h", 12, 64, 6, 8, "stat", "bytes", "Разница текущего объёма и объёма 24 часа назад; отрицательное значение означает уменьшение. До накопления суток истории данных нет.", "{{storage}}")
+metric("Возраст замера", "time() - ingestion_storage_last_success_timestamp_seconds", 18, 64, 6, 8, "stat", "s", "Время с последнего полного успешного замера. Позволяет заметить зависание или ошибки инвентаризации.", "{{storage}}")
+
+for panel in panels[storage_panel_start:]:
+    if panel["type"] == "stat":
+        panel["targets"][0].update({"instant": True, "range": False})
+
 panels.append({
     "id": len(panels) + 1,
     "title": "Источники",
     "description": "Первые 50 включённых источников, начиная с проблемных. Нулевая просрочка означает, что время следующего опроса ещё не наступило.",
     "type": "table",
     "datasource": POSTGRES,
-    "gridPos": {"x": 0, "y": 59, "w": 24, "h": 9},
+    "gridPos": {"x": 0, "y": 72, "w": 24, "h": 9},
     "targets": [{"refId": "A", "format": "table", "rawSql": "SELECT name AS \"Источник\", health AS \"Состояние\", round(extract(epoch from now()-coalesce(last_success_at,created_at)))::bigint AS \"Секунд без успеха\", greatest(round(extract(epoch from now()-next_poll_at))::bigint,0) AS \"Просрочено, с\", coalesce(last_error,'') AS \"Последняя ошибка\", id::text AS \"ID\" FROM sources WHERE enabled ORDER BY CASE WHEN health='HEALTHY' THEN 1 ELSE 0 END, last_success_at NULLS FIRST LIMIT 50"}],
     "fieldConfig": {"defaults": {}, "overrides": []},
     "options": {"showHeader": True},
@@ -89,7 +105,7 @@ panels.append({
     "description": "JSON-логи с идентификаторами poll_id, article_job_id, job_id и trace_id.",
     "type": "logs",
     "datasource": LOKI,
-    "gridPos": {"x": 0, "y": 68, "w": 18, "h": 9},
+    "gridPos": {"x": 0, "y": 81, "w": 18, "h": 9},
     "targets": [{"refId": "A", "expr": "{service_name=\"ingestion-worker\"}", "queryType": "range"}],
     "options": {"showTime": True, "showLabels": False, "showCommonLabels": False, "wrapLogMessage": True, "prettifyLogMessage": True, "enableLogDetails": True},
 })
@@ -98,7 +114,7 @@ panels.append({
     "id": len(panels) + 1,
     "title": "Трейсы",
     "type": "text",
-    "gridPos": {"x": 18, "y": 68, "w": 6, "h": 9},
+    "gridPos": {"x": 18, "y": 81, "w": 6, "h": 9},
     "options": {"mode": "markdown", "content": "### Где задержка?\n\nОткройте **Explore → Tempo** и найдите трассу по `trace_id` из лога или записи опроса.\n\nОпрос: `source.poll` → `http.fetch.feed` / `http.fetch.article`. Повтор статьи: `article.fetch_job`. ML: `ml.process_job` → `http.ml`. Это отдельные операции.\n\n[Открыть Explore](/explore)"},
 })
 

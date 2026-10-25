@@ -1369,6 +1369,336 @@
     },
     {
       "id": 30,
+      "title": "PostgreSQL",
+      "description": "Размер текущей БД, включая таблицы, индексы и TOAST. Не включает WAL, резервные копии и другие БД. Не является занятостью диска.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 59,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "ingestion_storage_used_bytes{storage=\"postgres\"}",
+          "legendFormat": "PostgreSQL",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 31,
+      "title": "S3 · объём",
+      "description": "Сумма размеров текущих объектов всего настроенного bucket, включая объекты без ссылок из БД. Без старых версий, multipart-загрузок, репликации и накладных расходов диска. Без S3 панель пуста.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 6,
+        "y": 59,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "ingestion_storage_used_bytes{storage=\"s3\"}",
+          "legendFormat": "S3",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 32,
+      "title": "Объекты S3",
+      "description": "Все текущие объекты bucket. При ошибке инвентаризации значение отсутствует, а не равно нулю.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 59,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "ingestion_storage_objects{storage=\"s3\"}",
+          "legendFormat": "S3",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 33,
+      "title": "Сбор метрик",
+      "description": "1 — последний замер успешен; 0 — ошибка или замер ещё не завершён. Отсутствующая серия означает недоступный observer либо отключённый S3.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 59,
+        "w": 6,
+        "h": 5
+      },
+      "targets": [
+        {
+          "expr": "ingestion_storage_collection_up",
+          "legendFormat": "{{storage}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 34,
+      "title": "Объём хранилищ",
+      "description": "Замеры в фоне раз в storage_metrics.interval; Prometheus сохраняет историю. PostgreSQL и S3 измеряют разные виды объёма, их не следует суммировать.",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 64,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "ingestion_storage_used_bytes",
+          "legendFormat": "{{storage}}",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      }
+    },
+    {
+      "id": 35,
+      "title": "Изменение за сутки",
+      "description": "Разница текущего объёма и объёма 24 часа назад; отрицательное значение означает уменьшение. До накопления суток истории данных нет.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 64,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "ingestion_storage_used_bytes - ingestion_storage_used_bytes offset 24h",
+          "legendFormat": "{{storage}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 36,
+      "title": "Возраст замера",
+      "description": "Время с последнего полного успешного замера. Позволяет заметить зависание или ошибки инвентаризации.",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "gridPos": {
+        "x": 18,
+        "y": 64,
+        "w": 6,
+        "h": 8
+      },
+      "targets": [
+        {
+          "expr": "time() - ingestion_storage_last_success_timestamp_seconds",
+          "legendFormat": "{{storage}}",
+          "refId": "A",
+          "instant": true,
+          "range": false
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "palette-classic"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      }
+    },
+    {
+      "id": 37,
       "title": "Источники",
       "description": "Первые 50 включённых источников, начиная с проблемных. Нулевая просрочка означает, что время следующего опроса ещё не наступило.",
       "type": "table",
@@ -1378,7 +1708,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 59,
+        "y": 72,
         "w": 24,
         "h": 9
       },
@@ -1398,7 +1728,7 @@
       }
     },
     {
-      "id": 31,
+      "id": 38,
       "title": "Логи воркера",
       "description": "JSON-логи с идентификаторами poll_id, article_job_id, job_id и trace_id.",
       "type": "logs",
@@ -1408,7 +1738,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 68,
+        "y": 81,
         "w": 18,
         "h": 9
       },
@@ -1429,12 +1759,12 @@
       }
     },
     {
-      "id": 32,
+      "id": 39,
       "title": "Трейсы",
       "type": "text",
       "gridPos": {
         "x": 18,
-        "y": 68,
+        "y": 81,
         "w": 6,
         "h": 9
       },

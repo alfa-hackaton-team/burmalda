@@ -60,3 +60,6 @@ retention:
   interval: 24h
 raw_storage:
   request_timeout: 30s
+storage_metrics:
+  interval: 1m
+  timeout: 30s

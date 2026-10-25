@@ -123,11 +123,13 @@ services:
     build: ./backend
     command: ["/app/observer"]
     environment:
-      <<: *db-env
+      <<: [*db-env, *s3-env]
       METRICS_ADDR: :19091
       OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      s3-init:
         condition: service_completed_successfully
     restart: unless-stopped
 
