@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpx"
 	"github.com/jackc/pgx/v5"
@@ -86,6 +88,7 @@ func Middleware(store Store, next http.Handler) http.Handler {
 			return
 		}
 		tokenHash := sha256.Sum256(token)
+		started := time.Now()
 		principal, err := store.Authenticate(r.Context(), tokenHash)
 		if err != nil {
 			if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
@@ -99,6 +102,7 @@ func Middleware(store Store, next http.Handler) http.Handler {
 			httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error", false)
 			return
 		}
+		w.Header().Add("Server-Timing", fmt.Sprintf("session;dur=%.3f", float64(time.Since(started).Microseconds())/1000))
 		ctx := context.WithValue(r.Context(), principalContextKey{}, principal)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})

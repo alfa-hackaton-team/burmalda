@@ -14,6 +14,7 @@ type PostgresStore struct {
 	corpus          *pgxpool.Pool
 	ml              MLClient
 	analysisVersion string
+	demoVersion     string
 	Settings        func() config.Runtime
 }
 

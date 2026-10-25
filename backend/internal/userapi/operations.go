@@ -19,7 +19,7 @@ import (
 func (s *PostgresStore) event(ctx context.Context, eventID string) (object, error) {
 	var data []byte
 	e := s.corpusPool().QueryRow(ctx, `SELECT jsonb_build_object('id',e.id,'event_type',e.event_type,'title',e.title,'summary',e.summary,'occurred_at',e.occurred_at,'geography',e.geography,'status',e.status,'confidence',e.confidence,'document_version_ids',
- (SELECT jsonb_agg(DISTINCT ed.document_version_id) FROM ml.event_documents ed JOIN ml.document_version_catalog d ON d.document_version_id=ed.document_version_id AND d.ready WHERE ed.event_id=e.id)) FROM ml.events e WHERE e.id=$1::uuid AND e.status<>'rejected'`, eventID).Scan(&data)
+ (SELECT jsonb_agg(DISTINCT ed.document_version_id ORDER BY ed.document_version_id) FROM ml.event_documents ed JOIN ml.document_version_catalog d ON d.document_version_id=ed.document_version_id AND d.ready WHERE ed.event_id=e.id)) FROM ml.events e WHERE e.id=$1::uuid AND e.status<>'rejected'`, eventID).Scan(&data)
 	var pe *pgconn.PgError
 	if errors.As(e, &pe) && (pe.Code == "42P01" || pe.Code == "3F000" || pe.Code == "42501") {
 		return nil, unavailable()
@@ -299,7 +299,7 @@ func (s *PostgresStore) runAnalysis(ctx context.Context) error {
 	var created time.Time
 	var attempts int
 	e := s.pool.QueryRow(ctx, `UPDATE request_operations SET state='RUNNING',lease_token=gen_random_uuid(),lease_until=now()+($1::double precision*interval '1 second'),attempts=attempts+1,updated_at=now()
- WHERE id=(SELECT id FROM request_operations WHERE state IN ('QUEUED','RUNNING') AND next_attempt_at<=now() AND(lease_until IS NULL OR lease_until<now()) ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
+ WHERE id=(SELECT id FROM request_operations WHERE demo_set_version IS NULL AND state IN ('QUEUED','RUNNING') AND next_attempt_at<=now() AND(lease_until IS NULL OR lease_until<now()) ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
  RETURNING id::text,lease_token::text,request_snapshot,ml_analysis_id,created_at,attempts`, s.settings().ML.Lease.Std().Seconds()).Scan(&gid, &token, &requestData, &mlID, &created, &attempts)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return errNoAnalysis

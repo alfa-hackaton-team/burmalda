@@ -90,6 +90,7 @@ func registerProduct(mux *http.ServeMux, store Store, key [32]byte) {
 		handler      func(context.Context, string, *http.Request) (any, int, error)
 	}{
 		{"POST", "/v0.1/auth/logout", h.logout}, {"GET", "/v0.1/feed", h.feed}, {"GET", "/v0.1/alerts", h.alerts},
+		{"GET", "/v0.1/contexts/{context_id}/insights", h.readyInsights},
 		{"POST", "/v0.1/insights", h.createInsight}, {"GET", "/v0.1/insights/{insight_id}", h.insight},
 		{"GET", "/v0.1/generations/{generation_id}", h.generation},
 		{"GET", "/v0.1/insights/{insight_id}/conversations", h.conversations},
@@ -114,6 +115,11 @@ func registerProduct(mux *http.ServeMux, store Store, key [32]byte) {
 				productError(w, r, unavailable())
 				return
 			}
+			started := time.Now()
+			var timing insightTiming
+			if path == "/v0.1/insights/{insight_id}" && method == "GET" {
+				r = r.WithContext(context.WithValue(r.Context(), insightTimingKey{}, &timing))
+			}
 			result, status, err := fn(r.Context(), p.UserID, r)
 			if err != nil {
 				productError(w, r, err)
@@ -129,6 +135,19 @@ func registerProduct(mux *http.ServeMux, store Store, key [32]byte) {
 				for _, name := range []string{"session_id", "csrf_token"} {
 					http.SetCookie(w, &http.Cookie{Name: name, Value: "", Path: "/", HttpOnly: name == "session_id", SameSite: http.SameSiteLaxMode, MaxAge: -1, Expires: time.Unix(1, 0)})
 				}
+			}
+			if path == "/v0.1/insights/{insight_id}" && method == "GET" {
+				serialStart := time.Now()
+				data, e := json.Marshal(result)
+				if e != nil {
+					productError(w, r, e)
+					return
+				}
+				w.Header().Add("Server-Timing", fmt.Sprintf("db;dur=%.3f, access;dur=%.3f, serialization;dur=%.3f, app;dur=%.3f", float64(timing.DB.Microseconds())/1000, float64(timing.Access.Microseconds())/1000, float64(time.Since(serialStart).Microseconds())/1000, float64(time.Since(started).Microseconds())/1000))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(status)
+				_, _ = w.Write(append(data, '\n'))
+				return
 			}
 			httpx.WriteJSON(w, status, result)
 		})
@@ -200,7 +219,7 @@ func contextFrom(ctx context.Context, db contextReader, user, contextID string) 
 	var status string
 	err := db.QueryRow(ctx, `SELECT c.subject_type,COALESCE(c.company_id::text,''),COALESCE(c.group_id::text,''),c.profile_id::text,c.role_code,p.version,p.profile_data,p.status
  FROM business_contexts c JOIN business_profiles p ON p.id=c.profile_id JOIN roles r ON r.code=c.role_code AND r.enabled
- WHERE c.id=$2::uuid AND EXISTS(SELECT 1 FROM context_access_grants g WHERE g.user_id=$1::uuid AND g.role_code=c.role_code AND g.revoked_at IS NULL AND(g.expires_at IS NULL OR g.expires_at>now()) AND((g.company_id=c.company_id AND c.subject_type='company') OR(g.group_id=c.group_id AND c.subject_type='group')))`, user, contextID).Scan(&kind, &company, &group, &profile, &role, &version, &data, &status)
+ WHERE c.id=$2::uuid AND EXISTS(SELECT 1 FROM users WHERE id=$1::uuid AND disabled_at IS NULL) AND EXISTS(SELECT 1 FROM context_access_grants g WHERE g.user_id=$1::uuid AND g.role_code=c.role_code AND g.revoked_at IS NULL AND(g.expires_at IS NULL OR g.expires_at>now()) AND((g.company_id=c.company_id AND c.subject_type='company') OR(g.group_id=c.group_id AND c.subject_type='group')))`, user, contextID).Scan(&kind, &company, &group, &profile, &role, &version, &data, &status)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, fail(403, "FORBIDDEN_CONTEXT", "context is not available")
 	}
@@ -269,3 +288,6 @@ func pageLimit(r *http.Request) (int, error) {
 	}
 	return n, nil
 }
+
+type insightTimingKey struct{}
+type insightTiming struct{ DB, Access time.Duration }

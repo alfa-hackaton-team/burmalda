@@ -344,6 +344,38 @@ paths:
           возвращают прежнее выполнение или результат, другие параметры дают 409.
           Доступ проверяется повторно.
       - "$ref": "#/components/parameters/CsrfToken"
+  "/v0.1/contexts/{context_id}/insights":
+    get:
+      operationId: listPreparedInsights
+      tags: [Insights]
+      summary: До 100 готовых insights текущего фиксированного demo-набора
+      description: Только сохранённые SUCCEEDED результаты владельца с действующим grant и совпадающим профилем. Пустой список не запускает ML. Версия набора задаётся сервером DEMO_INSIGHT_SET_VERSION.
+      parameters:
+      - name: context_id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Готовые карточки; items может быть пустым
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/PreparedInsightList"
+        '401':
+          description: Нет действующей сессии
+        '403':
+          description: Нет действующего context grant
+        '409':
+          description: Профиль не готов
+        default:
+          description: Единая ошибка API
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
   "/v0.1/insights/{insight_id}":
     get:
       operationId: getInsight
