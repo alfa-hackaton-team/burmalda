@@ -10,7 +10,9 @@ from typing import Any
 from ml.adapters.in_memory import InMemoryRetriever
 
 from ml_runtime.agent import AnalysisAgent
+from ml_runtime.model_policy import DEFAULT_VERIFIER_MODEL
 from ml_runtime.search_plan import FixtureSearchPlanner
+from ml_runtime.semantic_verifier import LLMSemanticVerifier
 from ml_runtime.service import AnalysisService
 
 
@@ -47,11 +49,38 @@ class FixtureModelClient:
         return response
 
 
+class HallucinatingTwoPassClient(FixtureModelClient):
+    """Inject an unsupported amount, then reject it in the verifier pass."""
+
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def generate_json(self, *, input_payload: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+        self.calls += 1
+        if "claim_records" in input_payload:
+            claim_id = input_payload["claim_records"][0]["claim"]["id"]
+            return {
+                "claim_checks": [{
+                    "claim_id": claim_id,
+                    "supported": False,
+                    "reason": "The cited evidence does not state the invented amount.",
+                }],
+                "unattributed_assertions": [],
+                "overall_supported": False,
+            }
+
+        response = super().generate_json(input_payload=input_payload, **kwargs)
+        claim = response["insight"]["claims"][0]
+        claim["claim_text"] = "У компании 10 млн рублей свободных средств."
+        response["insight"]["summary"] = claim["claim_text"]
+        return response
+
+
 class AnalysisContractIntegrationTests(unittest.TestCase):
     def setUp(self) -> None:
         agent = AnalysisAgent(
             FixtureModelClient(),
-            semantic_verifier=lambda _request, _response, _chunks: (True, None),
+            semantic_verifier=lambda _request, _response, _chunks, _timeout: (True, None),
         )
         self.service = AnalysisService(
             retriever=InMemoryRetriever.from_fixtures(),
@@ -92,7 +121,7 @@ class AnalysisContractIntegrationTests(unittest.TestCase):
             retriever=InMemoryRetriever.from_fixtures(),
             agent=AnalysisAgent(
                 FixtureModelClient(),
-                semantic_verifier=lambda _request, _response, _chunks: (
+                semantic_verifier=lambda _request, _response, _chunks, _timeout: (
                     False, "Claim is not supported by its cited quote"
                 ),
             ),
@@ -103,6 +132,24 @@ class AnalysisContractIntegrationTests(unittest.TestCase):
 
         self.assertEqual(response["status"], "failed")
         self.assertEqual(response["error"]["code"], "VERIFICATION_FAILED")
+
+    def test_second_model_pass_rejects_invented_amount_before_publication(self) -> None:
+        client = HallucinatingTwoPassClient()
+        service = AnalysisService(
+            retriever=InMemoryRetriever.from_fixtures(),
+            agent=AnalysisAgent(
+                client,
+                semantic_verifier=LLMSemanticVerifier(client, DEFAULT_VERIFIER_MODEL),
+            ),
+            planner=FixtureSearchPlanner(FIXTURES),
+        )
+
+        response = service.analyze(load_fixture("analysis.request.json"))
+
+        self.assertEqual(response["status"], "failed")
+        self.assertEqual(response["error"]["code"], "VERIFICATION_FAILED")
+        self.assertIsNone(response["insight"])
+        self.assertEqual(client.calls, 2)
 
 
 if __name__ == "__main__":

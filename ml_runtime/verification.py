@@ -13,7 +13,7 @@ class OutputVerificationError(ValueError):
 
 
 SemanticVerifier = Callable[
-    [dict[str, Any], dict[str, Any], list[dict[str, Any]]], tuple[bool, str | None]
+    [dict[str, Any], dict[str, Any], list[dict[str, Any]], float], tuple[bool, str | None]
 ]
 
 
@@ -28,6 +28,7 @@ def verify_analysis_response(
     response: dict[str, Any],
     chunks: list[dict[str, Any]],
     semantic_verifier: SemanticVerifier | None = None,
+    semantic_timeout_seconds: float = 25.0,
 ) -> VerificationReport:
     """Validate schema, request/response identity, IDs, support and exact quotes.
 
@@ -101,7 +102,9 @@ def verify_analysis_response(
         raise OutputVerificationError(
             "A semantic verifier is required before a successful analysis can be published"
         )
-    valid, explanation = semantic_verifier(request, response, chunks)
+    valid, explanation = semantic_verifier(
+        request, response, chunks, semantic_timeout_seconds
+    )
     if not valid:
         raise OutputVerificationError(explanation or "semantic verifier rejected the response")
     return VerificationReport(True, ())

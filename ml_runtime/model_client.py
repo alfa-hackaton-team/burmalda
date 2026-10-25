@@ -11,7 +11,7 @@ from urllib.parse import urlsplit
 from openai import APIConnectionError, APIStatusError, APITimeoutError, OpenAI
 
 from .agent import AnalysisAgent, ModelCallError
-from .model_policy import DEFAULT_AGENT_MODEL, require_allowed_model
+from .model_policy import DEFAULT_AGENT_MODEL, DEFAULT_VERIFIER_MODEL, require_allowed_model
 
 
 DEFAULT_BASE_URL = "https://changellenge.up.railway.app/v1"
@@ -123,7 +123,14 @@ def create_agent_from_env() -> AnalysisAgent:
     model_name = require_allowed_model(
         os.environ.get("ML_LLM_MODEL", DEFAULT_AGENT_MODEL).strip()
     )
+    verifier_model_name = require_allowed_model(
+        os.environ.get("ML_LLM_VERIFIER_MODEL", DEFAULT_VERIFIER_MODEL).strip()
+    )
+    client = OpenAICompatibleModelClient(api_key=api_key, base_url=base_url)
+    from .semantic_verifier import LLMSemanticVerifier
+
     return AnalysisAgent(
-        OpenAICompatibleModelClient(api_key=api_key, base_url=base_url),
+        client,
         model_name=model_name,
+        semantic_verifier=LLMSemanticVerifier(client, verifier_model_name),
     )

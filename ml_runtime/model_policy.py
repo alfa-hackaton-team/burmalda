@@ -15,6 +15,8 @@ ALLOWED_MODELS = frozenset({
 # The task is business-event analysis and explanation, which the appendix
 # assigns to models intended for deeper analysis and reasoning.
 DEFAULT_AGENT_MODEL = "z-ai/glm-5.3-flash"
+# Use a different allowlisted model for the second-pass evidence entailment check.
+DEFAULT_VERIFIER_MODEL = "qwen/qwen3.6-35b-a3b"
 
 
 def require_allowed_model(model_name: str) -> str:

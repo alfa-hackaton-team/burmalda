@@ -7,6 +7,7 @@ It deliberately contains no provider SDK or credentials.
 
 from __future__ import annotations
 
+from time import monotonic
 from typing import Any, Protocol
 from uuid import uuid4
 from .analysis_validation import AnalysisRequestError, validate_analysis_request, validate_contract_message
@@ -77,6 +78,7 @@ class AnalysisAgent:
         chunks: list[dict[str, Any]],
         timeout_seconds: float = 90.0,
     ) -> dict[str, Any]:
+        started = monotonic()
         validate_analysis_request(request)
         _validate_chunk_set(request, chunks)
         if timeout_seconds <= 0:
@@ -106,10 +108,20 @@ class AnalysisAgent:
             raise AgentExecutionError("model response analysis_run_id does not match assigned run", "VERIFICATION_FAILED")
         try:
             report = verify_analysis_response(
-                request, response, chunks, self.semantic_verifier
+                request,
+                response,
+                chunks,
+                self.semantic_verifier,
+                semantic_timeout_seconds=max(0.1, timeout_seconds - (monotonic() - started)),
             )
+        except ModelCallError as exc:
+            raise AgentExecutionError(str(exc), exc.code, exc.retryable) from exc
         except OutputVerificationError as exc:
             raise AgentExecutionError(str(exc), "VERIFICATION_FAILED", False) from exc
+        except Exception as exc:
+            raise AgentExecutionError(
+                "Semantic verification could not be completed.", "VERIFICATION_FAILED", True
+            ) from exc
         response["warnings"].extend(report.warnings)
         return response
 
