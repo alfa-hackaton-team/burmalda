@@ -44,6 +44,11 @@ func ParseFeedAdapterConfig(raw json.RawMessage) (FeedAdapterConfig, error) {
 	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return FeedAdapterConfig{}, fmt.Errorf("%w: invalid rss/atom adapter_config", ErrInvalid)
 	}
+	for name := range fields {
+		if name != "article_html" && name != "article_container_id" && name != "article_exclude_classes" {
+			return FeedAdapterConfig{}, fmt.Errorf("%w: unknown adapter_config field", ErrInvalid)
+		}
+	}
 	for _, name := range []string{"article_html", "article_container_id", "article_exclude_classes"} {
 		if value, ok := fields[name]; ok && bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
 			return FeedAdapterConfig{}, fmt.Errorf("%w: %s must not be null", ErrInvalid, name)

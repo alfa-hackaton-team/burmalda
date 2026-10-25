@@ -101,6 +101,7 @@ jobs:
       - run: python -m pip install -r docs/ml/requirements-validation.txt
       - name: Validate ML and HTTP contracts
         run: |
+          python backend/internal/apicontract/generate.py --check
           python docs/ml/scripts/check_ml_contracts.py --full
           python docs/ml/scripts/check_api_contracts.py
           python backend/testdata/ml-payloads/validate.py
