@@ -1217,19 +1217,17 @@ components:
       properties:
         article_id:
           type: string
-          minLength: 1
-          description: Идентификатор предметной области со скрытой внутренней структурой;
-            не исходный ключ набора и не обязательный UUID в БД.
+          format: uuid
+        version_no:
+          type: integer
+          minimum: 1
+          description: Возрастающий номер сохранённой версии внутри article_id; при повторной доставке не меняется.
         article_version_id:
           type: string
-          minLength: 1
-          description: Идентификатор предметной области со скрытой внутренней структурой;
-            не исходный ключ набора и не обязательный UUID в БД.
+          format: uuid
         source_id:
           type: string
-          minLength: 1
-          description: Идентификатор предметной области со скрытой внутренней структурой;
-            не исходный ключ набора и не обязательный UUID в БД.
+          format: uuid
         external_id:
           type: string
         canonical_url:
@@ -1258,7 +1256,7 @@ components:
           type: string
         raw_ref:
           type: string
-          minLength: 1
+          pattern: '^raw-artifact:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
         content_hash:
           type: string
           pattern: '^[0-9a-f]{64}$'
@@ -1280,6 +1278,7 @@ components:
       additionalProperties: false
       required:
       - article_id
+      - version_no
       - article_version_id
       - source_id
       - title

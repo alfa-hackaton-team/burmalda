@@ -39,7 +39,8 @@ func (s *Store) Export(ctx context.Context, o ExportOptions) ([]map[string]any, 
  CASE WHEN j.id IS NOT NULL THEN j.external_id WHEN ss.article_version_id IS NOT NULL THEN ss.external_id WHEN history.id IS NOT NULL THEN history.external_id ELSE a.external_id END,
  CASE WHEN j.id IS NOT NULL THEN j.canonical_url WHEN ss.article_version_id IS NOT NULL THEN ss.canonical_url WHEN history.id IS NOT NULL THEN history.canonical_url ELSE a.canonical_url END,
  COALESCE(j.source_snapshot_origin,ss.capture_origin,history.source_snapshot_origin,'CAPTURED_AT_ENQUEUE'),
- v.text_origin,v.extraction_method,v.extraction_issues,j.id::text,r.sha256,r.content_type,r.size_bytes,octet_length(v.body_text), CASE WHEN j.id IS NOT NULL THEN j.delivery_extraction ELSE jsonb_build_object('text_origin',v.text_origin,'extraction_issues',v.extraction_issues) END
+ v.text_origin,v.extraction_method,v.extraction_issues,j.id::text,r.sha256,r.content_type,r.size_bytes,octet_length(v.body_text), CASE WHEN j.id IS NOT NULL THEN j.delivery_extraction ELSE jsonb_build_object('text_origin',v.text_origin,'extraction_issues',v.extraction_issues) END,
+ CASE WHEN j.id IS NOT NULL THEN j.delivery_version_no ELSE v.version_no END
  FROM article_versions v JOIN raw_artifacts r ON r.id=v.raw_artifact_id JOIN articles a ON a.id=v.article_id JOIN sources src ON src.id=v.source_id
  LEFT JOIN article_version_source_snapshots ss ON ss.article_version_id=v.id
  LEFT JOIN processing_jobs j ON j.article_version_id=v.id AND j.pipeline_version=$1
@@ -67,7 +68,7 @@ func (s *Store) Export(ctx context.Context, o ExportOptions) ([]map[string]any, 
 		j := &sample.job
 		if err = rows.Scan(&j.VersionID, &j.ArticleID, &j.SourceID, &j.Title, &j.Body, &j.ContentHash, &j.RawArtifactID,
 			&j.Language, &j.Author, &j.PublishedAt, &j.FetchedAt, &j.Metadata, &j.SourceName, &j.SourceType, &j.SourceRole, &j.TrustLevel, &j.SourceConfigVersion,
-			&j.ExternalID, &j.CanonicalURL, &sample.origin, &sample.textOrigin, &sample.method, &sample.issues, &id, &sample.rawSHA, &sample.rawType, &sample.rawSize, &sample.textBytes, &j.DeliveryExtraction); err != nil {
+			&j.ExternalID, &j.CanonicalURL, &sample.origin, &sample.textOrigin, &sample.method, &sample.issues, &id, &sample.rawSHA, &sample.rawType, &sample.rawSize, &sample.textBytes, &j.DeliveryExtraction, &j.VersionNo); err != nil {
 			return nil, err
 		}
 		j.PipelineVersion = o.PipelineVersion

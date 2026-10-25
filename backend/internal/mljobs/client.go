@@ -130,6 +130,9 @@ func (c Client) post(ctx context.Context, job Job) Result {
 }
 
 func RequestPayload(job Job) ([]byte, error) {
+	if job.VersionNo != nil && *job.VersionNo <= 0 {
+		return nil, fmt.Errorf("article version number must be positive")
+	}
 	if len(job.DeliveryExtraction) != 0 {
 		metadata, err := deliveryMetadata(job)
 		if err != nil {
@@ -146,6 +149,9 @@ func RequestPayload(job Job) ([]byte, error) {
 	}
 	if job.ExternalID != nil {
 		article["external_id"] = *job.ExternalID
+	}
+	if job.VersionNo != nil {
+		article["version_no"] = *job.VersionNo
 	}
 	if job.CanonicalURL != nil {
 		article["canonical_url"] = *job.CanonicalURL

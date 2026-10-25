@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/authn"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpx"
@@ -61,11 +60,6 @@ type contextCursor struct {
 	AfterID   string `json:"after_id"`
 }
 
-type HTTPOptions struct {
-	RequestTimeout time.Duration
-	MaxBodyBytes   int64
-}
-
 func ParseCursorSigningKey(value string) ([sha256.Size]byte, error) {
 	var key [sha256.Size]byte
 	decoded, err := base64.StdEncoding.DecodeString(strings.TrimSpace(value))
@@ -79,22 +73,22 @@ func ParseCursorSigningKey(value string) ([sha256.Size]byte, error) {
 func Handler(store Store, cursorSigningKey [sha256.Size]byte) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v0.1/me", getMe)
+	mux.HandleFunc("/v0.1/me", methodNotAllowed(http.MethodGet+", "+http.MethodHead))
 	mux.HandleFunc("GET /v0.1/contexts", func(w http.ResponseWriter, r *http.Request) {
 		listContexts(w, r, store, cursorSigningKey)
+	})
+	mux.HandleFunc("/v0.1/contexts", methodNotAllowed(http.MethodGet+", "+http.MethodHead))
+	mux.HandleFunc("/v0.1/", func(w http.ResponseWriter, _ *http.Request) {
+		httpx.WriteError(w, http.StatusNotFound, "NOT_FOUND", "resource not found", false)
 	})
 	return mux
 }
 
-func ProtectHTTP(next http.Handler, options HTTPOptions) http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Cache-Control", "no-store")
-		if r.Body != nil {
-			r.Body = http.MaxBytesReader(w, r.Body, options.MaxBodyBytes)
-		}
-		ctx, cancel := context.WithTimeout(r.Context(), options.RequestTimeout)
-		defer cancel()
-		next.ServeHTTP(w, r.WithContext(ctx))
-	})
+func methodNotAllowed(allow string) http.HandlerFunc {
+	return func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Allow", allow)
+		httpx.WriteError(w, http.StatusMethodNotAllowed, "VALIDATION_ERROR", "method not allowed", false)
+	}
 }
 
 func getMe(w http.ResponseWriter, r *http.Request) {

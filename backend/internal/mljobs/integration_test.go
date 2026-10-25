@@ -513,6 +513,9 @@ func TestExtractionSnapshotSurvivesVersionChangesAndRetry(t *testing.T) {
 	store := NewStore(db)
 	queueVersion(t, store, version)
 	first := claimJob(t, store)
+	if first.VersionNo == nil || *first.VersionNo != 1 {
+		t.Fatalf("missing saved version number: %+v", first.VersionNo)
+	}
 	original, err := RequestPayload(first)
 	if err != nil {
 		t.Fatal(err)
@@ -524,6 +527,9 @@ func TestExtractionSnapshotSurvivesVersionChangesAndRetry(t *testing.T) {
 		t.Fatal(err)
 	}
 	second := claimJob(t, store)
+	if second.VersionNo == nil || *second.VersionNo != *first.VersionNo {
+		t.Fatal("version number changed on redelivery")
+	}
 	replay, err := RequestPayload(second)
 	if err != nil || string(original) != string(replay) {
 		t.Fatalf("request changed: %v\n%s\n%s", err, original, replay)
@@ -538,6 +544,65 @@ func TestExtractionSnapshotSurvivesVersionChangesAndRetry(t *testing.T) {
 	}
 	if err = json.Unmarshal(replay, &request); err != nil || request.Article.Metadata.Method != "full_article" || len(request.Article.Metadata.Errors) != 0 {
 		t.Fatalf("unexpected request %s %v", replay, err)
+	}
+}
+
+func TestVersionNumberMigrationPreservesAttemptedRequests(t *testing.T) {
+	db := emptyIntegrationPool(t)
+	ctx := context.Background()
+	applyMigrationsBefore(t, db, "_ml_version_number.sql")
+	_, version := savedVersion(t, db, "Legacy body", true)
+	for _, attempts := range []int{0, 1} {
+		pipeline := fmt.Sprintf("pipeline-%d", attempts)
+		if _, err := db.Exec(ctx, `INSERT INTO processing_jobs(article_version_id,dedupe_key,pipeline_version,source_name,source_type,source_role,source_trust_level,source_config_version,attempts)
+ VALUES($1::uuid,$1::text||':'||$2,$2,'Publisher','news','external','reviewed',1,$3)`, version, pipeline, attempts); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := migrate.Run(ctx, db); err != nil {
+		t.Fatal(err)
+	}
+	for _, attempts := range []int{0, 1} {
+		var number *int
+		if err := db.QueryRow(ctx, `SELECT delivery_version_no FROM processing_jobs WHERE pipeline_version=$1`, fmt.Sprintf("pipeline-%d", attempts)).Scan(&number); err != nil {
+			t.Fatal(err)
+		}
+		if attempts == 0 && (number == nil || *number != 1) || attempts == 1 && number != nil {
+			t.Fatalf("unsafe backfill attempts=%d number=%v", attempts, number)
+		}
+	}
+}
+
+func TestEveryStoredVersionKeepsItsOwnNumber(t *testing.T) {
+	db := integrationPool(t)
+	ctx := context.Background()
+	_, first := savedVersion(t, db, "First version", true)
+	second := uuid.NewString()
+	if _, err := db.Exec(ctx, `INSERT INTO article_versions(id,source_id,article_id,version_no,content_hash,parser_version,title,body_text,fetched_at,raw_artifact_id,text_origin)
+ SELECT $2::uuid,source_id,article_id,2,repeat('a',64),parser_version,title,'Second version',now(),raw_artifact_id,text_origin FROM article_versions WHERE id=$1::uuid`, first, second); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(ctx, `UPDATE articles SET latest_version_id=$2::uuid WHERE latest_version_id=$1::uuid`, first, second); err != nil {
+		t.Fatal(err)
+	}
+	store := NewStore(db)
+	queueVersion(t, store, first)
+	queueVersion(t, store, second)
+	seen := map[string]int{}
+	for range 2 {
+		job := claimJob(t, store)
+		if job.VersionNo == nil {
+			t.Fatal("missing version number")
+		}
+		seen[job.VersionID] = *job.VersionNo
+		for _, id := range []string{job.ArticleID, job.VersionID, job.SourceID, job.RawArtifactID} {
+			if _, err := uuid.Parse(id); err != nil {
+				t.Fatalf("non-UUID identifier %q: %v", id, err)
+			}
+		}
+	}
+	if seen[first] != 1 || seen[second] != 2 {
+		t.Fatalf("versions lost or renumbered: %v", seen)
 	}
 }
 
