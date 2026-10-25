@@ -11,10 +11,10 @@ from uuid import UUID, uuid4
 from .article_processing import ArticleProcessingInput
 from .event_extraction import (
     CandidateEvent,
-    EventChunkProvider,
     EventExtractionResult,
     LLMEventExtractor,
 )
+from .operations import IndexedArticleVersion
 
 
 class EventCandidateStore(Protocol):
@@ -141,23 +141,21 @@ class ML2EventProcessor:
         self,
         extractor: LLMEventExtractor,
         store: EventCandidateStore,
-        chunk_provider: EventChunkProvider,
     ) -> None:
         self.extractor = extractor
         self.store = store
-        self.chunk_provider = chunk_provider
 
-    def process(self, request: ArticleProcessingInput, document_version_id: str) -> list[str]:
+    def process(self, request: ArticleProcessingInput, indexed: IndexedArticleVersion) -> list[str]:
+        document_version_id = indexed.document_version_id
         if document_version_id != request.article["article_version_id"]:
             raise ValueError("event processing document_version_id must match article_version_id")
         config_version = self.extractor.event_pipeline_config_version
         prior = self.store.get_saved_event_ids(document_version_id, config_version)
         if prior is not None:
             return prior
-        chunks = self.chunk_provider.get_chunks(document_version_id)
-        if not chunks:
+        if not indexed.chunks:
             raise RuntimeError("ML1 returned no indexed chunks for the document version")
-        result = self.extractor.extract(request, chunks=chunks)
+        result = self.extractor.extract(request, chunks=list(indexed.chunks))
         if result.document_version_id != document_version_id:
             raise ValueError("event extraction result document_version_id does not match input")
         if result.event_pipeline_config_version != config_version:

@@ -7,7 +7,12 @@ import unittest
 from fastapi.testclient import TestClient
 
 from ml_runtime.article_processing_api import create_article_processing_app
-from ml_runtime.operations import ArticleProcessingCoordinator, InMemoryOperationStore
+from ml_runtime.event_extraction import EventTextChunk
+from ml_runtime.operations import (
+    ArticleProcessingCoordinator,
+    InMemoryOperationStore,
+    IndexedArticleVersion,
+)
 from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, payload
 
 
@@ -29,11 +34,14 @@ class FakeQualityGate:
 
 class FakeIndexer:
     def index(self, request):
-        return request.article["article_version_id"]
+        return IndexedArticleVersion(
+            request.article["article_version_id"],
+            (EventTextChunk("fixture-chunk", request.article["body"]),),
+        )
 
 
 class FakeEventProcessor:
-    def process(self, request, document_version_id):
+    def process(self, request, indexed):
         return []
 
 

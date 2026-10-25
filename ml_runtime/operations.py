@@ -13,6 +13,7 @@ from typing import Any, Protocol
 from uuid import uuid4
 
 from .article_processing import ArticleProcessingInput, ProcessingContractError
+from .event_extraction import EventTextChunk
 from .quality_gate import DocumentQualityGate
 
 
@@ -145,16 +146,40 @@ class InMemoryOperationStore:
             return operation
 
 
-class Indexer(Protocol):
-    """ML1 stage: return only after chunks and embeddings are searchable."""
+@dataclass(frozen=True)
+class IndexedArticleVersion:
+    """ML1 result passed directly to ML2 after indexing is ready."""
 
-    def index(self, request: ArticleProcessingInput) -> str: ...
+    document_version_id: str
+    chunks: tuple[EventTextChunk, ...]
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.document_version_id, str) or not self.document_version_id.strip():
+            raise ValueError("indexed article requires a document_version_id")
+        if not isinstance(self.chunks, tuple) or not self.chunks:
+            raise ValueError("indexed article requires a non-empty chunk tuple")
+        if any(
+            not isinstance(chunk, EventTextChunk)
+            or not chunk.chunk_id.strip()
+            or not chunk.text.strip()
+            for chunk in self.chunks
+        ):
+            raise ValueError("indexed article chunks require non-empty IDs and text")
+        chunk_ids = [chunk.chunk_id for chunk in self.chunks]
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise ValueError("indexed article contains duplicate chunk IDs")
+
+
+class Indexer(Protocol):
+    """ML1 stage: index the version and return its searchable chunks to ML2."""
+
+    def index(self, request: ArticleProcessingInput) -> IndexedArticleVersion: ...
 
 
 class EventProcessor(Protocol):
     """ML2 stage: persist event updates and return their stable identifiers."""
 
-    def process(self, request: ArticleProcessingInput, document_version_id: str) -> list[str]: ...
+    def process(self, request: ArticleProcessingInput, indexed: IndexedArticleVersion) -> list[str]: ...
 
 
 @dataclass
@@ -224,12 +249,15 @@ class ArticleProcessingCoordinator:
                     },
                     quality_result=quality_result,
                 ).to_wire()
-            document_version_id = self.indexer.index(request)
+            indexed = self.indexer.index(request)
+            if not isinstance(indexed, IndexedArticleVersion):
+                raise RuntimeError("ML1 indexer returned an invalid indexed article result")
+            document_version_id = indexed.document_version_id
             if not isinstance(document_version_id, str) or not document_version_id.strip():
                 raise RuntimeError("ML1 indexer returned no document_version_id")
             if document_version_id != request.article["article_version_id"]:
                 raise RuntimeError("ML1 document_version_id does not match the submitted article_version_id")
-            event_ids = self.event_processor.process(request, document_version_id)
+            event_ids = self.event_processor.process(request, indexed)
             if not isinstance(event_ids, list) or any(not isinstance(item, str) or not item.strip() for item in event_ids):
                 raise RuntimeError("ML2 event processor returned invalid event_ids")
         except Exception:

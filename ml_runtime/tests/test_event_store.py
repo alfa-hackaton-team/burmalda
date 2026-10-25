@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from ml_runtime.event_extraction import CandidateEvent, EventExtractionResult, EventTextChunk
 from ml_runtime.event_store import ML2EventProcessor, PostgresEventStore
+from ml_runtime.operations import IndexedArticleVersion
 from ml_runtime.migrate import apply_migrations
 from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, payload
 from ml_runtime.article_processing import parse_article_processing
@@ -66,13 +67,13 @@ class EventResultBoundaryTests(unittest.TestCase):
                 return ["event-id-1"]
 
         store = Store()
-        class ChunkProvider:
-            def get_chunks(self, document_version_id):
-                return [EventTextChunk("chunk-1", "Новые договоры продукта X заключаются по обновленным условиям.")]
+        processor = ML2EventProcessor(Extractor(), store)
 
-        processor = ML2EventProcessor(Extractor(), store, ChunkProvider())
-
-        result = processor.process(request, request.article["article_version_id"])
+        indexed = IndexedArticleVersion(
+            request.article["article_version_id"],
+            (EventTextChunk("chunk-1", "Новые договоры продукта X заключаются по обновленным условиям."),),
+        )
+        result = processor.process(request, indexed)
 
         self.assertEqual(result, ["event-id-1"])
         self.assertEqual(store.saved.document_version_id, request.article["article_version_id"])
@@ -87,7 +88,9 @@ class EventResultBoundaryTests(unittest.TestCase):
             supported_pipeline_versions={PIPELINE_VERSION},
         )
         with self.assertRaisesRegex(ValueError, "must match"):
-            ML2EventProcessor(None, None, None).process(request, str(uuid4()))
+            ML2EventProcessor(None, None).process(
+                request, IndexedArticleVersion(str(uuid4()), (EventTextChunk("chunk", "text"),))
+            )
 
 
 @unittest.skipUnless(DATABASE_URL, "Set ML_TEST_DATABASE_URL to an isolated PostgreSQL test database")

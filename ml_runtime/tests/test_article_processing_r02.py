@@ -6,7 +6,12 @@ import unittest
 from typing import Any
 
 from ml_runtime.article_processing import ProcessingContractError, parse_article_processing
-from ml_runtime.operations import ArticleProcessingCoordinator, InMemoryOperationStore
+from ml_runtime.event_extraction import EventTextChunk
+from ml_runtime.operations import (
+    ArticleProcessingCoordinator,
+    InMemoryOperationStore,
+    IndexedArticleVersion,
+)
 
 
 SOURCE_ID = "10000000-0000-4000-8000-000000000001"
@@ -78,14 +83,17 @@ class FakeIndexer:
 
     def index(self, request):
         self.calls.append("index")
-        return self.document_version_id or request.article["article_version_id"]
+        return IndexedArticleVersion(
+            self.document_version_id or request.article["article_version_id"],
+            (EventTextChunk("fixture-chunk", request.article["body"] or "fixture"),),
+        )
 
 
 class FakeEventProcessor:
     def __init__(self, calls: list[str]) -> None:
         self.calls = calls
 
-    def process(self, request, document_version_id):
+    def process(self, request, indexed):
         self.calls.append("events")
         return []
 

@@ -13,7 +13,7 @@ LLMEventExtractor.extract(
 ) -> EventExtractionResult
 ```
 
-`EventChunkProvider` supplies chunks for the same `document_version_id` after ML1 indexing. Each evidence quote must be an exact substring of a supplied chunk. `chunks=None` is only a fixture fallback; `ML2EventProcessor` requires a provider and rejects an empty chunk list, so persisted production evidence has real chunk IDs.
+After ML1 indexing, `Indexer.index()` returns `IndexedArticleVersion(document_version_id, chunks)` to `ArticleProcessingCoordinator`, which passes that same value to ML2. Each evidence quote must be an exact substring of a supplied chunk and is linked to every matching `chunk_id`. The standalone extractor accepts `chunks=None` only for fixture use; the coordinator rejects an empty chunk list, so persisted production evidence has real chunk IDs.
 
 ## Result DTO
 

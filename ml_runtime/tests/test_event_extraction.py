@@ -67,7 +67,7 @@ class EventExtractionTests(unittest.TestCase):
     def test_empty_event_list_is_valid(self):
         client = FakeClient({"events": []})
         extractor = LLMEventExtractor(client)
-        self.assertEqual(extractor.extract(self.request), [])
+        self.assertEqual(extractor.extract(self.request).events, ())
         self.assertEqual(len(client.calls), 1)
 
     def test_rejects_quote_not_found_in_saved_body(self):
