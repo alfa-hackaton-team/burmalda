@@ -21,7 +21,8 @@ StopCondition = Callable[[Sequence[dict[str, Any]], Sequence[dict[str, Any]]], b
 @dataclass(frozen=True)
 class SearchLimits:
     max_search_calls: int = 6
-    max_seconds_per_search: float = 10.0
+    # Production Top-20 reranking measured 15–19 s; keep transport/model margin.
+    max_seconds_per_search: float = 30.0
     max_seconds_per_analysis: float = 90.0
     max_technical_retries: int = 1
 
@@ -69,7 +70,7 @@ class FixtureSearchPlanner:
 class EventSearchPlanner:
     """Provider-independent first pass, scoped to the event's document versions."""
 
-    def __init__(self, top_k: int = 10) -> None:
+    def __init__(self, top_k: int = 5) -> None:
         self.top_k = top_k
 
     def plan(self, analysis_request: dict[str, Any]) -> Sequence[dict[str, Any]]:

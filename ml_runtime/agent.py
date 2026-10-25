@@ -54,6 +54,17 @@ _SYSTEM_PROMPT = """Ты — компонент анализа Burmalda. Вер�
 не расширяй контекст и не выдумывай факты. Каждый существенный вывод оформи отдельным claim
 с evidence из разрешённых chunk_id или profile_feature_id. Цитата должна дословно встречаться
 в chunk_text. Не делай вывод о применимости, суммах, датах или позиции банка без оснований.
+У каждого claim должно быть хотя бы одно evidence с evidence_role="support";
+context означает фон, а не подтверждение. Relevance/vector/reranker score не доказывает факт.
+bank_view, claim_type="bank_view" и knowledge_type="ALFA_ANALYTICS" допустимы только
+при подтверждении из chunk с source_role="bank". Название организации со словом «банк»
+не меняет source_role: позиция регулятора/внешнего источника не является позицией банка.
+Если bank evidence нет, bank_view и bank_view_document_version_id должны быть null;
+подтверждённые сведения внешних источников оформи обычными relevance/impact claims.
+Проверяй числа, даты, субъект, направление изменения и отрицания по точной цитате.
+Отделяй факты источника от прогнозов и собственных аналитических inference.
+При initial/reanalyze успешный ответ обязан содержать insight, а message=null.
+Не создавай conversation_id/parent_message_id для initial/reanalyze.
 Если оснований недостаточно — выбери insufficient_evidence с gaps. При follow_up верни message,
 не изменяй исходный insight; используй только исходный снимок и разрешённую историю.
 Не включай скрытые рассуждения. Верни только JSON, соответствующий переданной схеме."""
@@ -161,7 +172,7 @@ def _build_payload(
         "allowed_profile_feature_ids": [
             feature["id"] for feature in request["context"]["profile_features"]
         ],
-        "response_schema": _analysis_response_schema(),
+        "response_schema": _analysis_response_schema(request['request_type']),
     }
     if draft is not None:
         payload["evidence_draft"] = {
@@ -184,7 +195,7 @@ def _build_payload(
     return payload
 
 
-def _analysis_response_schema() -> dict[str, Any]:
+def _analysis_response_schema(request_type: str) -> dict[str, Any]:
     import json
     from pathlib import Path
 
@@ -194,4 +205,11 @@ def _analysis_response_schema() -> dict[str, Any]:
         "$schema": schema["$schema"],
         "$defs": schema["$defs"],
         "$ref": "#/$defs/AnalysisResponse",
+        "allOf": [{
+            "if": {"properties": {"status": {"const": "succeeded"}}},
+            "then": {"properties": {
+                "insight": {"type": "null" if request_type == 'follow_up' else "object"},
+                "message": {"type": "object" if request_type == 'follow_up' else "null"},
+            }},
+        }],
     }

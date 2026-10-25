@@ -37,9 +37,13 @@ def _log_safe_diagnostic(exc: Exception, *, status_code: int | None = None) -> N
 class OpenAICompatibleModelClient:
     """Calls the configured organizer gateway and returns a parsed JSON object."""
 
-    def __init__(self, api_key: str, base_url: str = DEFAULT_BASE_URL) -> None:
+    def __init__(self, api_key: str, base_url: str = DEFAULT_BASE_URL, *,
+                 reasoning_effort: str | None = None) -> None:
         if not api_key.strip():
             raise ValueError("ML_LLM_API_KEY must be set")
+        if reasoning_effort not in (None, 'low', 'high', 'max'):
+            raise ValueError('Unsupported GLM reasoning effort')
+        self._reasoning_effort = reasoning_effort
         normalized_url = base_url.rstrip("/")
         parsed_url = urlsplit(normalized_url)
         if (
@@ -69,6 +73,10 @@ class OpenAICompatibleModelClient:
         timeout_seconds: float,
     ) -> dict[str, Any]:
         model = require_allowed_model(model_name)
+        # Only explicitly configured GLM clients use this latency setting;
+        # the independent Qwen verifier keeps its existing request parameters.
+        options = ({'reasoning_effort': self._reasoning_effort}
+                   if model == DEFAULT_AGENT_MODEL and self._reasoning_effort else {})
         try:
             completion = self._client.chat.completions.create(
                 model=model,
@@ -81,6 +89,7 @@ class OpenAICompatibleModelClient:
                 ],
                 response_format={"type": "json_object"},
                 timeout=max(0.1, timeout_seconds),
+                **options,
             )
         except APITimeoutError as exc:
             _log_safe_diagnostic(exc)
@@ -126,7 +135,8 @@ def create_agent_from_env() -> AnalysisAgent:
     verifier_model_name = require_allowed_model(
         os.environ.get("ML_LLM_VERIFIER_MODEL", DEFAULT_VERIFIER_MODEL).strip()
     )
-    client = OpenAICompatibleModelClient(api_key=api_key, base_url=base_url)
+    client = OpenAICompatibleModelClient(api_key=api_key, base_url=base_url,
+        reasoning_effort='low')
     from .semantic_verifier import LLMSemanticVerifier
 
     return AnalysisAgent(

@@ -213,6 +213,7 @@ class PipelinePostgresTests(unittest.TestCase):
         self.index()
         new = deepcopy(self.payload)
         new['article']['article_version_id'] = str(uuid4())
+        new['article']['version_no'] = 2
         new['article']['body'] = ''
         self.pipeline.index(new, version=metadata(new, number=2), business_context_ids=[self.context])
         self.assertEqual(self.pipeline.search('Условия', business_context_id=self.context)['status'], 'empty')

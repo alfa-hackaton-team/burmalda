@@ -129,6 +129,7 @@ def _create_coordinator(
     client = model_client if model_client is not None else OpenAICompatibleModelClient(
         api_key=os.environ.get("ML_LLM_API_KEY", ""),
         base_url=os.environ.get("ML_LLM_BASE_URL", DEFAULT_BASE_URL),
+        reasoning_effort='low',
     )
     event_model = require_allowed_model(
         os.environ.get("ML_LLM_EVENT_MODEL", os.environ.get("ML_LLM_MODEL", DEFAULT_AGENT_MODEL)).strip()

@@ -57,11 +57,12 @@ class RuntimeFactoryTests(unittest.TestCase):
             patch.dict(os.environ, {}, clear=True),
             patch("ml_runtime.article_processing_runtime.PostgresOperationStore", return_value=object()),
             patch("ml_runtime.article_processing_runtime.PostgresEventStore", return_value=object()),
-            patch("ml_runtime.article_processing_runtime.OpenAICompatibleModelClient", return_value=object()),
+            patch("ml_runtime.article_processing_runtime.OpenAICompatibleModelClient", return_value=object()) as client_factory,
         ):
             runtime = create_article_processing_worker_runtime(FakeIndexer())
 
         self.assertIsInstance(runtime.worker, ArticleProcessingWorker)
+        self.assertEqual(client_factory.call_args.kwargs['reasoning_effort'], 'low')
 
     def test_loads_an_indexer_factory_from_the_configured_module_path(self):
         indexer = type("Indexer", (), {
