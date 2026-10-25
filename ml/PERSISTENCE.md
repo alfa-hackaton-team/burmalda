@@ -1,55 +1,53 @@
-# PostgreSQL chunk persistence
+# ML storage
 
-ML1 сохраняет готовый полный набор `DocumentChunk` одной версии документа и одного профиля. Chunker и DTO не меняются; embeddings, HTTP lifecycle и готовность остаются за пределами этого адаптера.
+ML владеет схемой `ml` и напрямую работает с PostgreSQL через psycopg. Go ↔ ML — только HTTP; прямых запросов/FK к таблицам Go нет. Chunking и DTO не менялись.
 
-## Схема и границы
+## Схема
 
-Production-миграции `document_chunks` пока нет. Адаптер реализован под согласованную [целевую схему](../docs/rfc/database_scheme.md#113-document_chunks): восемь полей DTO, `created_at DEFAULT now()`, generated `search_vector`, nullable embedding-поля. Перед подключением необходимо применить отдельную согласованную миграцию. Адаптер не создаёт таблицы, версии документов или provenance.
+[000001_document_storage.sql](migrations/000001_document_storage.sql) создаёт:
 
-Записываются только `id`, `document_version_id`, `chunking_profile_id`, `chunk_no`, `chunk_text`, `char_start`, `char_end`, `token_count`. UUID передаются PostgreSQL как UUID, остальные значения — без пересчёта и нормализации. `created_at`/FTS формирует БД; embedding-поля адаптер не читает и не меняет. Нет runtime-проверки схемы или автоматической миграции: несовместимая таблица приводит к ошибке с rollback.
+- `ml.document_versions`: `id UUID PK`, `document_id UUID`, `snapshot JSONB`, `created_at`.
+- `ml.document_chunks`: поля DocumentChunk, FK на локальный снимок, generated `search_vector` (`simple`), nullable `VECTOR(1024)`/model/version.
+- [Migration runner](migrate.py) ведёт собственный `ml.schema_migrations`: version, checksum, applied_at. Повторы безопасны; изменение применённого SQL — ошибка. DDL и журнал транзакционны.
 
-## Использование
+Snapshot — точный `SavedDocumentVersion.to_dict()` без `trace_id`/`pipeline_version`: они относятся к будущему журналу операций. Пустой title, даты-строки, None, source/extraction и Go content_hash сохраняются. ID версии равен article_version_id Go. Изменение snapshot под прежним ID — конфликт; новый trace/pipeline допустим.
 
-Установить `ml/requirements-persistence.txt`. DSN получает вызывающий процесс из доверенной конфигурации; адаптер не читает environment и не логирует DSN/текст.
+## Запуск
 
-```python
-import psycopg
-from ml.adapters.postgres_chunks import save_document_chunks
-
-# chunks — полный результат ранее выполненного chunk_document(...).
-with psycopg.connect(configured_dsn) as connection:
-    save_document_chunks(connection, chunks, schema='public')
-```
-
-Соединение должно быть открытым и idle, без текущей транзакции; autocommit допускается в обоих режимах. Функция сама открывает и завершает одну транзакцию, не закрывает соединение. Активная/ошибочная транзакция вызывающего кода отклоняется без commit/rollback чужой работы. Название схемы экранируется как SQL identifier.
-
-## Атомарность и идемпотентность
-
-1. До SQL проверяются непустой typed-набор, одна версия/профиль, уникальные UUID, номера от 0, продвижение диапазонов без пропусков и совпадение overlap. Значения не исправляются, набор не сортируется.
-2. В транзакции READ COMMITTED берётся `pg_advisory_xact_lock` по стабильному SHA-256 ключу `(schema, document_chunks, document_version_id, chunking_profile_id)`. Все writers этого набора должны использовать тот же протокол. Lock автоматически снимается при commit/rollback.
-3. Существующий набор читается целиком по номеру с FOR UPDATE. Полное совпадение всех восьми полей DTO — успешный no-op. Любое различие, недостающие/лишние строки — `ChunkPersistenceConflict`; частичный набор не дополняется автоматически.
-4. Если строк нет, весь переданный набор вставляется без UPDATE/UPSERT. Ошибка любой вставки откатывает весь набор. Глобальная коллизия UUID/позиции также считается конфликтом и откатывает транзакцию.
-
-READ COMMITTED нужен для видимости результата первого writer после ожидания блокировки вторым. Две идентичные параллельные записи успешны; для двух разных наборов одной пары успешен один, второй получает конфликт. Блокировка действует только на согласованных writers: внешние процессы не должны изменять immutable чанки в обход протокола.
-
-`ChunkPersistenceError` обозначает ошибку PostgreSQL, `ChunkPersistenceConflict` — конфликт immutable данных. Сообщения безопасные, без SQL diagnostics/текста/DSN; детали исходной ошибки не передаются в публичный контракт. Ошибки формы входа — ValueError. Persistence не меняет статусы ready/SUCCEEDED.
-
-Сверку с полным body, quality PASS, точность token_count и соответствие профилю обеспечивает предшествующий chunker и вызывающий код. Без определённого контракта локального снимка версии адаптер не может установить, является ли впервые переданный prefix полным документом. Нельзя разбивать вызов на несколько batches для одной версии/профиля.
-
-## Тесты
+Инфраструктура заранее устанавливает pgvector и создаёт две отдельные роли без прав на Go: migration-role владеет ML-схемой, runtime-role работает с данными. Миграционной роли нужны CONNECT/CREATE на БД и USAGE на схему extension. Пароли/DSN хранятся вне Git.
 
 ```sh
 python -m pip install -r ml/requirements-persistence.txt
-python -m unittest ml.tests.test_chunk_persistence -v
-ML1_TEST_POSTGRES_DSN='<DSN отдельной тестовой БД>' python -m unittest ml.tests.test_chunk_persistence -v
+# DSN migration-role задан в ML_MIGRATION_DATABASE_URL
+python -m ml.migrate --runtime-role ml_runtime
 ```
 
-Без DSN integration-тесты явно пропускаются; unit-тестам нужен только psycopg. При отсутствии optional драйвера persistence-тесты также пропускаются, R01/R02/chunking остаются доступны.
+Runtime использует только `ML_DATABASE_URL`; fallback на Go DATABASE_URL отсутствует. Grants: USAGE на `ml`, SELECT/INSERT двух data-таблиц, UPDATE только embedding/model/version. Нет DDL, DELETE, изменения снимка/текста/offsets и доступа к журналу. Bootstrap/grants не создают роли и не меняют Go/PUBLIC permissions; runtime нельзя запускать под администратором/владельцем.
 
-Integration-тесты создают уникальную схему `ml1_test_chunks_<UUID>` и удаляют только её, public-таблицы не изменяются. Тестовой роли требуется CREATE SCHEMA. [DDL fixture](tests/fixtures/persistence.sql) — не migration: родительская таблица содержит только UUID, FTS использует test-only `simple`, embedding заменён nullable массивом, поэтому pgvector не нужен. Это проверка persistence восьми полей DTO на реальном PostgreSQL, не доказательство совместимости с ещё не созданной production-миграцией.
+```python
+from ml.database import connect_runtime
+from ml.adapters.postgres_chunks import save_document_version_and_chunks, save_document_embeddings
 
-Покрыты все поля/Unicode, идентичный retry с сохранением created_at/FTS/существующего embedding, конфликт каждого изменяемого поля, неполный/расширенный набор, rollback второй вставки, FK failure, UUID collision, разные версии/профили, оба autocommit-режима, dict row_factory и параллельные identical/conflicting writers.
+with connect_runtime() as connection:
+    save_document_version_and_chunks(connection, saved_document, chunks)
+    vectors = embedder.encode_chunks(chunks)  # вне транзакции БД
+    save_document_embeddings(connection, chunks, vectors)
+```
 
-Проверено 25 октября 2026: 98 ML/runtime-тестов без skips, включая 18 новых persistence-тестов (4 unit, 14 integration) на временном PostgreSQL 18.4 и настоящий cached Qwen tokenizer. Также прошли 13 документальных тестов, `check_ml_contracts.py --full` (16 fixtures), `check_api_contracts.py` (252 local references) и `git diff --check`. Тестовый PostgreSQL остановлен после прогона. Backend PostgreSQL 17 и будущая production-миграция этим прогоном не проверены.
+## Гарантии
 
-До production-миграции остаются решения о локальном снимке версии/FK, FTS-конфигурации, N и embedding_version, а также backfill при наличии старых строк. Согласованный состав DocumentChunk не менялся.
+Wrapper проверяет PASS, UUID, полное покрытие body и точные срезы. Снимок + весь набор чанков записываются одной транзакцией READ COMMITTED под locks версии и profile. Повтор идентичного набора — no-op; конфликт или ошибка вставки откатывает также новый снимок. Чанки/created_at не переписываются. Старый `save_document_chunks` оставлен для существующего родителя; схема по умолчанию теперь `ml`.
+
+Embeddings записываются отдельно и атомарно; правила UUID/hash/profile/roundoff — в [EMBEDDINGS.md](EMBEDDINGS.md). Все writers соблюдают один locking protocol. Соединение должно быть idle; чужая транзакция не коммитится/откатывается. Автоматического переноса public-данных и down migrations нет.
+
+## Проверки и границы
+
+```sh
+ML1_TEST_POSTGRES_DSN='<disposable admin test DSN>' python -m unittest ml.tests.test_ml_storage -v
+```
+
+Тесты применяют настоящий SQL в изолированных схемах: snapshot/provenance, FK/vector, retry/conflict, rollback DDL/данных, конкурентные записи, отдельный migration owner и ограниченный runtime. Тестовой роли нужны CREATE SCHEMA/CREATE ROLE/GRANT; production runtime — нет. Существующая deployment-схема не удаляется. Старые low-level fixture-тесты остаются регрессией; без DSN integration пропускается.
+
+Проверено: 143 runtime-теста (142 PASS, 1 pretrained smoke SKIP), 13 doc tests и обе проверки контрактов; PostgreSQL 18.4. Миграция применена также к локальной `ml1_test`, владелец таблиц — ml_migrator, runtime — ml_runtime. PostgreSQL 17 ещё не проверен.
+
+Операции/Idempotency-Key, worker recovery, HTTP lifecycle и ready/SUCCEEDED пока не реализованы. Снимок содержимого не заменяет журнал операций и не предотвращает повторный запуск модели. Retrieval, retention и backfill — следующие этапы.

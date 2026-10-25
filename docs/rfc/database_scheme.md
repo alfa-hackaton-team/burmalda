@@ -184,6 +184,8 @@
 
 ### 1.12. `document_versions`
 
+Реализованный минимум ML отличается от целевой таблицы ниже: `ml.document_versions(id UUID PK, document_id UUID NOT NULL, snapshot JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`. Snapshot сохраняет canonical R02 без execution-полей trace_id/pipeline_version; прямых FK на Go нет. [Миграция](../../ml/migrations/000001_document_storage.sql) и [запуск/права](../../ml/PERSISTENCE.md). Остальные поля раздела — целевой RFC, не текущий DDL.
+
 Версии содержимого документа. При изменении текста создается новая строка; предыдущая версия не перезаписывается.
 
 | Поле | Тип | Ограничения |
@@ -221,7 +223,7 @@
 
 ### 1.13. `document_chunks`
 
-Фрагменты документов для поиска и RAG. ML формирует и сохраняет чанки в ML-хранилище. Это целевая схема: production-миграция ещё не создана; [persistence adapter](../../ml/adapters/postgres_chunks.py) реализован под неё, правила подключения и тестовый DDL описаны в [ML persistence](../../ml/PERSISTENCE.md). Реализация библиотечного [chunker](../../ml/chunking/core.py) и [профиль `v1`](../../ml/chunking/profiles.py) хранятся в ML1-коде.
+Фрагменты документов для поиска и RAG хранятся в `ml.document_chunks`. [Первая ML-миграция](../../ml/migrations/000001_document_storage.sql) создаёт таблицу с локальным FK на snapshot, [persistence](../../ml/adapters/postgres_chunks.py) атомарно сохраняет снимок и чанки. [Запуск и роли](../../ml/PERSISTENCE.md). Chunker и профиль `v1` не менялись.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
@@ -234,8 +236,8 @@
 | `char_end` | INTEGER | NOT NULL; конец диапазона исключительно, Unicode code points |
 | `token_count` | INTEGER | NOT NULL; число токенов `chunk_text` по tokenizer профиля, без специальных токенов |
 | `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now(); время первой записи, не участвует в ID |
-| `search_vector` | TSVECTOR | GENERATED ALWAYS AS (согласованное выражение) STORED; язык и выражение согласовать до миграции |
-| `embedding` | VECTOR(N) | NULL до построения вектора |
+| `search_vector` | TSVECTOR | GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, chunk_text)) STORED; без FTS-индекса/поиска |
+| `embedding` | VECTOR(1024) | NULL до построения; профиль ML1 Qwen v1 |
 | `embedding_model` | TEXT | NULL до построения; идентификатор модели сохранённого вектора |
 | `embedding_version` | TEXT | NULL до построения; неизменяемая версия конфигурации embeddings |
 
@@ -264,7 +266,7 @@ Offsets имеют семантику `[char_start, char_end)` в исходно
 
 ID формируется UUIDv5 из `document_version_id`, `chunking_profile_id`, offsets и SHA-256 точного `chunk_text`; namespace и сериализация закреплены в ML1. `trace_id`, часы и embeddings на ID не влияют. Набор одной версии и профиля сохраняется атомарно; retry проверяет совпадение данных без перезаписи текста и `created_at`. Старые профили сохраняются для исторических evidence; retrieval должен выбирать активный готовый профиль. Наличие чанков само по себе не означает ready/SUCCEEDED.
 
-FK предполагает локальную неизменяемую версию в той же БД. Если версии Go находятся в другой БД, нужен локальный снимок `SavedDocumentVersion` либо внешний ID с проверкой приложением: межбазовый FK не создаётся. До миграции согласовать место снимка и FK, backfill существующих строк, одинаковую семантику offsets в Go/Python, выражение `search_vector`, размерность `N` и смысл `embedding_version`. Provenance/title/document_id не дублируются в чанках, если полностью сохранены в неизменяемом снимке версии. PDF page mapping пока не подключён.
+FK указывает на `ml.document_versions(id) ON DELETE RESTRICT`. Provenance/title/document_id хранятся в локальном immutable snapshot, без FK на Go; Go ↔ ML — только HTTP. Миграции имеют отдельный журнал `ml.schema_migrations`. Backfill существующего развёртывания и PDF page mapping остаются отдельными задачами. Для embeddings: Qwen3-Embedding-0.6B, 1024 измерения, `embedding_version=ml1-qwen3-embedding-1024-v1`; [профиль](../../ml/EMBEDDINGS.md).
 
 ### 1.14. `events`
 
@@ -743,7 +745,7 @@ WHERE raw_profile @> '{"negative_mark": true}'::jsonb;
 В MVP используется одна векторная колонка:
 
 ```text
-document_chunks.embedding VECTOR(N)
+document_chunks.embedding VECTOR(1024)
 ```
 
 Она хранит embedding — массив чисел, который embedding-модель строит из `chunk_text`.
@@ -787,7 +789,7 @@ embedding:
 embedding vector(1024)
 ```
 
-Значение `1024` приведено как пример. До создания таблицы команда должна выбрать embedding-модель и установить ее фактическую размерность.
+Для ML1 выбрана `Qwen/Qwen3-Embedding-0.6B`, dimension=1024, версия профиля `ml1-qwen3-embedding-1024-v1`. Revision совпадает с chunking v1; pooling, нормализация и query instruction закреплены в [embedding profile](../../ml/embeddings/profile.py). Тип VECTOR(1024) включён в отдельную ML-миграцию; vector retrieval пока не реализован.
 
 Все строки одного HNSW-индекса должны использовать одну модель и одну размерность. Векторы разных моделей нельзя корректно сравнивать между собой.
 
