@@ -2,7 +2,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import '@alfalab/core-components-themes/corp.css';
 import './styles.css';
-import { App } from './App';
+import { Entry } from './Entry';
 import { createHttpApi } from './api';
 import { createDemoApi } from './demo';
 
@@ -15,6 +15,10 @@ const api =
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <App api={api} demo={mode === 'demo'} />
+    <Entry
+      api={api}
+      demo={mode === 'demo'}
+      authStartUrl={import.meta.env.VITE_AUTH_START_URL ?? ''}
+    />
   </React.StrictMode>,
 );

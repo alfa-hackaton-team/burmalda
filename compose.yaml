@@ -16,6 +16,7 @@ services:
       context: ./frontend
       args:
         VITE_DATA_MODE: ${FRONTEND_DATA_MODE:-demo}
+        VITE_AUTH_START_URL: ${FRONTEND_AUTH_START_URL:-}
     ports:
       - "127.0.0.1:${FRONTEND_HTTP_PORT:-13001}:80"
     restart: unless-stopped

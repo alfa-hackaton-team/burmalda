@@ -20,3 +20,9 @@ Object.defineProperty(window, 'matchMedia', {
 if (!globalThis.CSS) Object.defineProperty(globalThis, 'CSS', { value: {} });
 if (!CSS.escape) CSS.escape = (value) => value.replace(/[^a-zA-Z0-9_-]/g, '\\$&');
 Element.prototype.scrollIntoView = () => {};
+window.scrollTo = () => {};
+if (!HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true;
+  };
+}

@@ -123,7 +123,15 @@ function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) {
   );
 }
 
-export function App({ api, demo }: { api: Api; demo: boolean }) {
+export function App({
+  api,
+  demo,
+  onDemoExit,
+}: {
+  api: Api;
+  demo: boolean;
+  onDemoExit?: () => void;
+}) {
   const [user, setUser] = useState<User>();
   const [contexts, setContexts] = useState<AvailableContext[]>();
   const [contextId, setContextId] = useState('');
@@ -154,7 +162,7 @@ export function App({ api, demo }: { api: Api; demo: boolean }) {
         К новостной ленте
       </a>
       <header className="topbar">
-        <a className="brand" href="#feed" aria-label="Бизнес-пульс, на главную">
+        <a className="brand" href="/" aria-label="Альфа-Бизнес, на главный экран">
           <span className="brand-mark">
             А<span />
           </span>
@@ -170,6 +178,11 @@ export function App({ api, demo }: { api: Api; demo: boolean }) {
             </span>
           )}
           <span className="user-name">{user?.display_name ?? 'Личный кабинет'}</span>
+          {demo && onDemoExit && (
+            <button className="demo-exit" type="button" onClick={onDemoExit}>
+              Выйти
+            </button>
+          )}
           <span className="avatar" aria-hidden="true">
             {user?.display_name
               ?.split(' ')

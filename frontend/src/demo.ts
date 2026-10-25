@@ -1,4 +1,5 @@
 import { abortableDelay, ApiError, type Api } from './api';
+import { demoCompanies, demoPositions } from './demo-auth';
 import type {
   AgentResponse,
   AvailableContext,
@@ -13,26 +14,18 @@ import type {
 } from './types';
 
 const stamp = '2026-10-25T09:00:00Z';
-export const demoContexts: AvailableContext[] = [
-  {
-    context: { context_id: 'demo-machinery-cfo', kind: 'COMPANY', company_id: 'demo-machinery' },
-    display_name: 'АО «Северные машины» · CFO',
-    role_id: 'demo-cfo',
-    profile: { profile_id: 'demo-profile-machinery', version: '1' },
-  },
-  {
-    context: { context_id: 'demo-machinery-ceo', kind: 'COMPANY', company_id: 'demo-machinery' },
-    display_name: 'АО «Северные машины» · CEO',
-    role_id: 'demo-ceo',
-    profile: { profile_id: 'demo-profile-machinery', version: '1' },
-  },
-  {
-    context: { context_id: 'demo-logistics-cfo', kind: 'COMPANY', company_id: 'demo-logistics' },
-    display_name: 'ООО «Вектор Логистика» · CFO',
-    role_id: 'demo-cfo',
-    profile: { profile_id: 'demo-profile-logistics', version: '1' },
-  },
-];
+export const demoContexts: AvailableContext[] = demoCompanies.flatMap((company) =>
+  demoPositions.map((position) => ({
+    context: {
+      context_id: `demo-${company.slug}-${position.id}`,
+      kind: 'COMPANY' as const,
+      company_id: company.id,
+    },
+    display_name: `${company.name} · ${position.name}`,
+    role_id: `demo-${position.id}`,
+    profile: { profile_id: `demo-profile-${company.slug}`, version: '1' },
+  })),
+);
 
 const stories = [
   {
