@@ -215,28 +215,56 @@
 2. Go вычисляет `content_hash` по согласованной сериализации title/body/published_at; при определении новой версии также учитывается parser_version. См. article-processing.md.
 3. Сравнить content_hash и parser_version с последней сохранённой article_version Go. Если оба не изменились — новую версию не создавать.
 4. Если content_hash или parser_version изменились — Go сохраняет следующую article_version со ссылкой на оригинал (в текущем прототипе raw_artifact, в целевом S3-варианте объект). document_version_id ML сохраняет этот ID; новый ML-документ не создаётся. Последовательность A → B → A сохраняется как три версии.
-5. Создать новые чанки и embeddings только для новой версии.
+5. Для новой версии после quality PASS создать чанки по выбранному chunking-профилю, затем embeddings. Повтор той же версии и профиля использует прежний набор; новое разбиение той же версии требует нового профиля, без перезаписи исторических чанков.
 
 Сравнение с последней версией и выделение следующего `version_no` выполняются с сериализацией записи по `document_id`, чтобы два одновременных опроса не создавали две версии одного изменения. Ссылки старых доказательств сохраняются.
 
 ### 1.13. `document_chunks`
 
-Фрагменты документов для поиска и RAG.
+Фрагменты документов для поиска и RAG. ML формирует и сохраняет чанки в ML-хранилище. Это целевая схема: миграция и storage adapter ещё не реализованы. Реализация библиотечного [chunker](../../ml/chunking/core.py) и [профиль `v1`](../../ml/chunking/profiles.py) хранятся в ML1-коде.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
-| `id` | UUID | PK |
-| `document_version_id` | UUID | FK → `document_versions.id` |
-| `chunk_no` | INTEGER | NOT NULL |
-| `chunk_text` | TEXT | NOT NULL |
-| `char_start` | INTEGER | |
-| `char_end` | INTEGER | |
-| `search_vector` | TSVECTOR | GENERATED |
+| `id` | UUID | PK; детерминированный UUIDv5 от ML1, публичный `chunk_id` |
+| `document_version_id` | UUID | NOT NULL; FK → локальная `document_versions.id`, ON DELETE RESTRICT |
+| `chunking_profile_id` | TEXT | NOT NULL; например `v1`, неизменяемая конфигурация в ML1-коде под Git |
+| `chunk_no` | INTEGER | NOT NULL; порядок от 0 внутри версии и профиля |
+| `chunk_text` | TEXT | NOT NULL; точный непрерывный срез `normalized_text` |
+| `char_start` | INTEGER | NOT NULL; начало диапазона включительно, Unicode code points |
+| `char_end` | INTEGER | NOT NULL; конец диапазона исключительно, Unicode code points |
+| `token_count` | INTEGER | NOT NULL; число токенов `chunk_text` по tokenizer профиля, без специальных токенов |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now(); время первой записи, не участвует в ID |
+| `search_vector` | TSVECTOR | GENERATED ALWAYS AS (согласованное выражение) STORED; язык и выражение согласовать до миграции |
 | `embedding` | VECTOR(N) | NULL до построения вектора |
-| `embedding_model` | TEXT | |
-| `embedding_version` | TEXT | |
+| `embedding_model` | TEXT | NULL до построения; идентификатор модели сохранённого вектора |
+| `embedding_version` | TEXT | NULL до построения; неизменяемая версия конфигурации embeddings |
 
-Уникальность: `(document_version_id, chunk_no)`.
+Уникальность: `(document_version_id, chunking_profile_id, chunk_no)`. Отдельная таблица `chunking_profiles` и FK на неё пока не нужны. Опубликованный профиль нельзя менять: алгоритм, размеры, overlap, tokenizer/revision и настройки подсчёта закреплены в коде; их изменение требует нового ID профиля.
+
+Профиль `v1`: target **512**, мягкий minimum **128**, жёсткий maximum **768** токенов с учётом overlap; overlap — до **64** токенов по границам предложений, допустим 0. Tokenizer — `Qwen/Qwen3-Embedding-0.6B`, revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`, `tokenizers==0.22.1`. Пустой title допустим, в `chunk_text` не добавляется. Модель и embeddings на этапе chunking не запускаются.
+
+Проверки строк:
+
+```sql
+CHECK (length(btrim(chunking_profile_id)) > 0)
+CHECK (chunk_no >= 0)
+CHECK (length(chunk_text) > 0)
+CHECK (char_start >= 0)
+CHECK (char_end > char_start)
+CHECK (char_end - char_start = char_length(chunk_text))
+CHECK (token_count > 0)
+CHECK (
+    (embedding IS NULL AND embedding_model IS NULL AND embedding_version IS NULL)
+    OR
+    (embedding IS NOT NULL AND embedding_model IS NOT NULL AND embedding_version IS NOT NULL)
+)
+```
+
+Offsets имеют семантику `[char_start, char_end)` в исходном `normalized_text`, не UTF-8 bytes и не позиции токенов. Приложение проверяет точное равенство срезу, полный охват текста без пропусков, последовательность номеров, непробельный текст и лимиты профиля. Обычный CHECK не проверяет родительский текст или весь набор. Если невозможно совместить покрытие, непробельные чанки и maximum, chunker возвращает ошибку без частичного результата.
+
+ID формируется UUIDv5 из `document_version_id`, `chunking_profile_id`, offsets и SHA-256 точного `chunk_text`; namespace и сериализация закреплены в ML1. `trace_id`, часы и embeddings на ID не влияют. Набор одной версии и профиля сохраняется атомарно; retry проверяет совпадение данных без перезаписи текста и `created_at`. Старые профили сохраняются для исторических evidence; retrieval должен выбирать активный готовый профиль. Наличие чанков само по себе не означает ready/SUCCEEDED.
+
+FK предполагает локальную неизменяемую версию в той же БД. Если версии Go находятся в другой БД, нужен локальный снимок `SavedDocumentVersion` либо внешний ID с проверкой приложением: межбазовый FK не создаётся. До миграции согласовать место снимка и FK, backfill существующих строк, одинаковую семантику offsets в Go/Python, выражение `search_vector`, размерность `N` и смысл `embedding_version`. Provenance/title/document_id не дублируются в чанках, если полностью сохранены в неизменяемом снимке версии. PDF page mapping пока не подключён.
 
 ### 1.14. `events`
 
@@ -749,7 +777,7 @@ embedding:
   → запись массива в document_chunks.embedding
 ```
 
-Один фрагмент соответствует одному embedding. Рекомендуемый размер фрагмента — 300–600 токенов с перекрытием 50–100 токенов. Перекрытие не дает потерять смысл на границе двух фрагментов.
+Один фрагмент соответствует одному сохранённому embedding. Параметры разбиения задаёт неизменяемый `chunking_profile_id`: для ML1 `v1` target=512, minimum=128, maximum=768, overlap до 64 токенов (см. раздел 1.13). Перекрытие сохраняет контекст на границе фрагментов; короткий документ или последний хвост могут быть меньше minimum.
 
 ### 4.3. Размерность
 
@@ -905,7 +933,7 @@ raw/cbr/9a2f.../3/a84c....html
 | `document_versions` | B-tree: `(document_id, content_hash)` |
 | `document_versions` | B-tree: `content_hash` |
 | `document_versions` | B-tree: `published_at DESC` |
-| `document_chunks` | UNIQUE: `(document_version_id, chunk_no)` |
+| `document_chunks` | UNIQUE: `(document_version_id, chunking_profile_id, chunk_no)` |
 | `document_chunks` | GIN: `search_vector` |
 | `document_chunks` | HNSW: `embedding vector_cosine_ops` |
 | `events` | B-tree: `occurred_at DESC` |
