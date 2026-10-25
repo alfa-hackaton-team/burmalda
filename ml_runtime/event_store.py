@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 from typing import Any, Callable, Protocol
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from .article_processing import ArticleProcessingInput
 from .event_extraction import (
@@ -20,19 +20,21 @@ from .event_result_contract import validate_event_extraction_result
 
 class EventCandidateStore(Protocol):
     def get_saved_event_ids(
-        self, document_version_id: str, event_pipeline_config_version: str
+        self, document_version_id: str, pipeline_version: str,
+        event_pipeline_config_version: str,
     ) -> list[str] | None: ...
 
     def save_result(
-        self, result: EventExtractionResult, indexed: IndexedArticleVersion
+        self, result: EventExtractionResult, indexed: IndexedArticleVersion,
+        pipeline_version: str,
     ) -> list[str]: ...
 
 
 class PostgresEventStore:
     """Persist events and article links atomically in the ML-owned schema.
 
-    Each document/configuration pair owns its candidate set. Cross-document
-    event merging is deliberately deferred until a reviewed merge policy exists.
+    Each operation owns its candidate set. Cross-document event merging is
+    deliberately deferred until a reviewed merge policy exists.
     """
 
     def __init__(
@@ -56,54 +58,50 @@ class PostgresEventStore:
         return psycopg.connect(self._dsn)
 
     def get_saved_event_ids(
-        self, document_version_id: str, event_pipeline_config_version: str
+        self, document_version_id: str, pipeline_version: str,
+        event_pipeline_config_version: str,
     ) -> list[str] | None:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT event_ids FROM ml.event_extraction_runs
-                       WHERE document_version_id = %s
-                         AND event_pipeline_config_version = %s""",
-                    (document_version_id, event_pipeline_config_version),
+                    """SELECT event_ids, event_pipeline_config_version
+                       FROM ml.article_processing_operations
+                       WHERE article_version_id = %s AND pipeline_version = %s""",
+                    (document_version_id, pipeline_version),
                 )
                 row = cursor.fetchone()
-                return [str(item) for item in row[0]] if row is not None else None
+                if row is None or row[0] is None:
+                    return None
+                if row[1] != event_pipeline_config_version:
+                    raise RuntimeError("Saved event result uses a different event pipeline configuration")
+                return [str(item) for item in row[0]]
 
     def save_result(
-        self, result: EventExtractionResult, indexed: IndexedArticleVersion
+        self, result: EventExtractionResult, indexed: IndexedArticleVersion,
+        pipeline_version: str,
     ) -> list[str]:
         result = validate_event_extraction_result(
             result, indexed, result.event_pipeline_config_version
         )
         document_version_id = result.document_version_id
         config_version = result.event_pipeline_config_version
-        payload = json.dumps(result.to_dict(), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
-        fingerprint = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         event_ids: list[str] = []
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """INSERT INTO ml.event_extraction_runs (
-                           document_version_id, event_pipeline_config_version,
-                           result_fingerprint, result_payload, event_ids
-                       ) VALUES (%s, %s, %s, %s::jsonb, ARRAY[]::uuid[])
-                       ON CONFLICT (document_version_id, event_pipeline_config_version)
-                       DO NOTHING
-                       RETURNING document_version_id""",
-                    (document_version_id, config_version, fingerprint, payload),
+                    """SELECT event_ids, event_pipeline_config_version
+                       FROM ml.article_processing_operations
+                       WHERE article_version_id = %s AND pipeline_version = %s
+                       FOR UPDATE""",
+                    (document_version_id, pipeline_version),
                 )
-                inserted = cursor.fetchone() is not None
-                if not inserted:
-                    cursor.execute(
-                        """SELECT event_ids FROM ml.event_extraction_runs
-                           WHERE document_version_id = %s
-                             AND event_pipeline_config_version = %s""",
-                        (document_version_id, config_version),
-                    )
-                    prior = cursor.fetchone()
-                    if prior is None:
-                        raise RuntimeError("Saved event extraction result disappeared")
-                    return [str(item) for item in prior[0]]
+                operation = cursor.fetchone()
+                if operation is None:
+                    raise RuntimeError("Event result has no saved article-processing operation")
+                if operation[0] is not None:
+                    if operation[1] != config_version:
+                        raise RuntimeError("Saved event result uses a different event pipeline configuration")
+                    return [str(item) for item in operation[0]]
 
                 for index, candidate in enumerate(result.events):
                     event_id = str(uuid4())
@@ -134,10 +132,11 @@ class PostgresEventStore:
                     )
                     event_ids.append(event_id)
                 cursor.execute(
-                    """UPDATE ml.event_extraction_runs SET event_ids = %s
-                       WHERE document_version_id = %s
-                         AND event_pipeline_config_version = %s""",
-                    ([UUID(item) for item in event_ids], document_version_id, config_version),
+                    """UPDATE ml.article_processing_operations
+                       SET event_ids = %s::jsonb, event_pipeline_config_version = %s,
+                           updated_at = now()
+                       WHERE article_version_id = %s AND pipeline_version = %s""",
+                    (json.dumps(event_ids), config_version, document_version_id, pipeline_version),
                 )
         return event_ids
 
@@ -158,14 +157,16 @@ class ML2EventProcessor:
         if document_version_id != request.article["article_version_id"]:
             raise ValueError("event processing document_version_id must match article_version_id")
         config_version = self.extractor.event_pipeline_config_version
-        prior = self.store.get_saved_event_ids(document_version_id, config_version)
+        prior = self.store.get_saved_event_ids(
+            document_version_id, request.pipeline_version, config_version
+        )
         if prior is not None:
             return prior
         if not indexed.chunks:
             raise RuntimeError("ML1 returned no indexed chunks for the document version")
         result = self.extractor.extract(request, chunks=list(indexed.chunks))
         result = validate_event_extraction_result(result, indexed, config_version)
-        return self.store.save_result(result, indexed)
+        return self.store.save_result(result, indexed, request.pipeline_version)
 
 
 def candidate_fingerprint(candidate: CandidateEvent) -> str:

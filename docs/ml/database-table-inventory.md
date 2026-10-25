@@ -35,7 +35,8 @@ ML migrations own the `ml` schema and currently define:
 | `ml.article_processing_operations` | HTTP operation state, idempotency key, saved request, quality result, and final document/event IDs |
 | `ml.events` | Candidate events extracted from indexed chunks |
 | `ml.event_documents` | Event-to-document-version links with chunk evidence and evidence role |
-| `ml.event_extraction_runs` | First saved result and stable event IDs for `(document_version_id, event_pipeline_config_version)` retries |
+
+Event extraction replay state (including a successful empty `event_ids` list) and the event pipeline configuration version live on `ml.article_processing_operations`. `ml.events` and `ml.event_documents` store the extracted event content and evidence. This avoids a separate run ledger duplicating operation identity and result IDs.
 
 ## Ownership boundary
 

@@ -10,6 +10,7 @@ from ml_runtime.event_extraction import CandidateEvent, EventExtractionResult, E
 from ml_runtime.event_store import ML2EventProcessor, PostgresEventStore
 from ml_runtime.operations import IndexedArticleVersion
 from ml_runtime.migrate import apply_migrations
+from ml_runtime.postgres_store import PostgresOperationStore
 from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, payload
 from ml_runtime.article_processing import parse_article_processing
 
@@ -61,10 +62,10 @@ class EventResultBoundaryTests(unittest.TestCase):
                 self.saved = None
                 self.prior = None
 
-            def get_saved_event_ids(self, _version_id, _config_version):
+            def get_saved_event_ids(self, _version_id, _pipeline_version, _config_version):
                 return self.prior
 
-            def save_result(self, result, indexed):
+            def save_result(self, result, indexed, _pipeline_version):
                 self.saved = result
                 return ["event-id-1"]
 
@@ -106,17 +107,25 @@ class PostgresEventStoreTests(unittest.TestCase):
         self.version_a = str(uuid4())
         self.version_b = str(uuid4())
         self.pipeline = "event-extraction-v1"
+        self._create_operation(self.version_a)
+        self._create_operation(self.version_b)
+
+    def _create_operation(self, version_id: str) -> None:
+        request_payload = payload()
+        request_payload["article"]["article_version_id"] = version_id
+        request = parse_article_processing(
+            request_payload,
+            f"{version_id}:{PIPELINE_VERSION}",
+            max_text_bytes=131072,
+            supported_pipeline_versions={PIPELINE_VERSION},
+        )
+        PostgresOperationStore(DATABASE_URL).create_or_get(request)
 
     def tearDown(self) -> None:
         import psycopg
 
         with psycopg.connect(DATABASE_URL) as connection:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """DELETE FROM ml.event_extraction_runs
-                       WHERE document_version_id IN (%s, %s)""",
-                    (self.version_a, self.version_b),
-                )
                 cursor.execute(
                     """DELETE FROM ml.event_documents WHERE document_version_id IN (%s, %s)""",
                     (self.version_a, self.version_b),
@@ -126,13 +135,18 @@ class PostgresEventStoreTests(unittest.TestCase):
                            SELECT 1 FROM ml.event_documents d WHERE d.event_id = e.id
                        )"""
                 )
+                cursor.execute(
+                    """DELETE FROM ml.article_processing_operations
+                       WHERE article_version_id IN (%s, %s)""",
+                    (self.version_a, self.version_b),
+                )
 
     def test_replay_is_idempotent_without_cross_document_auto_merge(self):
         first_result = EventExtractionResult(self.version_a, self.pipeline, (event(),))
         second_result = EventExtractionResult(self.version_b, self.pipeline, (event(),))
-        first = self.store.save_result(first_result, indexed(self.version_a))
-        replay = self.store.save_result(first_result, indexed(self.version_a))
-        second_article = self.store.save_result(second_result, indexed(self.version_b))
+        first = self.store.save_result(first_result, indexed(self.version_a), PIPELINE_VERSION)
+        replay = self.store.save_result(first_result, indexed(self.version_a), PIPELINE_VERSION)
+        second_article = self.store.save_result(second_result, indexed(self.version_b), PIPELINE_VERSION)
 
         self.assertEqual(replay, first)
         self.assertNotEqual(second_article, first)
@@ -142,9 +156,18 @@ class PostgresEventStoreTests(unittest.TestCase):
         changed_result = EventExtractionResult(
             self.version_a, self.pipeline, (event(title="Совершенно другое событие"),)
         )
-        first = self.store.save_result(first_result, indexed(self.version_a))
-        replay = self.store.save_result(changed_result, indexed(self.version_a))
+        first = self.store.save_result(first_result, indexed(self.version_a), PIPELINE_VERSION)
+        replay = self.store.save_result(changed_result, indexed(self.version_a), PIPELINE_VERSION)
         self.assertEqual(replay, first)
+
+    def test_empty_event_result_is_replayed_from_the_operation_row(self):
+        empty = EventExtractionResult(self.version_a, self.pipeline, ())
+        first = self.store.save_result(empty, indexed(self.version_a), PIPELINE_VERSION)
+        replay = self.store.get_saved_event_ids(
+            self.version_a, PIPELINE_VERSION, self.pipeline
+        )
+        self.assertEqual(first, [])
+        self.assertEqual(replay, [])
 
 
 def indexed(document_version_id: str) -> IndexedArticleVersion:
