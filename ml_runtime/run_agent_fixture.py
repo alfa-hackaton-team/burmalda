@@ -1,4 +1,7 @@
-"""Run one paid-model call against the checked-in synthetic analysis fixture.
+"""Run the agent and, for a successful response, a second semantic check.
+
+The successful path makes two paid model calls; an insufficient-evidence
+response exits after generation and does not invoke the semantic verifier.
 
 Run from the repository root after setting ML_LLM_API_KEY locally:
     python3 -m ml_runtime.run_agent_fixture
