@@ -84,23 +84,31 @@ def main():
     article_request = article_path + '/requestBody/content/application~1json/schema'
     article = {
         'article': {
-            'article_id': 'article', 'article_version_id': 'version', 'source_id': 'source',
+            'article_id': '00000000-0000-4000-8000-000000000001',
+            'article_version_id': '00000000-0000-4000-8000-000000000002',
+            'source_id': '00000000-0000-4000-8000-000000000003', 'version_no': 1,
             'title': '', 'body': 'Full text', 'fetched_at': '2026-10-24T12:00:00Z',
-            'raw_ref': 'raw-artifact:raw', 'content_hash': 'a' * 64, 'metadata': {'extraction_method': 'full_article', 'extraction_errors': []},
+            'raw_ref': 'raw-artifact:00000000-0000-4000-8000-000000000004', 'content_hash': 'a' * 64, 'metadata': {'extraction_method': 'full_article', 'extraction_errors': []},
         },
         'source': {
-            'source_id': 'source', 'name': 'Example', 'source_role': 'external',
+            'source_id': '00000000-0000-4000-8000-000000000003', 'name': 'Example', 'source_role': 'external',
             'source_type': 'news', 'trust_level': 'standard', 'config_version': '7',
         },
         'pipeline_version': 'test-pipeline', 'trace_id': 'trace',
     }
     validate(api_uri, article_request, article)
-    for path in [('pipeline_version',), ('source', 'config_version')]:
+    for path in [('pipeline_version',), ('source', 'config_version'), ('article', 'version_no')]:
         bad = copy.deepcopy(article)
         target = bad
         for part in path[:-1]:
             target = target[part]
         del target[path[-1]]
+        must_reject(api_uri, article_request, bad)
+    for field, value in [('version_no', 0), ('version_no', -1), ('article_id', 'article'),
+                         ('article_version_id', 'version'), ('source_id', 'source'),
+                         ('raw_ref', 'raw-artifact:raw')]:
+        bad = copy.deepcopy(article)
+        bad['article'][field] = value
         must_reject(api_uri, article_request, bad)
     processing = {
         'processing_id': 'processing', 'article_version_id': 'version',

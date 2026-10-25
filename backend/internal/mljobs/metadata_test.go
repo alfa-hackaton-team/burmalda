@@ -64,4 +64,37 @@ func TestLegacyRequestMetadataRemainsUnchanged(t *testing.T) {
 	if err = json.Unmarshal(first, &request); err != nil || len(request.Article.Metadata) != 0 {
 		t.Fatalf("legacy request changed: %s %v", first, err)
 	}
+	var envelope struct {
+		Article map[string]json.RawMessage `json:"article"`
+	}
+	if err := json.Unmarshal(first, &envelope); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := envelope.Article["version_no"]; ok {
+		t.Fatal("legacy request acquired a new parameter")
+	}
+}
+
+func TestRequestVersionNumber(t *testing.T) {
+	for _, n := range []int{1, 2, 100, 0, -1} {
+		job := Job{VersionNo: &n}
+		payload, err := RequestPayload(job)
+		if n <= 0 {
+			if err == nil {
+				t.Fatalf("accepted version %d", n)
+			}
+			continue
+		}
+		var request struct {
+			Article struct {
+				VersionNo int `json:"version_no"`
+			} `json:"article"`
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err = json.Unmarshal(payload, &request); err != nil || request.Article.VersionNo != n {
+			t.Fatalf("version number missing: %s %v", payload, err)
+		}
+	}
 }

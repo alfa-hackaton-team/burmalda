@@ -15,6 +15,7 @@ import (
 var ErrLostLease = errors.New("ML job lease was lost")
 
 type Job struct {
+	VersionNo                                 *int
 	ID, Token, VersionID, ArticleID, SourceID string
 	DedupeKey, PipelineVersion                string
 	SourceName, SourceType, SourceRole        string
@@ -81,11 +82,11 @@ func (s *Store) Claim(ctx context.Context) (Job, bool, error) {
 	}
 	err = tx.QueryRow(ctx, `SELECT v.article_id::text, v.source_id::text, v.title,
 		v.body_text, v.content_hash, v.raw_artifact_id::text, v.language,
-		v.author, v.published_at, v.fetched_at, v.metadata, (SELECT delivery_extraction FROM processing_jobs WHERE id=$2::uuid)
-		FROM article_versions v WHERE v.id=$1::uuid`, job.VersionID, job.ID).Scan(
+		v.author, v.published_at, v.fetched_at, v.metadata, j.delivery_extraction, j.delivery_version_no
+		FROM article_versions v JOIN processing_jobs j ON j.id=$2::uuid WHERE v.id=$1::uuid`, job.VersionID, job.ID).Scan(
 		&job.ArticleID, &job.SourceID, &job.Title, &job.Body,
 		&job.ContentHash, &job.RawArtifactID, &job.Language, &job.Author,
-		&job.PublishedAt, &job.FetchedAt, &job.Metadata, &job.DeliveryExtraction)
+		&job.PublishedAt, &job.FetchedAt, &job.Metadata, &job.DeliveryExtraction, &job.VersionNo)
 	if err != nil {
 		return Job{}, false, fmt.Errorf("load ML job material: %w", err)
 	}
