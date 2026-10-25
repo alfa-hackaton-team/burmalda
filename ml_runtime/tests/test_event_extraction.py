@@ -28,13 +28,13 @@ def candidate(**updates: Any) -> dict[str, Any]:
 
 
 class FakeClient:
-    def __init__(self, value: dict[str, Any]) -> None:
-        self.value = value
+    def __init__(self, *values: dict[str, Any]) -> None:
+        self.values = list(values)
         self.calls: list[dict[str, Any]] = []
 
     def generate_json(self, **kwargs):
         self.calls.append(kwargs)
-        return self.value
+        return self.values.pop(0)
 
 
 class EventExtractionTests(unittest.TestCase):
@@ -48,7 +48,10 @@ class EventExtractionTests(unittest.TestCase):
         )
 
     def test_extracts_a_candidate_with_exact_evidence_and_no_persisted_id(self):
-        client = FakeClient({"events": [candidate()]})
+        client = FakeClient(
+            {"events": [candidate()]},
+            {"event_checks": [{"index": 0, "supported": True, "reason": ""}], "overall_supported": True},
+        )
         extractor = LLMEventExtractor(client)
 
         result = extractor.extract(self.request, timeout_seconds=12)
@@ -59,9 +62,14 @@ class EventExtractionTests(unittest.TestCase):
         self.assertNotIn("id", result[0].to_dict())
         self.assertEqual(client.calls[0]["input_payload"]["article_version_id"], self.request.article["article_version_id"])
         self.assertEqual(client.calls[0]["timeout_seconds"], 12)
+        self.assertEqual(client.calls[1]["model_name"], "qwen/qwen3.6-35b-a3b")
+        self.assertLess(client.calls[1]["timeout_seconds"], 12)
 
     def test_empty_event_list_is_valid(self):
-        self.assertEqual(validate_candidate_events({"events": []}, QUOTE), [])
+        client = FakeClient({"events": []})
+        extractor = LLMEventExtractor(client)
+        self.assertEqual(extractor.extract(self.request), [])
+        self.assertEqual(len(client.calls), 1)
 
     def test_rejects_quote_not_found_in_saved_body(self):
         with self.assertRaises(EventExtractionError):
@@ -70,6 +78,22 @@ class EventExtractionTests(unittest.TestCase):
     def test_rejects_duplicate_candidate_event(self):
         with self.assertRaises(EventExtractionError):
             validate_candidate_events({"events": [candidate(), candidate()]}, QUOTE)
+
+    def test_semantic_verifier_rejection_prevents_candidates_from_returning(self):
+        client = FakeClient(
+            {"events": [candidate()]},
+            {"event_checks": [{"index": 0, "supported": False, "reason": "Summary adds an unsupported event."}], "overall_supported": False},
+        )
+        with self.assertRaisesRegex(EventExtractionError, "unsupported event"):
+            LLMEventExtractor(client).extract(self.request)
+
+    def test_incomplete_verifier_response_fails_closed(self):
+        client = FakeClient(
+            {"events": [candidate()]},
+            {"event_checks": [], "overall_supported": True},
+        )
+        with self.assertRaisesRegex(EventExtractionError, "every candidate"):
+            LLMEventExtractor(client).extract(self.request)
 
     def test_rejects_invalid_confidence_or_timezone_less_event_date(self):
         with self.assertRaises(EventExtractionError):
