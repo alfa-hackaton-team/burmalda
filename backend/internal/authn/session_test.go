@@ -4,10 +4,14 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpx"
 )
 
 type fakeStore struct {
@@ -105,4 +109,35 @@ func TestMiddlewareHidesStoreFailure(t *testing.T) {
 	if res.Code != http.StatusInternalServerError || res.Body.String() == "database password leaked" {
 		t.Fatalf("status=%d body=%q", res.Code, res.Body.String())
 	}
+}
+
+func TestMiddlewareTimeoutUsesOpenAPIErrorCode(t *testing.T) {
+	handler := Middleware(timeoutStore{}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("protected handler was called")
+	}))
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/v0.1/me", nil).WithContext(ctx)
+	req.AddCookie(&http.Cookie{
+		Name:  sessionCookieName,
+		Value: base64.RawURLEncoding.EncodeToString(make([]byte, sha256.Size)),
+	})
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	var response httpx.Error
+	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error response: %v", err)
+	}
+	if res.Code != http.StatusGatewayTimeout || response.Code != httpx.ErrorCodeTimeout || !response.Retryable {
+		t.Fatalf("status=%d error=%+v", res.Code, response)
+	}
+}
+
+type timeoutStore struct{}
+
+func (timeoutStore) Authenticate(ctx context.Context, _ [sha256.Size]byte) (Principal, error) {
+	<-ctx.Done()
+	return Principal{}, ctx.Err()
 }

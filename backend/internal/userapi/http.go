@@ -134,7 +134,7 @@ func listContexts(w http.ResponseWriter, r *http.Request, store Store, cursorSig
 	items, err := store.ListContexts(r.Context(), principal.UserID, afterID, limit+1)
 	if err != nil {
 		if errors.Is(r.Context().Err(), context.DeadlineExceeded) {
-			httpx.WriteError(w, http.StatusGatewayTimeout, "REQUEST_TIMEOUT", "request timed out", true)
+			httpx.WriteError(w, http.StatusGatewayTimeout, httpx.ErrorCodeTimeout, "request timed out", true)
 			return
 		}
 		httpx.WriteError(w, http.StatusInternalServerError, "INTERNAL_ERROR", "internal error", false)
