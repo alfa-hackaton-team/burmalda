@@ -35,6 +35,11 @@ def create_article_processing_app(
         raise ValueError("ML_SERVICE_TOKEN must be configured")
     if max_text_bytes <= 0 or not supported_pipeline_versions:
         raise ValueError("ML_MAX_TEXT_BYTES and supported pipeline versions must be configured")
+    quality_limit = getattr(coordinator.quality_gate, "max_text_bytes", None)
+    if quality_limit is not None and max_text_bytes != quality_limit:
+        raise ValueError(
+            f"ML_MAX_TEXT_BYTES must match the configured quality gate limit ({quality_limit})"
+        )
 
     app = FastAPI(title="Burmalda ML article processing", version="0.1")
 

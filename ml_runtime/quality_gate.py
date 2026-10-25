@@ -18,6 +18,13 @@ class ML1R02QualityGate:
     be present in the shared base until that PR is merged.
     """
 
+    @property
+    def max_text_bytes(self) -> int:
+        """Expose ML1's authoritative R02 limit to the HTTP configuration check."""
+        from ml.ingestion.quality import MAX_TEXT_BYTES
+
+        return MAX_TEXT_BYTES
+
     def assess(self, request: ArticleProcessingInput) -> dict[str, Any]:
         from ml.adapters.backend_documents import document_from_backend
         from ml.ingestion.quality import check_document

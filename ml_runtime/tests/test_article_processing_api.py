@@ -12,8 +12,19 @@ from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, paylo
 
 
 class FakeQualityGate:
+    max_text_bytes = 131072
+
     def assess(self, request):
-        return {"status": "PASS", "failures": [], "warnings": []}
+        return {
+            "document_id": request.article["article_id"],
+            "document_version_id": request.article["article_version_id"],
+            "pipeline_version": request.pipeline_version,
+            "quality_rules_version": "ml1-quality-fixture-v1",
+            "status": "PASS",
+            "failures": [],
+            "warnings": [],
+            "text_utf8_bytes": len(request.article["body"].encode("utf-8")),
+        }
 
 
 class FakeIndexer:
@@ -100,6 +111,21 @@ class ArticleProcessingAPITests(unittest.TestCase):
         self.assertEqual(response.status_code, 413)
         self.assertEqual(response.json()["code"], "PAYLOAD_TOO_LARGE")
         self.assertEqual(self.store.claim_next(), None)
+
+    def test_http_limit_must_match_ml1_quality_gate_limit(self):
+        coordinator = ArticleProcessingCoordinator(
+            store=InMemoryOperationStore(),
+            quality_gate=FakeQualityGate(),
+            indexer=FakeIndexer(),
+            event_processor=FakeEventProcessor(),
+        )
+        with self.assertRaisesRegex(ValueError, "must match"):
+            create_article_processing_app(
+                coordinator,
+                service_token="test-service-token",
+                max_text_bytes=65536,
+                supported_pipeline_versions={PIPELINE_VERSION},
+            )
 
 
 if __name__ == "__main__":

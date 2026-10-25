@@ -211,6 +211,7 @@ class ArticleProcessingCoordinator:
             quality_result = self.quality_gate.assess(request)
             if not isinstance(quality_result, dict) or quality_result.get("status") not in {"PASS", "FAIL"}:
                 raise RuntimeError("ML1 quality gate returned an invalid result")
+            _validate_quality_result_identity(request, quality_result)
             if quality_result["status"] == "FAIL":
                 return self.store.transition(
                     processing_id,
@@ -251,3 +252,20 @@ class ArticleProcessingCoordinator:
             event_ids=event_ids,
             quality_result=quality_result,
         ).to_wire()
+
+
+def _validate_quality_result_identity(
+    request: ArticleProcessingInput, result: dict[str, Any]
+) -> None:
+    expected = {
+        "document_id": request.article["article_id"],
+        "document_version_id": request.article["article_version_id"],
+        "pipeline_version": request.pipeline_version,
+    }
+    for field, value in expected.items():
+        if result.get(field) != value:
+            raise RuntimeError(f"ML1 quality result {field} does not match the submitted article")
+    if not isinstance(result.get("quality_rules_version"), str) or not result["quality_rules_version"].strip():
+        raise RuntimeError("ML1 quality result has no quality_rules_version")
+    if not isinstance(result.get("failures"), list) or not isinstance(result.get("warnings"), list):
+        raise RuntimeError("ML1 quality result diagnostics are invalid")

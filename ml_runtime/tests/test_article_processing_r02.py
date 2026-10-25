@@ -50,13 +50,14 @@ def parse(value: dict[str, Any]):
 
 
 class FakeQualityGate:
-    def __init__(self, status: str) -> None:
+    def __init__(self, status: str, **overrides: Any) -> None:
         self.status = status
         self.calls = 0
+        self.overrides = overrides
 
     def assess(self, request):
         self.calls += 1
-        return {
+        result = {
             "document_id": request.article["article_id"],
             "document_version_id": request.article["article_version_id"],
             "pipeline_version": request.pipeline_version,
@@ -66,6 +67,8 @@ class FakeQualityGate:
             "warnings": [],
             "text_utf8_bytes": len(request.article["body"].encode("utf-8")),
         }
+        result.update(self.overrides)
+        return result
 
 
 class FakeIndexer:
@@ -134,6 +137,23 @@ class ArticleProcessingR02Tests(unittest.TestCase):
         self.assertEqual(calls, [])
         self.assertEqual(store.get(accepted["processing_id"]).quality_result["status"], "FAIL")
         self.assertNotIn("quality_result", result)
+
+    def test_quality_result_for_another_version_stops_processing(self):
+        calls: list[str] = []
+        store = InMemoryOperationStore()
+        gate = FakeQualityGate("PASS", document_version_id="10000000-0000-4000-8000-000000000099")
+        coordinator = ArticleProcessingCoordinator(
+            store=store,
+            quality_gate=gate,
+            indexer=FakeIndexer(calls),
+            event_processor=FakeEventProcessor(calls),
+        )
+        accepted, _ = coordinator.submit(parse(payload()))
+
+        result = coordinator.execute(accepted["processing_id"])
+
+        self.assertEqual(result["state"], "FAILED")
+        self.assertEqual(calls, [])
 
     def test_quality_pass_runs_index_then_events_before_succeeded(self):
         calls: list[str] = []
