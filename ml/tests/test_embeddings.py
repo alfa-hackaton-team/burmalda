@@ -7,7 +7,7 @@ import unittest
 from dataclasses import FrozenInstanceError, replace
 from types import SimpleNamespace
 from unittest.mock import patch
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from ml.chunking.dto import DocumentChunk
 from ml.chunking.profiles import QWEN_REVISION
@@ -246,14 +246,73 @@ class QwenPoolingTests(unittest.TestCase):
 @unittest.skipUnless(os.environ.get('ML1_TEST_QWEN_MODEL') == '1', 'Real model smoke requires explicit cached weights')
 class QwenRealModelSmokeTests(unittest.TestCase):
     def test_cached_model_chunks_queries_and_batch_consistency(self):
+        from ml.chunking import chunk_document
+        from ml.chunking.tokenization import QwenTokenCounter
+        from ml.tests.test_chunking import document
+
         encoder = QwenBatchEncoder(cache_dir=os.environ.get('ML1_MODEL_CACHE'))
-        chunks = sample_chunks(2)
-        chunks = (replace(chunks[0], chunk_text='Банк', char_end=4), chunks[1])
-        first = Embedder(encoder, batch_size=2).encode_chunks(chunks)
-        separate = Embedder(encoder, batch_size=1).encode_chunks(chunks)
-        for a, b in zip(first, separate):
-            self.assertEqual(a.chunk_id, b.chunk_id)
+        counter = QwenTokenCounter(cache_dir=os.environ.get('ML1_MODEL_CACHE'))
+        texts = (
+            'ЦБ повысил ключевую ставку.',
+            'Банк России увеличил ключевую ставку.',
+            'Из-за дорогих кредитов компании сократили инвестиции.',
+            'Компания открыла новый завод.',
+            'Предприятие запустило новый производственный завод.',
+            'На действующем заводе обновили оборудование.',
+            'На побережье ожидаются сильные дожди.',
+            'Банк повысил процентные ставки по вкладам.',
+            'Доходность банковских депозитов увеличилась.',
+            'Банк снизил ставки по ипотечным кредитам.',
+            'Футбольная команда выиграла чемпионат.',
+            'ЦБ повысил ключевую ставку.',  # Same text, different document/chunk ID.
+        )
+        chunks = []
+        for index, text in enumerate(texts):
+            saved = replace(document(text),
+                            document_id=str(uuid5(NAMESPACE_URL, f'ml1-smoke-document:{index}')),
+                            document_version_id=str(uuid5(NAMESPACE_URL, f'ml1-smoke-version:{index}')))
+            generated = chunk_document(saved, counter)
+            self.assertEqual(len(generated), 1)
+            chunks.extend(generated)
+        first = Embedder(encoder, batch_size=4).encode_chunks(chunks)
+        repeated = Embedder(encoder, batch_size=4).encode_chunks(chunks)
+        self.assertEqual([item.chunk_id for item in first], [chunk.id for chunk in chunks])
+        repeat_max_abs = 0.0
+        for chunk, a, b in zip(chunks, first, repeated):
+            self.assertEqual(a.text_sha256, text_hash(chunk.chunk_text))
             self.assertEqual(len(a.vector), 1024)
-            self.assertLessEqual(max(abs(x - y) for x, y in zip(a.vector, b.vector)), VECTOR_COMPARE_ATOL)
+            self.assertTrue(all(math.isfinite(value) for value in a.vector))
+            self.assertAlmostEqual(math.hypot(*a.vector), 1.0, places=6)
+            difference = max(abs(x - y) for x, y in zip(a.vector, b.vector))
+            repeat_max_abs = max(repeat_max_abs, difference)
+            self.assertLessEqual(difference, VECTOR_COMPARE_ATOL)
+        selected = (chunks[3], chunks[0], chunks[8])
+        separate = Embedder(encoder, batch_size=1).encode_chunks(selected)
+        by_id = {item.chunk_id: item for item in first}
+        differences = [max(abs(x - y) for x, y in zip(item.vector, by_id[item.chunk_id].vector))
+                       for item in separate]
+        self.assertLessEqual(max(differences), VECTOR_COMPARE_ATOL)
+        self.assertNotEqual(first[0].chunk_id, first[-1].chunk_id)
+        duplicate_difference = max(abs(x - y) for x, y in zip(first[0].vector, first[-1].vector))
+        self.assertLessEqual(duplicate_difference, VECTOR_COMPARE_ATOL)
+
+        def cosine(i, j):
+            a, b = first[i].vector, first[j].vector
+            return math.fsum(x * y for x, y in zip(a, b)) / (math.hypot(*a) * math.hypot(*b))
+
+        # Relative behavior only: no absolute cosine quality threshold.
+        for label, anchor, close, related, unrelated in (
+            ('key_rate', 0, 1, 2, 6), ('factory', 3, 4, 5, 1), ('deposits', 7, 8, 9, 10),
+        ):
+            values = [cosine(anchor, index) for index in (close, related, unrelated)]
+            print(f'\nCOSINE {label}: close={values[0]:.9f}; related={values[1]:.9f}; unrelated={values[2]:.9f}', flush=True)
+            self.assertGreater(values[0], values[1], label)
+            self.assertGreater(values[1], values[2], label)
+        print(f'COSINE rate_vs_factory={cosine(0, 3):.9f}; '
+              f'duplicate={cosine(0, 11):.9f}; duplicate_max_abs={duplicate_difference:.3g}; '
+              f'batch_max_abs={max(differences):.3g}', flush=True)
+        print(f'TECH chunks={len(chunks)}; dimension=1024; finite=PASS; ids=PASS; '
+              f'repeat_max_abs={repeat_max_abs:.3g}', flush=True)
+        self.assertGreater(cosine(0, 1), cosine(0, 3))
         queries = Embedder(encoder).encode_queries(('Что происходит с банками?',))
         self.assertEqual(len(queries[0]), 1024)
