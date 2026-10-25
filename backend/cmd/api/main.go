@@ -15,6 +15,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/database"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/dataset"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/health"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpsecurity"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/userapi"
 )
 
@@ -54,11 +55,17 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	userHandler := authn.Middleware(sessionStore, userapi.Handler(userStore, cursorSigningKey))
+	allowedOrigins, err := httpsecurity.ParseOriginAllowlist(os.Getenv("API_ALLOWED_ORIGINS"))
+	if err != nil {
+		return err
+	}
+	userHandler := authn.Middleware(sessionStore,
+		httpsecurity.RequireMutationProof(userapi.Handler(userStore, cursorSigningKey), allowedOrigins))
 	serverSettings := manager.Current().Server
-	mux.Handle("/v0.1/", userapi.ProtectHTTP(userHandler, userapi.HTTPOptions{
+	mux.Handle("/v0.1/", httpsecurity.Protect(userHandler, httpsecurity.Options{
 		RequestTimeout: serverSettings.RequestTimeout.Std(),
 		MaxBodyBytes:   serverSettings.MaxBodyBytes,
+		AllowedOrigins: allowedOrigins,
 	}))
 
 	server := &http.Server{

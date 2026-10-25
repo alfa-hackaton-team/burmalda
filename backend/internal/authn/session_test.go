@@ -94,6 +94,24 @@ func TestMiddlewareRejectsMissingMalformedAndExpiredSession(t *testing.T) {
 	}
 }
 
+func TestMiddlewareRejectsDuplicateSessionCookie(t *testing.T) {
+	store := &fakeStore{principal: Principal{UserID: "user-id"}}
+	handler := Middleware(store, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("protected handler was called")
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v0.1/me", nil)
+	value := base64.RawURLEncoding.EncodeToString(make([]byte, sha256.Size))
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: value})
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: value})
+	res := httptest.NewRecorder()
+
+	handler.ServeHTTP(res, req)
+
+	if res.Code != http.StatusUnauthorized || store.called != 0 {
+		t.Fatalf("status=%d calls=%d body=%q", res.Code, store.called, res.Body.String())
+	}
+}
+
 func TestMiddlewareHidesStoreFailure(t *testing.T) {
 	store := &fakeStore{err: errors.New("database password leaked")}
 	handler := Middleware(store, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))

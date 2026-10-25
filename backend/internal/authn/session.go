@@ -75,12 +75,12 @@ func PrincipalFromContext(ctx context.Context) (Principal, bool) {
 
 func Middleware(store Store, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		cookie, err := r.Cookie(sessionCookieName)
-		if err != nil {
+		cookies := r.CookiesNamed(sessionCookieName)
+		if len(cookies) != 1 {
 			unauthenticated(w)
 			return
 		}
-		token, err := base64.RawURLEncoding.DecodeString(cookie.Value)
+		token, err := base64.RawURLEncoding.DecodeString(cookies[0].Value)
 		if err != nil || len(token) != sha256.Size {
 			unauthenticated(w)
 			return

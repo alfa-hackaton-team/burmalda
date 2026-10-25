@@ -1,12 +1,11 @@
 package userapi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"time"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/authn"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpsecurity"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpx"
 	"gopkg.in/yaml.v3"
 )
@@ -27,6 +27,7 @@ const (
 )
 
 var testCursorSigningKey = sha256.Sum256([]byte("server-only cursor signing key"))
+var testAllowedOrigins = httpsecurity.OriginAllowlist{"https://app.example": {}}
 
 type fakeContextStore struct {
 	items   []AvailableContext
@@ -56,7 +57,11 @@ func authenticatedHandler(store Store) http.Handler {
 		UserID:      testUserID,
 		DisplayName: stringPtr("Demo User"),
 	}}, Handler(store, testCursorSigningKey))
-	return ProtectHTTP(handler, HTTPOptions{RequestTimeout: time.Second, MaxBodyBytes: 1024})
+	return httpsecurity.Protect(handler, httpsecurity.Options{
+		RequestTimeout: time.Second,
+		MaxBodyBytes:   1024,
+		AllowedOrigins: testAllowedOrigins,
+	})
 }
 
 func authenticatedRequest(method, target, body string) *http.Request {
@@ -195,6 +200,68 @@ func TestGetRejectsBody(t *testing.T) {
 	}
 }
 
+func TestHandlerReturnsJSONForUnknownRouteAndMethod(t *testing.T) {
+	tests := []struct {
+		name       string
+		method     string
+		target     string
+		wantStatus int
+		wantCode   string
+		wantAllow  string
+	}{
+		{name: "unknown route", method: http.MethodGet, target: "/v0.1/missing", wantStatus: http.StatusNotFound, wantCode: "NOT_FOUND"},
+		{name: "wrong method", method: http.MethodPost, target: "/v0.1/me", wantStatus: http.StatusMethodNotAllowed, wantCode: "VALIDATION_ERROR", wantAllow: "GET, HEAD"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			res := httptest.NewRecorder()
+			Handler(&fakeContextStore{}, testCursorSigningKey).ServeHTTP(res, httptest.NewRequest(tc.method, tc.target, nil))
+
+			var response httpx.Error
+			if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
+				t.Fatalf("decode error response: %v body=%q", err, res.Body.String())
+			}
+			if res.Code != tc.wantStatus || response.Code != tc.wantCode || res.Header().Get("Content-Type") != "application/json" || res.Header().Get("Allow") != tc.wantAllow {
+				t.Fatalf("status=%d error=%+v headers=%v", res.Code, response, res.Header())
+			}
+		})
+	}
+}
+
+func TestSecurityChainOrdersAuthenticationProofAndRouting(t *testing.T) {
+	csrfToken := bytes.Repeat([]byte{7}, sha256.Size)
+	encodedCSRF := base64.RawURLEncoding.EncodeToString(csrfToken)
+	principal := authn.Principal{
+		SessionID:     testSessionID,
+		UserID:        testUserID,
+		CSRFTokenHash: sha256.Sum256(csrfToken),
+	}
+	handler := httpsecurity.Protect(
+		authn.Middleware(fakeSessionStore{principal: principal},
+			httpsecurity.RequireMutationProof(Handler(&fakeContextStore{}, testCursorSigningKey), testAllowedOrigins)),
+		httpsecurity.Options{RequestTimeout: time.Second, MaxBodyBytes: 1024, AllowedOrigins: testAllowedOrigins},
+	)
+
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, httptest.NewRequest(http.MethodPost, "/v0.1/missing", nil))
+	assertHTTPError(t, res, http.StatusUnauthorized, "UNAUTHENTICATED")
+
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, authenticatedRequest(http.MethodPost, "/v0.1/missing", ""))
+	assertHTTPError(t, res, http.StatusForbidden, "FORBIDDEN")
+
+	req := authenticatedRequest(http.MethodPost, "/v0.1/missing", "")
+	req.Header.Set("Origin", "https://app.example")
+	req.AddCookie(&http.Cookie{Name: "csrf_token", Value: encodedCSRF})
+	req.Header.Set("X-CSRF-Token", encodedCSRF)
+	res = httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	assertHTTPError(t, res, http.StatusNotFound, "NOT_FOUND")
+	if res.Header().Get("Access-Control-Allow-Origin") != "https://app.example" || res.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Fatalf("cors headers=%v", res.Header())
+	}
+}
+
 func TestUserResponsesAreNotCacheable(t *testing.T) {
 	res := httptest.NewRecorder()
 	authenticatedHandler(&fakeContextStore{}).ServeHTTP(res, authenticatedRequest(http.MethodGet, "/v0.1/me", ""))
@@ -202,9 +269,9 @@ func TestUserResponsesAreNotCacheable(t *testing.T) {
 		t.Fatalf("authenticated cache control=%q", got)
 	}
 
-	unauthenticated := ProtectHTTP(
+	unauthenticated := httpsecurity.Protect(
 		authn.Middleware(&fakeSessionStore{}, Handler(&fakeContextStore{}, testCursorSigningKey)),
-		HTTPOptions{RequestTimeout: time.Second, MaxBodyBytes: 1024},
+		httpsecurity.Options{RequestTimeout: time.Second, MaxBodyBytes: 1024, AllowedOrigins: testAllowedOrigins},
 	)
 	res = httptest.NewRecorder()
 	unauthenticated.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/v0.1/me", nil))
@@ -218,7 +285,11 @@ func TestRequestTimeoutCancelsStoreQuery(t *testing.T) {
 		SessionID: testSessionID,
 		UserID:    testUserID,
 	}}, Handler(timeoutStore{}, testCursorSigningKey))
-	handler = ProtectHTTP(handler, HTTPOptions{RequestTimeout: time.Millisecond, MaxBodyBytes: 1024})
+	handler = httpsecurity.Protect(handler, httpsecurity.Options{
+		RequestTimeout: time.Millisecond,
+		MaxBodyBytes:   1024,
+		AllowedOrigins: testAllowedOrigins,
+	})
 	res := httptest.NewRecorder()
 	handler.ServeHTTP(res, authenticatedRequest(http.MethodGet, "/v0.1/contexts", ""))
 	if res.Code != http.StatusGatewayTimeout {
@@ -235,14 +306,20 @@ func TestRequestTimeoutCancelsStoreQuery(t *testing.T) {
 }
 
 func TestProtectHTTPLimitsRequestBody(t *testing.T) {
-	handler := ProtectHTTP(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, err := io.ReadAll(r.Body)
-		var maxErr *http.MaxBytesError
-		if !errors.As(err, &maxErr) {
-			t.Errorf("read error=%v", err)
+	handler := httpsecurity.Protect(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var payload struct {
+			Value string `json:"value"`
 		}
-	}), HTTPOptions{RequestTimeout: time.Second, MaxBodyBytes: 2})
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v0.1/test", strings.NewReader("too large")))
+		if httpx.DecodeJSONObject(w, r, &payload) {
+			t.Fatal("oversized request decoded")
+		}
+	}), httpsecurity.Options{RequestTimeout: time.Second, MaxBodyBytes: 2, AllowedOrigins: testAllowedOrigins})
+	req := httptest.NewRequest(http.MethodPost, "/v0.1/test", strings.NewReader(`{"value":"too large"}`))
+	req.ContentLength = -1
+	req.Header.Set("Content-Type", "application/json")
+	res := httptest.NewRecorder()
+	handler.ServeHTTP(res, req)
+	assertHTTPError(t, res, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE")
 }
 
 func TestParseCursorSigningKey(t *testing.T) {
@@ -296,6 +373,17 @@ func assertOpenAPIErrorCode(t *testing.T, code string) {
 		}
 	}
 	t.Fatalf("error code %q is absent from docs/api/schemas.yaml", code)
+}
+
+func assertHTTPError(t *testing.T, res *httptest.ResponseRecorder, status int, code string) {
+	t.Helper()
+	var response httpx.Error
+	if err := json.Unmarshal(res.Body.Bytes(), &response); err != nil {
+		t.Fatalf("decode error response: %v body=%q", err, res.Body.String())
+	}
+	if res.Code != status || response.Code != code {
+		t.Fatalf("status=%d error=%+v", res.Code, response)
+	}
 }
 
 func stringPtr(value string) *string { return &value }
