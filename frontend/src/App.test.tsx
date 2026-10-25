@@ -1,0 +1,61 @@
+import { render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { describe, expect, it } from 'vitest';
+import { App } from './App';
+import { createDemoApi } from './demo';
+
+describe('client scenario', () => {
+  it('opens an analysis, exposes evidence, saves feedback and restores the conversation between tabs', async () => {
+    sessionStorage.clear();
+    const user = userEvent.setup();
+    render(<App api={createDemoApi()} demo />);
+    await user.click(await screen.findByRole('button', { name: /^Требует внимания/ }));
+    await screen.findByRole('heading', { name: 'Влияние на ваш бизнес' }, { timeout: 3000 });
+    await user.click(screen.getByRole('button', { name: 'Разбор полезен' }));
+    await screen.findByText('Оценка сохранена локально в деморежиме');
+    await user.click(screen.getByRole('tab', { name: /^Основания/ }));
+    expect(screen.getByText('Признаки бизнес-профиля')).toBeVisible();
+    await user.click(screen.getByRole('tab', { name: 'Уточнить' }));
+    await user.type(
+      await screen.findByRole('textbox', { name: 'Уточняющий вопрос' }),
+      'Что нужно проверить?',
+    );
+    await user.click(screen.getByRole('button', { name: /^Отправить$/ }));
+    await screen.findByText('Учебный ответ', {}, { timeout: 3000 });
+    await user.click(screen.getByRole('tab', { name: /^Разбор$/ }));
+    expect(screen.getByRole('button', { name: 'Разбор полезен' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    await user.click(screen.getByRole('tab', { name: 'Уточнить' }));
+    expect(screen.getByText('Что нужно проверить?')).toBeVisible();
+    await user.selectOptions(
+      screen.getByRole('combobox', { name: 'Компания и ракурс анализа' }),
+      'demo-logistics-cfo',
+    );
+    await screen.findByRole('button', { name: /^Потенциальный риск/ });
+    expect(
+      screen.queryByRole('article', { name: 'Подробный разбор события' }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText('Что нужно проверить?')).not.toBeInTheDocument();
+  }, 15_000);
+
+  it('distinguishes an empty feed from an error', async () => {
+    render(<App api={createDemoApi('empty')} demo />);
+    expect(
+      await screen.findByRole('heading', { name: 'Пока нет релевантных событий' }),
+    ).toBeVisible();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('discards a slow response after switching companies', async () => {
+    const user = userEvent.setup();
+    render(<App api={createDemoApi('slow')} demo />);
+    await user.click(await screen.findByRole('button', { name: /^Требует внимания/ }));
+    expect(within(screen.getByRole('article')).getByRole('status')).toBeVisible();
+    await user.selectOptions(screen.getByRole('combobox'), 'demo-logistics-cfo');
+    await waitFor(() => expect(screen.queryByRole('article')).not.toBeInTheDocument());
+    await screen.findByRole('button', { name: /^Потенциальный риск/ });
+    expect(screen.queryByText('Влияние на ваш бизнес')).not.toBeInTheDocument();
+  });
+});
