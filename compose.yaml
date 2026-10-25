@@ -7,7 +7,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?copy .env.example to .env and set credentials}
       ML_RUNTIME_PASSWORD: ${ML_RUNTIME_PASSWORD:?set ML_RUNTIME_PASSWORD in .env}
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - ./docker-volume/postgres:/var/lib/postgresql
       - ./docker/postgres/init/00-enable-vector.sql:/docker-entrypoint-initdb.d/00-enable-vector.sql:ro
       - ./docker/postgres/init/01-create-runtime-role.sh:/docker-entrypoint-initdb.d/01-create-runtime-role.sh:ro
     ports:
@@ -56,6 +56,8 @@ services:
       ML_MODEL_CACHE: /models/hf
       HF_HOME: /models/hf
       HF_HUB_OFFLINE: "1"
+      ML1_EMBEDDING_URL: http://embedding-model:8101
+      ML1_RERANKER_URL: http://reranker-model:8102
       ML_LLM_API_KEY: ${ML_LLM_API_KEY:?set ML_LLM_API_KEY in .env}
       ML_LLM_BASE_URL: ${ML_LLM_BASE_URL:-https://changellenge.up.railway.app/v1}
       ML_LLM_EVENT_MODEL: ${ML_LLM_EVENT_MODEL:-z-ai/glm-5.3-flash}
@@ -63,23 +65,52 @@ services:
       ML_EVENT_PIPELINE_CONFIG_VERSION: ${ML_EVENT_PIPELINE_CONFIG_VERSION:-event-extraction-v1}
       ML_WORKER_POLL_SECONDS: "1"
     volumes:
-      - hf-model-cache:/models/hf
+      - ./docker-volume/models:/models/hf:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
+      embedding-model:
+        condition: service_healthy
+      reranker-model:
+        condition: service_healthy
+    healthcheck:
+      disable: true
     restart: unless-stopped
 
-  model-cache:
+  embedding-model:
     build: .
-    profiles: [setup]
-    command: ["python", "-m", "ml_runtime.warm_ml1_models"]
+    command: ["python", "-m", "ml_runtime.serve_ml1_model", "--role", "embedding"]
     environment:
       ML_MODEL_CACHE: /models/hf
       HF_HOME: /models/hf
-      HF_HUB_OFFLINE: "0"
+      HF_HUB_OFFLINE: "1"
+    expose:
+      - "8101"
     volumes:
-      - hf-model-cache:/models/hf
+      - ./docker-volume/models:/models/hf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8101/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      start_period: 20m
+      retries: 3
+    restart: unless-stopped
 
-volumes:
-  postgres-data:
-  hf-model-cache:
+  reranker-model:
+    build: .
+    command: ["python", "-m", "ml_runtime.serve_ml1_model", "--role", "reranker"]
+    environment:
+      ML_MODEL_CACHE: /models/hf
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+    expose:
+      - "8102"
+    volumes:
+      - ./docker-volume/models:/models/hf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      start_period: 20m
+      retries: 3
+    restart: unless-stopped

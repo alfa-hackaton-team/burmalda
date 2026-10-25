@@ -1,35 +1,37 @@
 # Локальный запуск ML через Docker Compose
 
-Комплект запускает API, отдельный worker и PostgreSQL 18 с pgvector. API принимает задания Go и обслуживает polling; worker загружает локальную ML1 embedding-модель, индексирует документы и вызывает разрешённые LLM через gateway организаторов. Код ML1 PR #24 должен быть в том же checkout (например, после его слияния с ML2).
+Комплект запускает Go-facing API, отдельный worker, два внутренних ML1 model-сервиса и PostgreSQL 18 с pgvector. Worker отправляет embedding и reranking запросы сервисам моделей по внутренней Docker-сети; веса в worker не загружаются. Веса и база хранятся в обычных локальных папках `docker-volume/models` и `docker-volume/postgres`, смонтированных внутрь контейнеров.
 
 ## Подготовка
 
-Нужны Docker Desktop с Docker Compose v2 и примерно 5 ГБ свободной памяти для Python, PyTorch и модели Qwen. В корне репозитория:
+Нужны Docker Engine с Compose и Docker VM с 12 ГБ RAM для двух локальных моделей Qwen на CPU и inference. Подготовь кэш весов локально:
 
 ```bash
-cp .env.example .env
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -r ml/requirements-chunking.txt
+mkdir -p docker-volume/postgres docker-volume/models
+ML_MODEL_CACHE="$PWD/docker-volume/models" .venv/bin/python -m ml_runtime.warm_ml1_models
 ```
 
-Откройте `.env`, замените `ML_LLM_API_KEY` на ключ команды от организаторов и задайте локальные пароли и `ML_SERVICE_TOKEN`. Ключ остаётся только в `.env`, который исключён из Git. Для модели событий и verifier-а указаны разрешённые модели из приложения 3; заменяйте их только на другие разрешённые ID.
+Команда скачивает закреплённые веса в `docker-volume/models`; отдельный cache-контейнер не нужен. Затем скопируй `.env.example` в `.env`, замени `ML_LLM_API_KEY` на ключ команды от организаторов и задай локальные пароли и `ML_SERVICE_TOKEN`. Ключ остаётся только в `.env`, который исключён из Git. Для модели событий и verifier-а указаны разрешённые модели из приложения 3; заменяй их только на другие разрешённые ID.
 
-## Подготовить embedding model и запустить сервисы
+## Скачать веса и запустить сервисы
 
 ```bash
-docker compose --profile setup run --rm model-cache
 docker compose up --build -d
 docker compose ps
 ```
 
-Первая команда скачивает закреплённую версию `Qwen/Qwen3-Embedding-0.6B` в именованный volume `hf-model-cache`; она не использует ключ LLM gateway. Worker работает офлайн относительно Hugging Face и не скачивает модель при обработке статей. Следующая команда собирает общий Python image, включает pgvector, последовательно запускает миграции ML1 и ML2, а затем поднимает API и worker. Для новой пустой базы init-скрипты включают расширение `vector` и создают отдельную роль `ml_runtime`.
+Команда скачивания кладёт закреплённые версии `Qwen/Qwen3-Embedding-0.6B` и `Qwen/Qwen3-Reranker-0.6B` в `docker-volume/models`. Compose монтирует эту папку read-only в отдельные контейнеры `embedding-model` и `reranker-model`; они загружают свои веса в память при старте и доступны только по внутренней Docker-сети. Worker читает tokenizer из того же кэша и вызывает model-сервисы по HTTP. PostgreSQL хранит данные на диске в `docker-volume/postgres`. Для новой базы init-скрипты включают `vector`, затем migration job применяет ML1 и ML2 миграции.
 
 API доступен локально по адресу `http://localhost:8000`. `GET /healthz` проверяет доступность HTTP-процесса. Go должен отправлять запросы на `POST /internal/v0.1/article-processings` с `Authorization: Bearer <ML_SERVICE_TOKEN>` и стабильным `Idempotency-Key`.
 
 ```bash
-docker compose logs -f api worker
+docker compose logs -f api worker embedding-model reranker-model
 docker compose down
 ```
 
-`docker compose down` сохраняет PostgreSQL и веса моделей в volumes. `docker compose down -v` удаляет и базу, и скачанную модель; используйте это только для сброса локальных данных.
+`docker compose down` останавливает контейнеры, а содержимое `docker-volume/` остаётся на диске. Чтобы полностью очистить локальные данные, удалите `docker-volume/` вручную после остановки Compose.
 
 ## Проверка обработки
 
@@ -56,10 +58,10 @@ POST возвращает `202 QUEUED`; сохраните `processing_id` и о
 
 - `ML_PIPELINE_VERSIONS` и лимит `ML_MAX_TEXT_BYTES=131072` установлены в Compose по текущему контракту.
 - `ML_MIGRATION_DATABASE_URL` использует административную роль только в одноразовом контейнере миграций. API и worker подключаются к БД под отдельной ролью `ml_runtime`.
-- `ML_INDEXER_FACTORY` указывает на `ml_runtime.docker_indexer:create_ml1_pipeline`. Worker создаёт один долгоживущий `ML1Pipeline`.
-- API-контейнер не загружает embeddings и не требует LLM API key; модельные зависимости и ключ нужны только worker-у.
+- `ML_INDEXER_FACTORY` указывает на `ml_runtime.docker_indexer:create_ml1_pipeline`. Worker создаёт один долгоживущий `ML1Pipeline` с HTTP-клиентами `embedding-model` и `reranker-model`.
+- API-контейнер не загружает embeddings и не требует LLM API key. Worker использует LLM gateway для извлечения событий и смысловой проверки; embedding/reranker веса загружаются отдельно в соответствующие model-контейнеры.
 - Изменение паролей после первого запуска не обновляет пароль роли в существующем volume автоматически. Для сброса локального стенда используйте `docker compose down -v`.
 
 ## Что проверено
 
-Локально проверены сборка образов, запуск PostgreSQL 18 с pgvector, обе миграции и API `GET /healthz`. ML1 PostgreSQL-тесты запускаются внутри API-контейнера против локальной disposable базы. Запрос с настоящей статьёй и вызовы LLM через gateway здесь не выполнялись: для них нужны реальный Go payload и ключ в локальном `.env`.
+Локально проверены сборка образов, скачивание обеих моделей в `docker-volume/models`, запуск отдельных embedding/reranker контейнеров и их healthchecks. Production worker-клиенты успешно получили embedding и reranker score для evidence-цитаты из сохранённого пресс-релиза Банка России; embedding размерности 1024 и нормирован. Также проверены PostgreSQL/pgvector миграции и API `GET /healthz`. Полный Go → ML2 → gateway прогон статьи не выполнялся: для него нужны реальный Go payload и ключ в локальном `.env`.

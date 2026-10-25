@@ -15,3 +15,4 @@ htmlcov
 *.log
 models
 hf-cache
+docker-volume

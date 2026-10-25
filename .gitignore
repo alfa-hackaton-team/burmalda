@@ -222,3 +222,4 @@ __marimo__/
 
 # Local working notes and validation artifacts
 /.local/
+/docker-volume/
