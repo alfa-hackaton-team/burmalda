@@ -24,6 +24,7 @@ def payload(body: str = "Synthetic article text.") -> dict[str, Any]:
     return {
         "article": {
             "article_id": "10000000-0000-4000-8000-000000000002",
+            "version_no": 1,
             "article_version_id": ARTICLE_VERSION_ID,
             "source_id": SOURCE_ID,
             "title": "Synthetic title",

@@ -660,6 +660,7 @@ paths:
                       minLength: 1
                     name:
                       type: string
+                      minLength: 1
                     source_role:
                       type: string
                       enum:
@@ -668,8 +669,20 @@ paths:
                       - expert
                     source_type:
                       type: string
+                      enum:
+                      - news
+                      - bank_analytics
+                      - expert
+                      - regulator
+                      - financial_press
                     trust_level:
                       type: string
+                      enum:
+                      - primary
+                      - trusted
+                      - standard
+                      - unknown
+                      - reviewed
                     config_version:
                       type: string
                   additionalProperties: false
@@ -683,6 +696,12 @@ paths:
                   description: Безопасная версия метаданных реестра Go для классификации
                     материала; без endpoint, credential_ref и конфигурации доступа
                     к издателю.
+                pipeline_version:
+                  type: string
+                  minLength: 1
+                  enum:
+                  - ml-pipeline-v1
+                  description: Версия ML pipeline из конфигурации Go. ML принимает только явно поддержанные значения.
                 trace_id:
                   type: string
                   minLength: 1
@@ -690,6 +709,7 @@ paths:
               required:
               - article
               - source
+              - pipeline_version
               - trace_id
               description: article.source_id должен совпадать с source.source_id.
                 Go передаёт сохранённую версию материала; ML проверяет ссылки и метаданные,

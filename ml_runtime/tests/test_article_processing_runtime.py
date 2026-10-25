@@ -20,7 +20,10 @@ from ml_runtime.worker import ArticleProcessingWorker
 
 class RuntimeFactoryTests(unittest.TestCase):
     def test_loads_an_indexer_factory_from_the_configured_module_path(self):
-        indexer = type("Indexer", (), {"index": lambda self, document: None})()
+        indexer = type("Indexer", (), {
+            "index": lambda self, payload, **kwargs: None,
+            "get_chunks": lambda self, request: None,
+        })()
         module = SimpleNamespace(indexer_factory=lambda: indexer)
         with (
             patch.dict(os.environ, {"ML_INDEXER_FACTORY": "ml_plugin:indexer_factory"}),
@@ -42,12 +45,15 @@ class RuntimeFactoryTests(unittest.TestCase):
             patch.dict(os.environ, {"ML_INDEXER_FACTORY": "ml_plugin:indexer_factory"}),
             patch("ml_runtime.article_processing_runtime.importlib.import_module", return_value=module),
         ):
-            with self.assertRaisesRegex(ValueError, r"index\(document\)"):
+            with self.assertRaisesRegex(ValueError, "ML1Pipeline"):
                 load_indexer_from_env()
 
     def test_wires_injected_ml1_indexer_and_event_model_into_api_and_worker(self):
         class FakeIndexer:
-            def index(self, document):
+            def index(self, payload, **kwargs):
+                raise AssertionError("indexer should not run while composing the service")
+
+            def get_chunks(self, request):
                 raise AssertionError("indexer should not run while composing the service")
 
         class FakeQualityGate:

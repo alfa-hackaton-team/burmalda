@@ -1,7 +1,8 @@
-"""PostgreSQL-backed idempotent article-processing operation store."""
+"""PostgreSQL operation store over ML1's shared ``ml.article_processings`` table."""
 
 from __future__ import annotations
 
+import base64
 import json
 import os
 from datetime import datetime
@@ -14,21 +15,18 @@ from .operations import ArticleProcessingOperation
 
 _COLUMNS = """
 processing_id, article_version_id, pipeline_version, trace_id, created_at,
-request_fingerprint, state, document_version_id, event_ids, error, quality_result
+request_fingerprint, state, document_version_id, event_ids, quality_result,
+error, event_pipeline_config_version
 """
 _ALLOWED_TRANSITIONS = {
     "QUEUED": {"FAILED"},
     "RUNNING": {"SUCCEEDED", "FAILED"},
 }
-_JSON_FIELDS = {"event_ids", "error", "quality_result"}
+_JSON_FIELDS = {"event_ids", "quality_result", "error"}
 
 
 class PostgresOperationStore:
-    """Persist request snapshots and operation outcomes in the ML-owned schema.
-
-    The connection factory is injectable for integration tests. The normal
-    constructor reads ML_DATABASE_URL and imports psycopg only when connecting.
-    """
+    """Use ML1's operation identity and add ML2 request/result fields by migration."""
 
     def __init__(
         self,
@@ -52,30 +50,28 @@ class PostgresOperationStore:
 
     def create_or_get(self, request: ArticleProcessingInput) -> tuple[ArticleProcessingOperation, bool]:
         processing_id = str(uuid4())
-        request_payload = {
-            "article": request.article,
-            "source": request.source,
-            "pipeline_version": request.pipeline_version,
-            "trace_id": request.trace_id,
-        }
+        payload = _request_payload(request)
+        payload_text = payload.decode("ascii")
+        snapshot = _request_snapshot(payload, request)
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """
-                    INSERT INTO ml.article_processing_operations (
-                        processing_id, idempotency_key, request_fingerprint,
-                        article_version_id, pipeline_version, trace_id, request_payload
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (idempotency_key) DO NOTHING
-                    RETURNING """ + _COLUMNS,
+                    """INSERT INTO ml.article_processings (
+                           processing_id, article_version_id, pipeline_version,
+                           idempotency_key, request_fingerprint, request_snapshot,
+                           trace_id, request_payload
+                       ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, %s, %s)
+                       ON CONFLICT (idempotency_key) DO NOTHING
+                       RETURNING """ + _COLUMNS,
                     (
                         processing_id,
-                        request.idempotency_key,
-                        request.fingerprint,
                         request.article["article_version_id"],
                         request.pipeline_version,
+                        request.idempotency_key,
+                        bytes.fromhex(request.fingerprint),
+                        snapshot,
                         request.trace_id,
-                        json.dumps(request_payload, ensure_ascii=True, separators=(",", ":")).encode("ascii"),
+                        payload_text.encode("ascii"),
                     ),
                 )
                 row = cursor.fetchone()
@@ -83,14 +79,12 @@ class PostgresOperationStore:
                     return _operation_from_row(row), True
 
                 cursor.execute(
-                    f"SELECT {_COLUMNS} FROM ml.article_processing_operations "
+                    f"SELECT {_COLUMNS} FROM ml.article_processings "
                     "WHERE idempotency_key = %s FOR UPDATE",
                     (request.idempotency_key,),
                 )
                 row = cursor.fetchone()
                 if row is None:
-                    # The conflicting row can only disappear through an
-                    # administrative delete; do not silently create a new run.
                     raise RuntimeError("Idempotent operation disappeared during lookup")
                 operation = _operation_from_row(row)
                 if operation.fingerprint != request.fingerprint:
@@ -107,7 +101,7 @@ class PostgresOperationStore:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    f"SELECT {_COLUMNS} FROM ml.article_processing_operations WHERE processing_id = %s",
+                    f"SELECT {_COLUMNS} FROM ml.article_processings WHERE processing_id = %s",
                     (normalized_id,),
                 )
                 row = cursor.fetchone()
@@ -121,14 +115,16 @@ class PostgresOperationStore:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    """SELECT idempotency_key, request_fingerprint, request_payload
-                       FROM ml.article_processing_operations WHERE processing_id = %s""",
+                    """SELECT idempotency_key, encode(request_fingerprint, 'hex'), request_payload
+                       FROM ml.article_processings WHERE processing_id = %s""",
                     (normalized_id,),
                 )
                 row = cursor.fetchone()
         if row is None:
             return None
         key, fingerprint, payload = row
+        if isinstance(payload, memoryview):
+            payload = payload.tobytes()
         if isinstance(payload, bytes):
             payload = payload.decode("ascii")
         if isinstance(payload, str):
@@ -143,14 +139,13 @@ class PostgresOperationStore:
         )
 
     def claim(self, processing_id: str) -> tuple[ArticleProcessingOperation, bool]:
-        """Atomically claim a queued operation; RUNNING is never auto-replayed."""
+        """Atomically claim one queued operation; RUNNING is never auto-replayed."""
         normalized_id = str(UUID(processing_id))
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    f"""UPDATE ml.article_processing_operations
-                        SET state = 'RUNNING', attempt_count = attempt_count + 1,
-                            started_at = COALESCE(started_at, now()), updated_at = now()
+                    f"""UPDATE ml.article_processings
+                        SET state = 'RUNNING', updated_at = now()
                         WHERE processing_id = %s AND state = 'QUEUED'
                         RETURNING {_COLUMNS}""",
                     (normalized_id,),
@@ -159,7 +154,7 @@ class PostgresOperationStore:
                 if row is not None:
                     return _operation_from_row(row), True
                 cursor.execute(
-                    f"SELECT {_COLUMNS} FROM ml.article_processing_operations WHERE processing_id = %s",
+                    f"SELECT {_COLUMNS} FROM ml.article_processings WHERE processing_id = %s",
                     (normalized_id,),
                 )
                 row = cursor.fetchone()
@@ -172,12 +167,11 @@ class PostgresOperationStore:
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    f"""UPDATE ml.article_processing_operations
-                        SET state = 'RUNNING', attempt_count = attempt_count + 1,
-                            started_at = COALESCE(started_at, now()), updated_at = now()
+                    f"""UPDATE ml.article_processings
+                        SET state = 'RUNNING', updated_at = now()
                         WHERE processing_id = (
                             SELECT processing_id
-                            FROM ml.article_processing_operations
+                            FROM ml.article_processings
                             WHERE state = 'QUEUED'
                             ORDER BY created_at, processing_id
                             FOR UPDATE SKIP LOCKED
@@ -194,7 +188,8 @@ class PostgresOperationStore:
         normalized_id = str(UUID(processing_id))
         if target not in _ALLOWED_TRANSITIONS.get(expected, set()):
             raise RuntimeError(f"unsupported operation transition {expected} -> {target}")
-        unknown = set(updates) - {"document_version_id", "event_ids", "error", "quality_result"}
+        allowed = {"document_version_id", "event_ids", "error", "quality_result"}
+        unknown = set(updates) - allowed
         if unknown:
             raise ValueError(f"unsupported operation update: {', '.join(sorted(unknown))}")
         if target == "SUCCEEDED" and (
@@ -216,14 +211,18 @@ class PostgresOperationStore:
             else:
                 assignments.append(f"{key} = %s")
                 values.append(value)
-        if target in {"SUCCEEDED", "FAILED"}:
-            assignments.append("finished_at = now()")
+        if target == "SUCCEEDED":
+            result = {"event_ids": updates["event_ids"]}
+            if updates.get("quality_result") is not None:
+                result["quality_result"] = updates["quality_result"]
+            assignments.append("result = %s::jsonb")
+            values.append(json.dumps(result, ensure_ascii=True, separators=(",", ":")))
         values.extend((normalized_id, expected))
 
         with self._connect() as connection:
             with connection.cursor() as cursor:
                 cursor.execute(
-                    f"""UPDATE ml.article_processing_operations
+                    f"""UPDATE ml.article_processings
                         SET {', '.join(assignments)}
                         WHERE processing_id = %s AND state = %s
                         RETURNING {_COLUMNS}""",
@@ -233,7 +232,7 @@ class PostgresOperationStore:
                 if row is not None:
                     return _operation_from_row(row)
                 cursor.execute(
-                    f"SELECT {_COLUMNS} FROM ml.article_processing_operations WHERE processing_id = %s",
+                    f"SELECT {_COLUMNS} FROM ml.article_processings WHERE processing_id = %s",
                     (normalized_id,),
                 )
                 row = cursor.fetchone()
@@ -242,20 +241,53 @@ class PostgresOperationStore:
                 raise RuntimeError(f"invalid operation transition {row[6]} -> {target}")
 
 
+def _request_payload(request: ArticleProcessingInput) -> bytes:
+    payload = {
+        "article": request.article,
+        "source": request.source,
+        "pipeline_version": request.pipeline_version,
+        "trace_id": request.trace_id,
+    }
+    return json.dumps(payload, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+
+
+def _request_snapshot(payload: bytes, request: ArticleProcessingInput) -> str:
+    values = (request.article, request.source, request.pipeline_version, request.trace_id)
+    if any(_contains_unsafe_json_text(value) for value in values):
+        snapshot = {
+            "encoding": "base64-json-request",
+            "payload": base64.b64encode(payload).decode("ascii"),
+        }
+        return json.dumps(snapshot, separators=(",", ":"))
+    return payload.decode("ascii")
+
+
+def _contains_unsafe_json_text(value: Any) -> bool:
+    if isinstance(value, str):
+        return any(ord(char) == 0 or 0xD800 <= ord(char) <= 0xDFFF for char in value)
+    if isinstance(value, dict):
+        return any(_contains_unsafe_json_text(key) or _contains_unsafe_json_text(item)
+                   for key, item in value.items())
+    if isinstance(value, (list, tuple)):
+        return any(_contains_unsafe_json_text(item) for item in value)
+    return False
+
+
 def _operation_from_row(row: tuple[Any, ...]) -> ArticleProcessingOperation:
     created_at = row[4]
     if isinstance(created_at, datetime):
         created_at = created_at.isoformat().replace("+00:00", "Z")
+    fingerprint = row[5].hex() if isinstance(row[5], (bytes, bytearray, memoryview)) else str(row[5])
     return ArticleProcessingOperation(
         processing_id=str(row[0]),
-        article_version_id=row[1],
+        article_version_id=str(row[1]),
         pipeline_version=row[2],
         trace_id=row[3],
         created_at=created_at,
-        fingerprint=row[5],
+        fingerprint=fingerprint,
         state=row[6],
-        document_version_id=row[7],
-        event_ids=row[8],
-        error=row[9],
-        quality_result=row[10],
+        document_version_id=str(row[7]) if row[7] is not None else None,
+        event_ids=[str(item) for item in row[8]] if row[8] is not None else None,
+        quality_result=row[9],
+        error=row[10],
     )

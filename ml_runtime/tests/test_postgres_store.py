@@ -10,9 +10,13 @@ from copy import deepcopy
 from uuid import uuid4
 
 from ml_runtime.article_processing import ProcessingContractError, parse_article_processing
-from ml_runtime.migrate import apply_migrations
 from ml_runtime.postgres_store import PostgresOperationStore
 from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, payload
+from ml_runtime.tests.postgres_test_schema import (
+    cleanup_test_versions,
+    prepare_ml_test_schema,
+    seed_document_version,
+)
 
 
 DATABASE_URL = os.environ.get("ML_TEST_DATABASE_URL")
@@ -22,7 +26,7 @@ DATABASE_URL = os.environ.get("ML_TEST_DATABASE_URL")
 class PostgresOperationStoreTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        apply_migrations(DATABASE_URL)
+        prepare_ml_test_schema(DATABASE_URL)
         cls.store = PostgresOperationStore(DATABASE_URL)
 
     def setUp(self) -> None:
@@ -36,16 +40,14 @@ class PostgresOperationStoreTests(unittest.TestCase):
             max_text_bytes=131072,
             supported_pipeline_versions={PIPELINE_VERSION},
         )
+        seed_document_version(
+            DATABASE_URL,
+            self.article_version_id,
+            self.payload["article"]["article_id"],
+        )
 
     def tearDown(self) -> None:
-        import psycopg
-
-        with psycopg.connect(DATABASE_URL) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    "DELETE FROM ml.article_processing_operations WHERE idempotency_key = %s",
-                    (self.idempotency_key,),
-                )
+        cleanup_test_versions(DATABASE_URL, (self.article_version_id,))
 
     def test_input_operation_and_terminal_result_survive_store_instances(self) -> None:
         operation, created = self.store.create_or_get(self.request)
@@ -156,7 +158,10 @@ class PostgresMigrationUnitTests(unittest.TestCase):
         self.assertTrue(files)
         self.assertEqual(len(files), len({path.name[:6] for path in files}))
         self.assertTrue(all(re.fullmatch(r"\d{6}_[a-z0-9_]+\.sql", path.name) for path in files))
-        self.assertIn("ml.article_processing_operations", files[0].read_text(encoding="utf-8"))
+        migration = files[0].read_text(encoding="utf-8")
+        self.assertIn("ALTER TABLE ml.article_processings", migration)
+        self.assertNotIn("CREATE TABLE ml.events", migration)
+        self.assertIn("ml.ml2_schema_migrations", Path(__file__).resolve().parents[1].joinpath("migrate.py").read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

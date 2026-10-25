@@ -1212,6 +1212,10 @@ components:
           minLength: 1
           description: Идентификатор предметной области со скрытой внутренней структурой;
             не исходный ключ набора и не обязательный UUID в БД.
+        version_no:
+          type: integer
+          minimum: 1
+          description: Положительный порядковый номер неизменяемой версии статьи; ML1 использует его для каталога версий.
         source_id:
           type: string
           minLength: 1
@@ -1226,6 +1230,8 @@ components:
           type: string
         body:
           type: string
+          minLength: 1
+          description: Извлечённый текст статьи; ML_MAX_TEXT_BYTES — 131072 байта UTF-8 для этого поля без заголовка. ML отклоняет превышение без обрезания.
         published_at:
           type:
           - string
@@ -1244,11 +1250,34 @@ components:
           type: string
         metadata:
           type: object
-          additionalProperties: true
+          properties:
+            extraction_method:
+              type: string
+              enum:
+              - full_article
+              - rss_summary
+              - pdf_extracted
+            extraction_errors:
+              type: array
+              items:
+                type: string
+                enum:
+                - TEXT_TRUNCATED
+                - MISSING_PAGES
+                - MISSING_TABLES
+                - MISSING_FOOTNOTES
+                - EXTRACTION_FAILED
+                - LAYOUT_LOSS
+                - READING_ORDER_UNCERTAIN
+          additionalProperties: false
+          required:
+          - extraction_method
+          - extraction_errors
       additionalProperties: false
       required:
       - article_id
       - article_version_id
+      - version_no
       - source_id
       - title
       - body
@@ -1258,9 +1287,10 @@ components:
       - content_hash
       - metadata
       description: Материал, загруженный, сохранённый, нормализованный и технически
-        дедуплицированный Go-воркером. ML выполняет смысловую обработку. raw_ref обозначает
-        сохранённую версию, а не произвольный адрес для сетевой загрузки; учётные
-        данные источника в metadata не передаются.
+        дедуплицированный Go-воркером. Extraction metadata сообщает метод и известные
+        потери при извлечении; если потерь нет, extraction_errors передаётся пустым массивом [].
+        raw_ref обозначает сохранённую версию, а не произвольный адрес для сетевой
+        загрузки; учётные данные источника в metadata не передаются.
     AnalysisOperation:
       type: object
       properties:

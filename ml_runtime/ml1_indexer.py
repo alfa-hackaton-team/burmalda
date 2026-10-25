@@ -1,8 +1,8 @@
-"""Adapter for ML1's canonical-document indexer result."""
+"""Adapter from the production ``ml.pipeline.ML1Pipeline`` to the ML2 boundary."""
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Protocol
 
 from .article_processing import ArticleProcessingInput
@@ -10,28 +10,25 @@ from .event_extraction import EventTextChunk
 from .operations import IndexedArticleVersion
 
 
-class CanonicalDocumentIndexer(Protocol):
-    """ML1 component that indexes one canonical saved document."""
+class ML1Pipeline(Protocol):
+    """The relevant synchronous methods exposed by ML1's indexed pipeline."""
 
-    def index(self, document: Any) -> Mapping[str, Any]: ...
+    def index(self, payload: Mapping[str, Any], *, service_access: bool = False) -> Any: ...
+
+    def get_chunks(self, request: Mapping[str, Any]) -> Mapping[str, Any]: ...
 
 
 class ML1IndexerAdapter:
-    """Convert the Go request into ML1's canonical input and validate its chunks.
+    """Run ML1's BackendInput indexer and resolve its newly indexed chunk IDs.
 
-    The injected ML1 indexer returns a mapping with ``document_version_id`` and
-    ``chunks``; each chunk contains ``chunk_id`` and ``text``. Imports of ML1's
-    R02 adapter are lazy so ML2 unit tests also run before that code is merged.
+    ML1 ``index`` persists the canonical document/chunks/embeddings and returns
+    chunk IDs. The worker marks those IDs service-accessible for this pipeline
+    instance, then uses ML1's existing ``get_chunks`` boundary to obtain the
+    exact stored chunk text for ML2 evidence.
     """
 
-    def __init__(
-        self,
-        indexer: CanonicalDocumentIndexer,
-        *,
-        document_factory: Callable[[Mapping[str, Any]], Any] | None = None,
-    ) -> None:
-        self._indexer = indexer
-        self._document_factory = document_factory or _canonical_document_from_backend
+    def __init__(self, pipeline: ML1Pipeline) -> None:
+        self._pipeline = pipeline
 
     def index(self, request: ArticleProcessingInput) -> IndexedArticleVersion:
         payload = {
@@ -40,32 +37,44 @@ class ML1IndexerAdapter:
             "pipeline_version": request.pipeline_version,
             "trace_id": request.trace_id,
         }
-        document = self._document_factory(payload)
-        result = self._indexer.index(document)
-        if not isinstance(result, Mapping):
-            raise ValueError("ML1 indexer result must be an object")
-        document_version_id = result.get("document_version_id")
-        chunks = result.get("chunks")
-        if not isinstance(chunks, (list, tuple)):
-            raise ValueError("ML1 indexer result chunks must be a list")
-        if document_version_id != request.article["article_version_id"]:
-            raise ValueError("ML1 indexer document_version_id must match the submitted article version")
-        try:
-            event_chunks = tuple(
-                EventTextChunk(chunk_id=chunk["chunk_id"], text=chunk["text"])
-                for chunk in chunks
-                if isinstance(chunk, Mapping)
-            )
-        except (KeyError, TypeError) as exc:
-            raise ValueError("ML1 indexer chunks require chunk_id and text") from exc
-        if len(event_chunks) != len(chunks):
-            raise ValueError("ML1 indexer chunks must be objects")
-        return IndexedArticleVersion(document_version_id, event_chunks)
+        result = self._pipeline.index(payload, service_access=True)
+        quality = getattr(result, "quality", None)
+        if getattr(quality, "status", None) != "PASS" or getattr(result, "indexed", None) is not True:
+            raise RuntimeError("ML1 did not persist a quality-approved indexed document")
+        if getattr(quality, "document_version_id", None) != request.article["article_version_id"]:
+            raise RuntimeError("ML1 index result does not match the submitted article version")
 
+        chunk_ids = getattr(result, "chunk_ids", None)
+        if not isinstance(chunk_ids, (list, tuple)) or not chunk_ids:
+            raise RuntimeError("ML1 index result contains no chunk IDs")
+        if any(not isinstance(chunk_id, str) or not chunk_id.strip() for chunk_id in chunk_ids):
+            raise RuntimeError("ML1 index result contains an invalid chunk ID")
+        if len(chunk_ids) != len(set(chunk_ids)):
+            raise RuntimeError("ML1 index result contains duplicate chunk IDs")
 
-def _canonical_document_from_backend(payload: Mapping[str, Any]) -> Any:
-    try:
-        from ml.adapters.backend_documents import document_from_backend
-    except ImportError as exc:  # pragma: no cover - depends on ML1 merge state
-        raise RuntimeError("ML1 R02 backend document adapter is unavailable") from exc
-    return document_from_backend(dict(payload))
+        response = self._pipeline.get_chunks({
+            "contract_version": "v1",
+            "trace_id": request.trace_id,
+            "business_context_id": None,
+            "chunk_ids": list(chunk_ids),
+        })
+        if not isinstance(response, Mapping):
+            raise RuntimeError("ML1 get_chunks response must be an object")
+        if response.get("status") != "ok" or response.get("error") is not None:
+            raise RuntimeError("ML1 could not resolve the newly indexed chunks")
+        if response.get("unresolved_chunk_ids") != []:
+            raise RuntimeError("ML1 returned unresolved chunk IDs for a newly indexed document")
+
+        rows = response.get("results")
+        if not isinstance(rows, Sequence) or isinstance(rows, (str, bytes)) or len(rows) != len(chunk_ids):
+            raise RuntimeError("ML1 get_chunks returned an incomplete chunk set")
+        chunks: list[EventTextChunk] = []
+        for row in rows:
+            if not isinstance(row, Mapping):
+                raise RuntimeError("ML1 get_chunks returned a malformed chunk")
+            if row.get("document_version_id") != request.article["article_version_id"]:
+                raise RuntimeError("ML1 get_chunks returned a chunk from another document version")
+            chunks.append(EventTextChunk(chunk_id=row.get("chunk_id"), text=row.get("chunk_text")))
+        if [chunk.chunk_id for chunk in chunks] != list(chunk_ids):
+            raise RuntimeError("ML1 get_chunks changed the requested chunk order or identity")
+        return IndexedArticleVersion(request.article["article_version_id"], tuple(chunks))

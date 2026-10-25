@@ -18,7 +18,7 @@ from .event_extraction import (
 from .event_store import EventCandidateStore, ML2EventProcessor, PostgresEventStore
 from .model_client import DEFAULT_BASE_URL, OpenAICompatibleModelClient
 from .model_policy import DEFAULT_AGENT_MODEL, DEFAULT_VERIFIER_MODEL, require_allowed_model
-from .ml1_indexer import CanonicalDocumentIndexer, ML1IndexerAdapter
+from .ml1_indexer import ML1IndexerAdapter, ML1Pipeline
 from .operations import ArticleProcessingCoordinator, OperationStore
 from .postgres_store import PostgresOperationStore
 from .quality_gate import ML1R02QualityGate
@@ -32,7 +32,7 @@ class ArticleProcessingRuntime:
     worker: ArticleProcessingWorker
 
 
-def load_indexer_from_env() -> CanonicalDocumentIndexer:
+def load_indexer_from_env() -> ML1Pipeline:
     """Load ML1's deployment-owned indexer factory from ``module:factory``."""
     target = os.environ.get("ML_INDEXER_FACTORY", "").strip()
     module_name, separator, factory_name = target.partition(":")
@@ -43,13 +43,13 @@ def load_indexer_from_env() -> CanonicalDocumentIndexer:
     if not callable(factory):
         raise ValueError("ML_INDEXER_FACTORY must identify a callable factory")
     indexer = factory()
-    if not callable(getattr(indexer, "index", None)):
-        raise ValueError("ML indexer factory must return an object with index(document)")
+    if not callable(getattr(indexer, "index", None)) or not callable(getattr(indexer, "get_chunks", None)):
+        raise ValueError("ML indexer factory must return an ML1Pipeline with index() and get_chunks()")
     return indexer
 
 
 def create_article_processing_runtime(
-    indexer: CanonicalDocumentIndexer,
+    indexer: ML1Pipeline,
     *,
     model_client: Any | None = None,
     operation_store: OperationStore | None = None,

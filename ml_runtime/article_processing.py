@@ -40,7 +40,7 @@ class ArticleProcessingInput:
 
 
 _ARTICLE_REQUIRED = {
-    "article_id", "article_version_id", "source_id", "title", "body",
+    "article_id", "version_no", "article_version_id", "source_id", "title", "body",
     "fetched_at", "raw_ref", "content_hash", "metadata",
 }
 _ARTICLE_OPTIONAL = {
@@ -101,6 +101,8 @@ def parse_article_processing(
         _nonempty_string(article[field], f"article.{field}")
     for field in ("article_id", "article_version_id", "source_id"):
         _uuid(article[field], f"article.{field}")
+    if type(article["version_no"]) is not int or article["version_no"] < 1:
+        raise _invalid("article.version_no must be a positive integer")
     title = article["title"]
     if not isinstance(title, str):
         raise _invalid("article.title must be a string")

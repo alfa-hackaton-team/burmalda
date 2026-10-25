@@ -6,7 +6,7 @@ import hashlib
 import json
 import os
 from typing import Any, Callable, Protocol
-from uuid import uuid4
+from uuid import UUID, uuid5
 
 from .article_processing import ArticleProcessingInput
 from .event_extraction import (
@@ -33,8 +33,8 @@ class EventCandidateStore(Protocol):
 class PostgresEventStore:
     """Persist events and article links atomically in the ML-owned schema.
 
-    Each operation owns its candidate set. Cross-document event merging is
-    deliberately deferred until a reviewed merge policy exists.
+    ML1 owns the shared events/event_documents tables. This store writes only
+    ML2 candidates and evidence; cross-document merging remains deferred.
     """
 
     def __init__(
@@ -65,7 +65,7 @@ class PostgresEventStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT event_ids, event_pipeline_config_version
-                       FROM ml.article_processing_operations
+                       FROM ml.article_processings
                        WHERE article_version_id = %s AND pipeline_version = %s""",
                     (document_version_id, pipeline_version),
                 )
@@ -90,8 +90,9 @@ class PostgresEventStore:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """SELECT event_ids, event_pipeline_config_version
-                       FROM ml.article_processing_operations
+                       FROM ml.article_processings
                        WHERE article_version_id = %s AND pipeline_version = %s
+                         AND state = 'RUNNING'
                        FOR UPDATE""",
                     (document_version_id, pipeline_version),
                 )
@@ -103,9 +104,9 @@ class PostgresEventStore:
                         raise RuntimeError("Saved event result uses a different event pipeline configuration")
                     return [str(item) for item in operation[0]]
 
-                for index, candidate in enumerate(result.events):
-                    event_id = str(uuid4())
+                for candidate in result.events:
                     fingerprint = candidate_fingerprint(candidate)
+                    event_id = str(uuid5(UUID(document_version_id), f"{config_version}:{fingerprint}"))
                     evidence = json.dumps(
                         candidate.to_result_dict()["evidence"],
                         ensure_ascii=True, separators=(",", ":"),
@@ -115,27 +116,43 @@ class PostgresEventStore:
                     )
                     cursor.execute(
                         """INSERT INTO ml.events (
-                               id, event_type, title, summary, occurred_at,
-                               geography, status, confidence
-                           ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'candidate', %s)""",
+                               id, event_type, title, summary, occurred_at, geography, status, confidence
+                           ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'candidate', %s)
+                           ON CONFLICT (id) DO NOTHING""",
                         (event_id, candidate.event_type, candidate.title, candidate.summary,
                          candidate.occurred_at, geography, candidate.confidence),
                     )
                     cursor.execute(
                         """INSERT INTO ml.event_documents (
-                               event_id, document_version_id, event_pipeline_config_version,
-                               candidate_index, candidate_fingerprint, evidence,
-                               evidence_role, is_primary
-                           ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'support', %s)""",
-                        (event_id, document_version_id, config_version, index, fingerprint,
-                         evidence, False),
+                               event_id, document_version_id, evidence_role, is_primary,
+                               evidence_quotes, candidate_fingerprint, pipeline_version,
+                               event_pipeline_config_version
+                           ) VALUES (%s, %s, 'support', false, %s::jsonb, %s, %s, %s)
+                           ON CONFLICT (document_version_id, event_pipeline_config_version,
+                                        candidate_fingerprint) DO NOTHING
+                           RETURNING event_id""",
+                        (event_id, document_version_id, evidence, fingerprint,
+                         pipeline_version, config_version),
                     )
-                    event_ids.append(event_id)
+                    saved = cursor.fetchone()
+                    if saved is None:
+                        cursor.execute(
+                            """SELECT event_id FROM ml.event_documents
+                               WHERE document_version_id = %s
+                                 AND event_pipeline_config_version = %s
+                                 AND candidate_fingerprint = %s""",
+                            (document_version_id, config_version, fingerprint),
+                        )
+                        saved = cursor.fetchone()
+                    if saved is None:
+                        raise RuntimeError("Persisted event candidate could not be resolved")
+                    event_ids.append(str(saved[0]))
                 cursor.execute(
-                    """UPDATE ml.article_processing_operations
+                    """UPDATE ml.article_processings
                        SET event_ids = %s::jsonb, event_pipeline_config_version = %s,
                            updated_at = now()
-                       WHERE article_version_id = %s AND pipeline_version = %s""",
+                       WHERE article_version_id = %s AND pipeline_version = %s
+                         AND state = 'RUNNING'""",
                     (json.dumps(event_ids), config_version, document_version_id, pipeline_version),
                 )
         return event_ids

@@ -9,10 +9,14 @@ from uuid import uuid4
 from ml_runtime.event_extraction import CandidateEvent, EventExtractionResult, EventTextChunk
 from ml_runtime.event_store import ML2EventProcessor, PostgresEventStore
 from ml_runtime.operations import IndexedArticleVersion
-from ml_runtime.migrate import apply_migrations
 from ml_runtime.postgres_store import PostgresOperationStore
 from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, payload
 from ml_runtime.article_processing import parse_article_processing
+from ml_runtime.tests.postgres_test_schema import (
+    cleanup_test_versions,
+    prepare_ml_test_schema,
+    seed_document_version,
+)
 
 
 DATABASE_URL = os.environ.get("ML_TEST_DATABASE_URL")
@@ -100,7 +104,7 @@ class EventResultBoundaryTests(unittest.TestCase):
 class PostgresEventStoreTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        apply_migrations(DATABASE_URL)
+        prepare_ml_test_schema(DATABASE_URL)
         cls.store = PostgresEventStore(DATABASE_URL)
 
     def setUp(self) -> None:
@@ -113,33 +117,25 @@ class PostgresEventStoreTests(unittest.TestCase):
     def _create_operation(self, version_id: str) -> None:
         request_payload = payload()
         request_payload["article"]["article_version_id"] = version_id
+        seed_document_version(
+            DATABASE_URL,
+            version_id,
+            request_payload["article"]["article_id"],
+        )
         request = parse_article_processing(
             request_payload,
             f"{version_id}:{PIPELINE_VERSION}",
             max_text_bytes=131072,
             supported_pipeline_versions={PIPELINE_VERSION},
         )
-        PostgresOperationStore(DATABASE_URL).create_or_get(request)
+        operations = PostgresOperationStore(DATABASE_URL)
+        operation, created = operations.create_or_get(request)
+        self.assertTrue(created)
+        _, claimed = operations.claim(operation.processing_id)
+        self.assertTrue(claimed)
 
     def tearDown(self) -> None:
-        import psycopg
-
-        with psycopg.connect(DATABASE_URL) as connection:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """DELETE FROM ml.event_documents WHERE document_version_id IN (%s, %s)""",
-                    (self.version_a, self.version_b),
-                )
-                cursor.execute(
-                    """DELETE FROM ml.events e WHERE NOT EXISTS (
-                           SELECT 1 FROM ml.event_documents d WHERE d.event_id = e.id
-                       )"""
-                )
-                cursor.execute(
-                    """DELETE FROM ml.article_processing_operations
-                       WHERE article_version_id IN (%s, %s)""",
-                    (self.version_a, self.version_b),
-                )
+        cleanup_test_versions(DATABASE_URL, (self.version_a, self.version_b))
 
     def test_replay_is_idempotent_without_cross_document_auto_merge(self):
         first_result = EventExtractionResult(self.version_a, self.pipeline, (event(),))

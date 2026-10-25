@@ -10,7 +10,8 @@ from typing import Any, Callable
 
 
 _MIGRATION_NAME = re.compile(r"^(\d{6})_[a-z0-9_]+\.sql$")
-_ADVISORY_LOCK_ID = 0x4D4C4255524D  # stable lock for this ML migration runner
+_ADVISORY_LOCK_ID = 0x4D4C32425552  # independent from ML1's migration runner
+_JOURNAL = "ml.ml2_schema_migrations"
 
 
 def apply_migrations(
@@ -21,8 +22,8 @@ def apply_migrations(
 ) -> list[str]:
     """Apply unapplied SQL migrations in one locked transaction.
 
-    Use the dedicated migration database role, not the runtime ML_DATABASE_URL
-    role. Each SQL file is checksummed in ml.schema_migrations.
+    Apply ML1 migrations first. Use the dedicated migration database role, not
+    ML_DATABASE_URL. ML2 uses its own journal because ML1 owns ml.schema_migrations.
     """
     database_url = dsn if dsn is not None else os.environ.get("ML_MIGRATIONS_DATABASE_URL", "")
     if not database_url and connection_factory is None:
@@ -46,7 +47,7 @@ def apply_migrations(
             with connection.cursor() as cursor:
                 cursor.execute("CREATE SCHEMA IF NOT EXISTS ml")
                 cursor.execute(
-                    """CREATE TABLE IF NOT EXISTS ml.schema_migrations (
+                    f"""CREATE TABLE IF NOT EXISTS {_JOURNAL} (
                            version integer PRIMARY KEY,
                            name text NOT NULL UNIQUE,
                            checksum char(64) NOT NULL,
@@ -54,7 +55,7 @@ def apply_migrations(
                        )"""
                 )
                 cursor.execute("SELECT pg_advisory_xact_lock(%s)", (_ADVISORY_LOCK_ID,))
-                cursor.execute("SELECT version, name, checksum FROM ml.schema_migrations")
+                cursor.execute(f"SELECT version, name, checksum FROM {_JOURNAL}")
                 existing = {row[0]: (row[1], row[2].strip()) for row in cursor.fetchall()}
                 for version, name, sql, checksum in migrations:
                     prior = existing.get(version)
@@ -65,7 +66,7 @@ def apply_migrations(
                     for statement in _split_sql(sql):
                         cursor.execute(statement)
                     cursor.execute(
-                        "INSERT INTO ml.schema_migrations (version, name, checksum) VALUES (%s, %s, %s)",
+                        f"INSERT INTO {_JOURNAL} (version, name, checksum) VALUES (%s, %s, %s)",
                         (version, name, checksum),
                     )
                     applied_now.append(name)
@@ -87,8 +88,37 @@ def _connect(dsn: str):
     return psycopg.connect(dsn)
 
 
+def grant_runtime_access(connection_factory: Callable[[], Any], role: str) -> None:
+    """Add ML2 checkpoint-column rights to a role already provisioned by ML1."""
+    if not isinstance(role, str) or not role.strip():
+        raise ValueError("ML runtime database role must be non-empty")
+    try:
+        from psycopg import sql
+    except ImportError as exc:  # pragma: no cover - depends on deployment extras
+        raise RuntimeError("Install psycopg to grant ML runtime privileges") from exc
+    connection = connection_factory()
+    try:
+        with connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    sql.SQL("GRANT UPDATE (event_ids, event_pipeline_config_version, quality_result) "
+                            "ON ml.article_processings TO {}")
+                    .format(sql.Identifier(role))
+                )
+    finally:
+        connection.close()
+
+
 def main() -> int:
+    import argparse
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--runtime-role", help="Grant ML2 checkpoint updates to an existing runtime role")
+    args = parser.parse_args()
     applied = apply_migrations()
+    if args.runtime_role:
+        database_url = os.environ.get("ML_MIGRATIONS_DATABASE_URL", "")
+        grant_runtime_access(lambda: _connect(database_url), args.runtime_role)
     if applied:
         print("Applied ML migrations: " + ", ".join(applied))
     else:
