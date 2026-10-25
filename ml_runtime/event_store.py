@@ -5,34 +5,31 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
-import unicodedata
-from datetime import datetime, timezone
 from typing import Any, Callable, Protocol
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from .article_processing import ArticleProcessingInput
-from .event_extraction import CandidateEvent, LLMEventExtractor
-
-
-_SPACE = re.compile(r"\s+")
+from .event_extraction import (
+    CandidateEvent,
+    EventChunkProvider,
+    EventExtractionResult,
+    LLMEventExtractor,
+)
 
 
 class EventCandidateStore(Protocol):
-    def save_candidates(
-        self,
-        document_version_id: str,
-        pipeline_version: str,
-        candidates: list[CandidateEvent],
-    ) -> list[str]: ...
+    def get_saved_event_ids(
+        self, document_version_id: str, event_pipeline_config_version: str
+    ) -> list[str] | None: ...
+
+    def save_result(self, result: EventExtractionResult) -> list[str]: ...
 
 
 class PostgresEventStore:
     """Persist events and article links atomically in the ML-owned schema.
 
-    Cross-document merging is deliberately conservative: candidates share an
-    event only when normalized event type, title, occurrence time, and geography
-    match exactly. Broader semantic matching remains a separate review step.
+    Each document/configuration pair owns its candidate set. Cross-document
+    event merging is deliberately deferred until a reviewed merge policy exists.
     """
 
     def __init__(
@@ -55,116 +52,117 @@ class PostgresEventStore:
             raise RuntimeError("Install the psycopg runtime dependency for PostgreSQL event storage") from exc
         return psycopg.connect(self._dsn)
 
-    def save_candidates(
-        self,
-        document_version_id: str,
-        pipeline_version: str,
-        candidates: list[CandidateEvent],
-    ) -> list[str]:
-        dedupe_keys = [event_dedupe_key(candidate) for candidate in candidates]
-        if len(dedupe_keys) != len(set(dedupe_keys)):
-            raise ValueError("duplicate normalized event identities in one document")
+    def get_saved_event_ids(
+        self, document_version_id: str, event_pipeline_config_version: str
+    ) -> list[str] | None:
+        with self._connect() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """SELECT event_ids FROM ml.event_extraction_runs
+                       WHERE document_version_id = %s
+                         AND event_pipeline_config_version = %s""",
+                    (document_version_id, event_pipeline_config_version),
+                )
+                row = cursor.fetchone()
+                return [str(item) for item in row[0]] if row is not None else None
+
+    def save_result(self, result: EventExtractionResult) -> list[str]:
+        document_version_id = result.document_version_id
+        config_version = result.event_pipeline_config_version
+        payload = json.dumps(result.to_dict(), ensure_ascii=True, sort_keys=True, separators=(",", ":"))
+        fingerprint = hashlib.sha256(payload.encode("utf-8")).hexdigest()
         event_ids: list[str] = []
         with self._connect() as connection:
             with connection.cursor() as cursor:
-                for index, candidate in enumerate(candidates):
-                    event_id = self._insert_or_find_event(cursor, candidate)
+                cursor.execute(
+                    """INSERT INTO ml.event_extraction_runs (
+                           document_version_id, event_pipeline_config_version,
+                           result_fingerprint, result_payload, event_ids
+                       ) VALUES (%s, %s, %s, %s::jsonb, ARRAY[]::uuid[])
+                       ON CONFLICT (document_version_id, event_pipeline_config_version)
+                       DO NOTHING
+                       RETURNING document_version_id""",
+                    (document_version_id, config_version, fingerprint, payload),
+                )
+                inserted = cursor.fetchone() is not None
+                if not inserted:
+                    cursor.execute(
+                        """SELECT event_ids FROM ml.event_extraction_runs
+                           WHERE document_version_id = %s
+                             AND event_pipeline_config_version = %s""",
+                        (document_version_id, config_version),
+                    )
+                    prior = cursor.fetchone()
+                    if prior is None:
+                        raise RuntimeError("Saved event extraction result disappeared")
+                    return [str(item) for item in prior[0]]
+
+                for index, candidate in enumerate(result.events):
+                    event_id = str(uuid4())
                     fingerprint = candidate_fingerprint(candidate)
-                    quotes = json.dumps(
-                        list(candidate.evidence_quotes), ensure_ascii=True, separators=(",", ":")
+                    evidence = json.dumps(
+                        candidate.to_result_dict()["evidence"],
+                        ensure_ascii=True, separators=(",", ":"),
+                    )
+                    geography = json.dumps(
+                        list(candidate.geography), ensure_ascii=True, sort_keys=True, separators=(",", ":")
+                    )
+                    cursor.execute(
+                        """INSERT INTO ml.events (
+                               id, event_type, title, summary, occurred_at,
+                               geography, status, confidence
+                           ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'candidate', %s)""",
+                        (event_id, candidate.event_type, candidate.title, candidate.summary,
+                         candidate.occurred_at, geography, candidate.confidence),
                     )
                     cursor.execute(
                         """INSERT INTO ml.event_documents (
-                               event_id, document_version_id, pipeline_version,
-                               candidate_index, candidate_fingerprint, evidence_quotes
-                           ) VALUES (%s, %s, %s, %s, %s, %s::jsonb)
-                           ON CONFLICT (document_version_id, pipeline_version, candidate_index)
-                           DO NOTHING
-                           RETURNING event_id, candidate_fingerprint""",
-                        (
-                            event_id, document_version_id, pipeline_version,
-                            index, fingerprint, quotes,
-                        ),
+                               event_id, document_version_id, event_pipeline_config_version,
+                               candidate_index, candidate_fingerprint, evidence,
+                               evidence_role, is_primary
+                           ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'support', %s)""",
+                        (event_id, document_version_id, config_version, index, fingerprint,
+                         evidence, False),
                     )
-                    row = cursor.fetchone()
-                    if row is None:
-                        cursor.execute(
-                            """SELECT event_id, candidate_fingerprint FROM ml.event_documents
-                               WHERE document_version_id = %s AND pipeline_version = %s
-                                 AND candidate_index = %s""",
-                            (document_version_id, pipeline_version, index),
-                        )
-                        prior = cursor.fetchone()
-                        if prior is None or str(prior[0]) != event_id or prior[1].strip() != fingerprint:
-                            raise RuntimeError(
-                                "Event extraction for this document version and pipeline changed on replay"
-                            )
-                    if event_id not in event_ids:
-                        event_ids.append(event_id)
+                    event_ids.append(event_id)
+                cursor.execute(
+                    """UPDATE ml.event_extraction_runs SET event_ids = %s
+                       WHERE document_version_id = %s
+                         AND event_pipeline_config_version = %s""",
+                    ([UUID(item) for item in event_ids], document_version_id, config_version),
+                )
         return event_ids
-
-    @staticmethod
-    def _insert_or_find_event(cursor: Any, candidate: CandidateEvent) -> str:
-        dedupe_key = event_dedupe_key(candidate)
-        geography = json.dumps(
-            list(candidate.geography), ensure_ascii=True, sort_keys=True, separators=(",", ":")
-        )
-        cursor.execute(
-            """INSERT INTO ml.events (
-                   event_id, event_type, title, summary, occurred_at, geography,
-                   status, confidence, dedupe_key
-               ) VALUES (%s, %s, %s, %s, %s, %s::jsonb, 'candidate', %s, %s)
-               ON CONFLICT (dedupe_key) DO NOTHING
-               RETURNING event_id""",
-            (
-                str(uuid4()), candidate.event_type, candidate.title, candidate.summary,
-                candidate.occurred_at, geography, candidate.confidence, dedupe_key,
-            ),
-        )
-        row = cursor.fetchone()
-        if row is not None:
-            return str(row[0])
-        cursor.execute("SELECT event_id FROM ml.events WHERE dedupe_key = %s", (dedupe_key,))
-        row = cursor.fetchone()
-        if row is None:
-            raise RuntimeError("Deduplicated event disappeared during persistence")
-        return str(row[0])
 
 
 class ML2EventProcessor:
     """Extract, verify, and persist candidate events for one article version."""
 
-    def __init__(self, extractor: LLMEventExtractor, store: EventCandidateStore) -> None:
+    def __init__(
+        self,
+        extractor: LLMEventExtractor,
+        store: EventCandidateStore,
+        chunk_provider: EventChunkProvider,
+    ) -> None:
         self.extractor = extractor
         self.store = store
+        self.chunk_provider = chunk_provider
 
     def process(self, request: ArticleProcessingInput, document_version_id: str) -> list[str]:
         if document_version_id != request.article["article_version_id"]:
             raise ValueError("event processing document_version_id must match article_version_id")
-        candidates = self.extractor.extract(request)
-        return self.store.save_candidates(
-            document_version_id, request.pipeline_version, candidates
-        )
-
-
-def event_dedupe_key(candidate: CandidateEvent) -> str:
-    """Fingerprint an exact normalized event identity, not a semantic topic."""
-    geography = sorted(
-        (
-            _normalize(place["type"]),
-            _normalize(place["code"] or ""),
-            _normalize(place["name"]),
-        )
-        for place in candidate.geography
-    )
-    identity = {
-        "event_type": _normalize(candidate.event_type),
-        "title": _normalize(candidate.title),
-        "occurred_at": _normalize_datetime(candidate.occurred_at),
-        "geography": geography,
-    }
-    stable = json.dumps(identity, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-    return hashlib.sha256(stable.encode("utf-8")).hexdigest()
+        config_version = self.extractor.event_pipeline_config_version
+        prior = self.store.get_saved_event_ids(document_version_id, config_version)
+        if prior is not None:
+            return prior
+        chunks = self.chunk_provider.get_chunks(document_version_id)
+        if not chunks:
+            raise RuntimeError("ML1 returned no indexed chunks for the document version")
+        result = self.extractor.extract(request, chunks=chunks)
+        if result.document_version_id != document_version_id:
+            raise ValueError("event extraction result document_version_id does not match input")
+        if result.event_pipeline_config_version != config_version:
+            raise ValueError("event extraction result configuration version changed unexpectedly")
+        return self.store.save_result(result)
 
 
 def candidate_fingerprint(candidate: CandidateEvent) -> str:
@@ -172,17 +170,3 @@ def candidate_fingerprint(candidate: CandidateEvent) -> str:
         candidate.to_dict(), ensure_ascii=False, sort_keys=True, separators=(",", ":")
     )
     return hashlib.sha256(stable.encode("utf-8")).hexdigest()
-
-
-def _normalize(value: str) -> str:
-    normalized = unicodedata.normalize("NFKC", value).casefold()
-    return _SPACE.sub(" ", normalized).strip()
-
-
-def _normalize_datetime(value: str | None) -> str | None:
-    if value is None:
-        return None
-    parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
-    if parsed.tzinfo is None:
-        raise ValueError("event occurred_at must include a timezone")
-    return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds")

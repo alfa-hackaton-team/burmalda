@@ -1,4 +1,4 @@
-"""Exact event identity and PostgreSQL persistence tests."""
+"""Event-result boundary and PostgreSQL persistence tests."""
 
 from __future__ import annotations
 
@@ -6,8 +6,8 @@ import os
 import unittest
 from uuid import uuid4
 
-from ml_runtime.event_extraction import CandidateEvent
-from ml_runtime.event_store import ML2EventProcessor, PostgresEventStore, event_dedupe_key
+from ml_runtime.event_extraction import CandidateEvent, EventExtractionResult, EventTextChunk
+from ml_runtime.event_store import ML2EventProcessor, PostgresEventStore
 from ml_runtime.migrate import apply_migrations
 from ml_runtime.tests.test_article_processing_r02 import PIPELINE_VERSION, payload
 from ml_runtime.article_processing import parse_article_processing
@@ -33,26 +33,7 @@ def event(
     )
 
 
-class EventDedupeKeyTests(unittest.TestCase):
-    def test_exact_identity_normalizes_case_whitespace_and_timezone(self):
-        left = event()
-        right = event(
-            title="  обновление   условий новых договоров продукта x ",
-            occurred_at="2026-10-31T21:00:00Z",
-        )
-        self.assertEqual(event_dedupe_key(left), event_dedupe_key(right))
-
-    def test_different_date_or_geography_remains_a_separate_event(self):
-        base_key = event_dedupe_key(event())
-        self.assertNotEqual(
-            base_key,
-            event_dedupe_key(event(occurred_at="2026-12-01T00:00:00Z")),
-        )
-        other_geography = CandidateEvent(
-            **{**event().__dict__, "geography": ({"type": "country", "code": "KZ", "name": "Казахстан"},)}
-        )
-        self.assertNotEqual(base_key, event_dedupe_key(other_geography))
-
+class EventResultBoundaryTests(unittest.TestCase):
     def test_processor_persists_extracted_candidates_for_matching_version(self):
         article = payload()
         request = parse_article_processing(
@@ -63,24 +44,39 @@ class EventDedupeKeyTests(unittest.TestCase):
         )
 
         class Extractor:
-            def extract(self, _request):
-                return [event()]
+            event_pipeline_config_version = "event-extraction-v1"
+
+            def extract(self, _request, *, chunks=None):
+                return EventExtractionResult(
+                    _request.article["article_version_id"],
+                    self.event_pipeline_config_version,
+                    (event(),),
+                )
 
         class Store:
             def __init__(self):
                 self.saved = None
+                self.prior = None
 
-            def save_candidates(self, version_id, pipeline_version, candidates):
-                self.saved = (version_id, pipeline_version, candidates)
+            def get_saved_event_ids(self, _version_id, _config_version):
+                return self.prior
+
+            def save_result(self, result):
+                self.saved = result
                 return ["event-id-1"]
 
         store = Store()
-        processor = ML2EventProcessor(Extractor(), store)
+        class ChunkProvider:
+            def get_chunks(self, document_version_id):
+                return [EventTextChunk("chunk-1", "Новые договоры продукта X заключаются по обновленным условиям.")]
+
+        processor = ML2EventProcessor(Extractor(), store, ChunkProvider())
 
         result = processor.process(request, request.article["article_version_id"])
 
         self.assertEqual(result, ["event-id-1"])
-        self.assertEqual(store.saved[:2], (request.article["article_version_id"], PIPELINE_VERSION))
+        self.assertEqual(store.saved.document_version_id, request.article["article_version_id"])
+        self.assertEqual(store.saved.event_pipeline_config_version, "event-extraction-v1")
 
     def test_processor_rejects_different_document_version(self):
         article = payload()
@@ -91,7 +87,7 @@ class EventDedupeKeyTests(unittest.TestCase):
             supported_pipeline_versions={PIPELINE_VERSION},
         )
         with self.assertRaisesRegex(ValueError, "must match"):
-            ML2EventProcessor(None, None).process(request, str(uuid4()))
+            ML2EventProcessor(None, None, None).process(request, str(uuid4()))
 
 
 @unittest.skipUnless(DATABASE_URL, "Set ML_TEST_DATABASE_URL to an isolated PostgreSQL test database")
@@ -104,13 +100,18 @@ class PostgresEventStoreTests(unittest.TestCase):
     def setUp(self) -> None:
         self.version_a = str(uuid4())
         self.version_b = str(uuid4())
-        self.pipeline = "ml-pipeline-v1"
+        self.pipeline = "event-extraction-v1"
 
     def tearDown(self) -> None:
         import psycopg
 
         with psycopg.connect(DATABASE_URL) as connection:
             with connection.cursor() as cursor:
+                cursor.execute(
+                    """DELETE FROM ml.event_extraction_runs
+                       WHERE document_version_id IN (%s, %s)""",
+                    (self.version_a, self.version_b),
+                )
                 cursor.execute(
                     """DELETE FROM ml.event_documents WHERE document_version_id IN (%s, %s)""",
                     (self.version_a, self.version_b),
@@ -121,27 +122,24 @@ class PostgresEventStoreTests(unittest.TestCase):
                        )"""
                 )
 
-    def test_replay_is_idempotent_and_exact_cross_article_identity_reuses_event(self):
-        first = self.store.save_candidates(self.version_a, self.pipeline, [event()])
-        replay = self.store.save_candidates(self.version_a, self.pipeline, [event()])
-        second_article = self.store.save_candidates(
-            self.version_b,
-            self.pipeline,
-            [event(title="обновление условий новых договоров продукта x", occurred_at="2026-10-31T21:00:00Z")],
-        )
+    def test_replay_is_idempotent_without_cross_document_auto_merge(self):
+        first_result = EventExtractionResult(self.version_a, self.pipeline, (event(),))
+        second_result = EventExtractionResult(self.version_b, self.pipeline, (event(),))
+        first = self.store.save_result(first_result)
+        replay = self.store.save_result(first_result)
+        second_article = self.store.save_result(second_result)
 
         self.assertEqual(replay, first)
-        self.assertEqual(second_article, first)
+        self.assertNotEqual(second_article, first)
 
-    def test_changed_candidate_for_same_version_pipeline_fails_closed(self):
-        self.store.save_candidates(self.version_a, self.pipeline, [event()])
-
-        with self.assertRaisesRegex(RuntimeError, "changed on replay"):
-            self.store.save_candidates(
-                self.version_a,
-                self.pipeline,
-                [event(title="Совершенно другое событие")],
-            )
+    def test_changed_model_result_for_same_key_returns_first_saved_result(self):
+        first_result = EventExtractionResult(self.version_a, self.pipeline, (event(),))
+        changed_result = EventExtractionResult(
+            self.version_a, self.pipeline, (event(title="Совершенно другое событие"),)
+        )
+        first = self.store.save_result(first_result)
+        replay = self.store.save_result(changed_result)
+        self.assertEqual(replay, first)
 
 
 if __name__ == "__main__":
