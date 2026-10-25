@@ -221,7 +221,7 @@
 
 ### 1.13. `document_chunks`
 
-Фрагменты документов для поиска и RAG. ML формирует и сохраняет чанки в ML-хранилище. Это целевая схема: миграция и storage adapter ещё не реализованы. Реализация библиотечного [chunker](../../ml/chunking/core.py) и [профиль `v1`](../../ml/chunking/profiles.py) хранятся в ML1-коде.
+Фрагменты документов для поиска и RAG. ML формирует и сохраняет чанки в ML-хранилище. Это целевая схема: production-миграция ещё не создана; [persistence adapter](../../ml/adapters/postgres_chunks.py) реализован под неё, правила подключения и тестовый DDL описаны в [ML persistence](../../ml/PERSISTENCE.md). Реализация библиотечного [chunker](../../ml/chunking/core.py) и [профиль `v1`](../../ml/chunking/profiles.py) хранятся в ML1-коде.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
