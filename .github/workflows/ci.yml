@@ -174,8 +174,8 @@ jobs:
           done
       - name: Build ML image when present
         run: |
-          if [[ -d ml ]]; then
-            docker build --pull -t ml-ci ./ml
+          if [[ -f Dockerfile && -d ml_runtime ]]; then
+            docker build --pull -t ml-ci .
           fi
 
   publish:
@@ -202,9 +202,9 @@ jobs:
             --metadata-file /tmp/backend-image.json \
             -t "$image_prefix/backend:$tag" ./backend
           echo "Backend: $image_prefix/backend@$(jq -r '."containerimage.digest"' /tmp/backend-image.json)" >> "$GITHUB_STEP_SUMMARY"
-          if [[ -d ml ]]; then
+          if [[ -f Dockerfile && -d ml_runtime ]]; then
             docker buildx build --pull --push --sbom=true --provenance=mode=max \
               --metadata-file /tmp/ml-image.json \
-              -t "$image_prefix/ml:$tag" ./ml
+              -t "$image_prefix/ml:$tag" .
             echo "ML: $image_prefix/ml@$(jq -r '."containerimage.digest"' /tmp/ml-image.json)" >> "$GITHUB_STEP_SUMMARY"
           fi
