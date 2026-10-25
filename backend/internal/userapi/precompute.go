@@ -130,10 +130,21 @@ func (s *PostgresStore) Precompute(ctx context.Context, user, cid, eid, set stri
 	if response["request_operation_id"] != gid || response["trace_id"] != trace || string(raw(bundle["manifest"])) != string(raw(manifest)) {
 		return nil, s.precomputeFailure(ctx, gid, token, fmt.Errorf("runtime/analysis identity mismatch"))
 	}
+	// Retain the evidence and contracted model/verifier outputs even on rejection.
+	// This is internal diagnostic data, never a published or verified Insight.
+	chunks := array(bundle["chunks"])
+	evidenceHash := sha256.Sum256(raw(chunks))
+	var diagnostics any
+	if snapshot := obj(bundle["diagnostics"]); snapshot != nil {
+		diagnostics = raw(snapshot)
+	}
+	_, e = s.pool.Exec(ctx, `UPDATE request_operations SET analysis_diagnostics=$3,evidence_snapshot=$4,evidence_fingerprint=$5 WHERE id=$1::uuid AND lease_token=$2::uuid AND state='RUNNING'`, gid, token, diagnostics, raw(chunks), evidenceHash[:])
+	if e != nil {
+		return nil, e
+	}
 	state := "FAILED"
 	switch response["status"] {
 	case "succeeded":
-		chunks := array(bundle["chunks"])
 		allowed := map[string]bool{}
 		for _, id := range ids {
 			allowed[str(id)] = true

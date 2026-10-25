@@ -116,7 +116,11 @@ func (s *PostgresStore) projectEvidence(ctx context.Context, gid string, request
 						bankSupport = true
 					}
 				}
-				evidence = append(evidence, object{"evidence_id": evid, "evidence_type": typ, "reference": object{"source_id": c["source_id"], "document_version_id": c["document_version_id"], "chunk_id": chunkID}, "excerpt": quote, "published_at": c["published_at"], "fetched_at": c["retrieved_at"], "canonical_url": c["canonical_url"], "title": c["title"], "source_name": c["source_name"], "source_role": c["source_role"], "source_type": c["source_type"], "trust_level": c["trust_level"]})
+				material := object{"evidence_id": evid, "evidence_type": typ, "reference": object{"source_id": c["source_id"], "document_version_id": c["document_version_id"], "chunk_id": chunkID}, "excerpt": quote, "published_at": c["published_at"], "fetched_at": c["retrieved_at"], "title": c["title"], "source_name": c["source_name"], "source_role": c["source_role"], "source_type": c["source_type"], "trust_level": c["trust_level"]}
+				if url := str(c["canonical_url"]); url != "" {
+					material["canonical_url"] = url
+				}
+				evidence = append(evidence, material)
 				if !usedChunks[chunkID] {
 					chunks = append(chunks, c)
 					usedChunks[chunkID] = true

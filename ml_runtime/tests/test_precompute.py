@@ -3,7 +3,7 @@ import copy
 import unittest
 from unittest.mock import patch
 
-from ml_runtime.precompute import CapturingAgent, runtime_manifest
+from ml_runtime.precompute import CapturingAgent, CapturingReranker, CapturingRetriever, capture_model_result, runtime_manifest
 from ml_runtime.agent import AnalysisAgent
 from ml_runtime.retrieval import FixtureRetriever
 from ml_runtime.search_plan import FixtureSearchPlanner
@@ -41,3 +41,31 @@ class PrecomputeTests(unittest.TestCase):
             after = runtime_manifest()
         self.assertEqual(before, after)
         self.assertNotIn('do-not-persist', str(after))
+
+    def test_rejected_candidate_and_verdict_survive_as_diagnostics_only(self):
+        candidate = load_fixture('analysis.ok.json')
+        trace = {}
+        capture_model_result(trace, {'response_schema': {}}, candidate)
+        candidate['insight']['summary'] = 'mutated'
+        self.assertNotEqual(trace['generated_response']['insight']['summary'], 'mutated')
+        verdict = {'claim_checks': [], 'unattributed_assertions': ['Unsupported recommendation'], 'overall_supported': False}
+        capture_model_result(trace, {'claim_records': []}, verdict)
+        self.assertEqual(trace['verifier_verdict'], verdict)
+        self.assertNotIn('reasoning_content', trace)
+        capture_model_result(trace, {'claim_records': []}, {**verdict, 'reasoning_content': 'private'})
+        self.assertEqual(trace['verifier_verdict'], verdict)
+
+    def test_ranking_trace_is_observation_only(self):
+        class Reranker:
+            def score(self, query, candidates):
+                self.query, self.candidates = query, candidates
+                return [('second', 0.9), ('first', 0.1)]
+        delegate = Reranker()
+        recorder = CapturingReranker(delegate)
+        rows = [{'chunk_id': 'first', 'chunk_text': 'A'}, {'chunk_id': 'second', 'chunk_text': 'B'}]
+        result = recorder.score('query', rows)
+        self.assertIs(delegate.candidates, rows)
+        self.assertEqual(recorder.calls[0]['candidates'], rows)
+        self.assertEqual(recorder.calls[0]['scores'], result)
+        rows[0]['chunk_text'] = 'changed'
+        self.assertEqual(recorder.calls[0]['candidates'][0]['chunk_text'], 'A')

@@ -143,3 +143,30 @@ DTO и проверка совместимости входят в app. End-to-e
 при GET, failures/insufficient и rollback финального success update.
 `python -m unittest discover -s ml_runtime/tests` включает обязательный verifier
 и точный capture evidence; существующие ML1/ML2 suites сохраняются.
+
+## Разбор отказов grounding
+
+Миграция `000025` добавляет внутренний `request_operations.analysis_diagnostics`.
+Новый precompute сохраняет данные и для FAILED: запрос/ответ поиска, кандидаты,
+фактически переданные reranker (до Top-20), его scores, финальный Top-5,
+контрактный generated_response, фактически проверяемый candidate_response и
+verifier_verdict, если соответствующий этап
+выполнился. `evidence_snapshot` сохраняет точные chunks, переданные агенту.
+Нет нового retrieval после отказа, скрытых рассуждений или provider credentials.
+Публичные Insight и Generation эти диагностические поля не возвращают.
+Старые отказы без trace невозможно достоверно восстановить задним числом.
+
+При анализе отказа сначала сопоставить `searches[].reranker_calls[].candidates`
+с `searches[].response.results` и `evidence_snapshot`, затем claims/quote_text
+из candidate_response с причиной проверки. Наличие факта в исходном документе
+не доказывает его наличие в Top-5 данного запуска. Если подтверждение есть в
+точном evidence, исправлять generation/grounding; иначе фиксировать retrieval
+miss, не подменять evidence новым поиском.
+
+Генератор получает дословные варианты цитат с неизменёнными числами, отрицаниями,
+пунктуацией и переносами. Это варианты цитирования, а не автоматически проверенные
+claims. Неверные цитаты не исправляются после генерации. Summary собирается дословно
+из candidate claims до semantic verification; claims и их knowledge types не
+переписываются и не удаляются. Verifier проверяет именно этот итоговый summary. Требование support
+присутствует и в generation schema, и в прежнем verifier. Недостаток оснований
+о персональном эффекте описывается в gaps/warnings, а не context-only claim.

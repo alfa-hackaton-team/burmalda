@@ -20,6 +20,24 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
+func TestProjectionWithoutCanonicalURL(t *testing.T) {
+	request, response := fixture(t, "analysis.request"), fixture(t, "analysis.ok")
+	chunk := obj(array(fixture(t, "chunks.ok")["results"])[0])
+	chunk["canonical_url"] = nil // Imported PDF evidence need not have a web URL.
+	store := &PostgresStore{}
+	projected, chunks, err := store.projectEvidence(context.Background(), str(request["request_operation_id"]), request, response, []any{chunk})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = apicontract.Validate("public", "AgentResponse", projected); err != nil {
+		t.Fatal(err)
+	}
+	material := obj(array(projected["evidence"])[0])
+	if _, present := material["canonical_url"]; present || obj(material["reference"])["chunk_id"] != chunk["chunk_id"] || len(chunks) != 1 {
+		t.Fatal("missing URL was invented or evidence identity was lost")
+	}
+}
+
 func TestPrecomputedInsightPostgres(t *testing.T) {
 	pool := integrationPool(t)
 	ctx := context.Background()
@@ -80,7 +98,7 @@ func TestPrecomputedInsightPostgres(t *testing.T) {
 				obj(array(obj(array(obj(out["insight"])["claims"])[0])["evidence"])[0])["quote_text"] = "invented quote"
 			}
 		}
-		return object{"response": out, "chunks": []any{chunk}, "manifest": in["manifest"]}, nil
+		return object{"response": out, "chunks": []any{chunk}, "manifest": in["manifest"], "diagnostics": object{"version": "test-only", "candidate_response": out}}, nil
 	}
 	prepare := func(set string) (object, error) {
 		return store.Precompute(ctx, testUserID, str(c["business_context_id"]), str(event["id"]), set, object{"version": "test-only"}, execute)
@@ -216,6 +234,13 @@ func TestPrecomputedInsightPostgres(t *testing.T) {
 	failed, e := prepare("failed-v1")
 	if e != nil || failed["state"] != "FAILED" {
 		t.Fatalf("failure %v %v", failed, e)
+	}
+	var rejectedEvidence, rejectedTrace []byte
+	if e = pool.QueryRow(ctx, `SELECT evidence_snapshot,analysis_diagnostics FROM request_operations WHERE id=$1::uuid`, failed["generation_id"]).Scan(&rejectedEvidence, &rejectedTrace); e != nil {
+		t.Fatal(e)
+	}
+	if len(rejectedEvidence) == 0 || obj(decode(rejectedTrace)["candidate_response"]) == nil || failed["insight_id"] != nil {
+		t.Fatal("rejection diagnostics lost or exposed as a ready Insight")
 	}
 	status = "insufficient_evidence"
 	insufficient, e := prepare("insufficient-v1")
