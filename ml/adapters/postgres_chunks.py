@@ -127,14 +127,21 @@ def save_document_chunks(
         raise ChunkPersistenceError('PostgreSQL chunk persistence failed') from None
 
 
-def save_document_version_and_chunks(connection: Connection, document: SavedDocumentVersion,
-                                     chunks: Sequence[DocumentChunk], *, schema: str = ML_SCHEMA) -> None:
-    """Commit a local immutable snapshot and its full chunk set atomically.
+def _write_document(cursor, table, lock_key, version, document_id, snapshot, rows, schema):
+    # Lock version before profile: different profiles must agree on
+    # the same parent snapshot. Runtime role has no UPDATE on it.
+    cursor.execute('SELECT pg_advisory_xact_lock(%s)', (lock_key,))
+    cursor.execute(sql.SQL('SELECT document_id, snapshot FROM {} WHERE id = %s').format(table), (version,))
+    existing = cursor.fetchone()
+    if existing is None:
+        cursor.execute(sql.SQL('INSERT INTO {} (id, document_id, snapshot) VALUES (%s, %s, %s)').format(table),
+                       (version, document_id, Jsonb(snapshot)))
+    elif existing != (document_id, snapshot):
+        raise ChunkPersistenceConflict('Existing document snapshot differs from input')
+    _write_chunks(cursor, rows, schema)
 
-    Snapshot identity excludes execution context (trace_id/pipeline_version).
-    All other canonical fields/provenance are stored exactly in JSONB, including
-    original timestamp strings and nullable/empty title. No Go table is queried.
-    """
+
+def _prepare_document(document, chunks, schema):
     if not isinstance(document, SavedDocumentVersion):
         raise TypeError('Expected SavedDocumentVersion')
     chunks = tuple(chunks)
@@ -149,44 +156,68 @@ def save_document_version_and_chunks(connection: Connection, document: SavedDocu
     snapshot = document.to_dict()
     snapshot.pop('trace_id')
     snapshot.pop('pipeline_version')
-    _check_connection(connection, schema)
     table = sql.Identifier(schema, 'document_versions')
     lock_name = json.dumps([schema, 'document_versions', str(version)], separators=(',', ':'))
     lock_key = int.from_bytes(hashlib.sha256(lock_name.encode()).digest()[:8], 'big', signed=True)
+    return table, lock_key, version, document_id, snapshot, rows
+
+
+def save_document_version_and_chunks(connection: Connection, document: SavedDocumentVersion,
+                                     chunks: Sequence[DocumentChunk], *, schema: str = ML_SCHEMA) -> None:
+    """Commit a local immutable snapshot and its full chunk set atomically.
+
+    Snapshot identity excludes execution context (trace_id/pipeline_version).
+    All other canonical fields/provenance are stored exactly in JSONB, including
+    original timestamp strings and nullable/empty title. No Go table is queried.
+    """
+    table, lock_key, version, document_id, snapshot, rows = _prepare_document(document, chunks, schema)
+    _check_connection(connection, schema)
     try:
         with connection.transaction():
             with connection.cursor(row_factory=tuple_row) as cursor:
                 cursor.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
-                # Lock version before profile: different profiles must agree on
-                # the same parent snapshot. Runtime role has no UPDATE on it.
-                cursor.execute('SELECT pg_advisory_xact_lock(%s)', (lock_key,))
-                cursor.execute(sql.SQL('SELECT document_id, snapshot FROM {} WHERE id = %s').format(table), (version,))
-                existing = cursor.fetchone()
-                if existing is None:
-                    cursor.execute(sql.SQL('INSERT INTO {} (id, document_id, snapshot) VALUES (%s, %s, %s)').format(table),
-                                   (version, document_id, Jsonb(snapshot)))
-                elif existing != (document_id, snapshot):
-                    raise ChunkPersistenceConflict('Existing document snapshot differs from input')
-                _write_chunks(cursor, rows, schema)
+                _write_document(cursor, table, lock_key, version, document_id, snapshot, rows, schema)
     except UniqueViolation:
         raise ChunkPersistenceConflict('Snapshot or chunk identity already exists') from None
     except DatabaseError:
         raise ChunkPersistenceError('PostgreSQL document and chunk persistence failed') from None
 
 
-def save_document_embeddings(connection: Connection, chunks: Sequence[DocumentChunk],
-                             embeddings, *, schema: str = ML_SCHEMA) -> None:
-    """Atomically attach validated v1 embeddings to an already persisted full set.
-
-    Exact input rows and text hashes bind every vector to its source chunk.
-    Existing identical-profile vectors within float32 roundoff are no-ops;
-    different profiles/vectors are conflicts, never silently overwritten.
-    Requires PostgreSQL embedding VECTOR(1024); no pgvector Python adapter.
-    """
+def _write_embeddings(cursor, select, update, version, profile, rows, by_id, schema):
     import math
-
-    from ml.embeddings.core import ChunkEmbedding, text_hash, validate_vector
+    from ml.embeddings.core import validate_vector
     from ml.embeddings.profile import VECTOR_COMPARE_ATOL
+
+    cursor.execute('SELECT pg_advisory_xact_lock(%s)', (_lock_key(schema, version, profile),))
+    cursor.execute(select, (version, profile))
+    existing = tuple(cursor.fetchall())
+    if tuple(row[:8] for row in existing) != rows:
+        raise ChunkPersistenceConflict('Stored chunk set differs from embedding input')
+    pending = []
+    for row in existing:
+        item = by_id[row[0]]
+        vector, model, embedding_version = row[8:]
+        if vector is None and model is None and embedding_version is None:
+            pending.append(item)
+            continue
+        if (model, embedding_version) != (item.embedding_model, item.embedding_version):
+            raise ChunkPersistenceConflict('Existing embedding profile differs from input')
+        try:
+            stored = tuple(float(value) for value in json.loads(vector))
+            validate_vector(stored)
+        except (ValueError, TypeError):
+            raise ChunkPersistenceConflict('Stored embedding is invalid') from None
+        if any(not math.isclose(a, b, rel_tol=0.0, abs_tol=VECTOR_COMPARE_ATOL)
+               for a, b in zip(stored, item.vector)):
+            raise ChunkPersistenceConflict('Existing embedding differs from input')
+    for item in pending:
+        vector_literal = '[' + ','.join(repr(value) for value in item.vector) + ']'
+        cursor.execute(update, (vector_literal, item.embedding_model,
+                                item.embedding_version, UUID(item.chunk_id)))
+
+
+def _prepare_embeddings(chunks, embeddings, schema):
+    from ml.embeddings.core import ChunkEmbedding, text_hash, validate_vector
 
     chunks = tuple(chunks)
     rows = _rows(chunks)
@@ -203,7 +234,6 @@ def save_document_embeddings(connection: Connection, chunks: Sequence[DocumentCh
         if item.text_sha256 != text_hash(chunk.chunk_text):
             raise ValueError('Embedding source text hash differs from chunk text')
         validate_vector(item.vector)
-    _check_connection(connection, schema)
     table = sql.Identifier(schema, 'document_chunks')
     columns = sql.SQL(', ').join(map(sql.Identifier, _COLUMNS))
     select = sql.SQL(
@@ -214,35 +244,58 @@ def save_document_embeddings(connection: Connection, chunks: Sequence[DocumentCh
         'UPDATE {} SET embedding = %s, embedding_model = %s, embedding_version = %s WHERE id = %s'
     ).format(table)
     version, profile = rows[0][1:3]
+    return select, update, version, profile, rows, by_id
+
+
+def save_document_embeddings(connection: Connection, chunks: Sequence[DocumentChunk],
+                             embeddings, *, schema: str = ML_SCHEMA) -> None:
+    """Atomically attach validated v1 embeddings to an already persisted full set.
+
+    Exact input rows and text hashes bind every vector to its source chunk.
+    Existing identical-profile vectors within float32 roundoff are no-ops;
+    different profiles/vectors are conflicts, never silently overwritten.
+    Requires PostgreSQL embedding VECTOR(1024); no pgvector Python adapter.
+    """
+    select, update, version, profile, rows, by_id = _prepare_embeddings(chunks, embeddings, schema)
+    _check_connection(connection, schema)
     try:
         with connection.transaction():
             with connection.cursor(row_factory=tuple_row) as cursor:
                 cursor.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
-                cursor.execute('SELECT pg_advisory_xact_lock(%s)', (_lock_key(schema, version, profile),))
-                cursor.execute(select, (version, profile))
-                existing = tuple(cursor.fetchall())
-                if tuple(row[:8] for row in existing) != rows:
-                    raise ChunkPersistenceConflict('Stored chunk set differs from embedding input')
-                pending = []
-                for row in existing:
-                    item = by_id[row[0]]
-                    vector, model, embedding_version = row[8:]
-                    if vector is None and model is None and embedding_version is None:
-                        pending.append(item)
-                        continue
-                    if (model, embedding_version) != (item.embedding_model, item.embedding_version):
-                        raise ChunkPersistenceConflict('Existing embedding profile differs from input')
-                    try:
-                        stored = tuple(float(value) for value in json.loads(vector))
-                        validate_vector(stored)
-                    except (ValueError, TypeError):
-                        raise ChunkPersistenceConflict('Stored embedding is invalid') from None
-                    if any(not math.isclose(a, b, rel_tol=0.0, abs_tol=VECTOR_COMPARE_ATOL)
-                           for a, b in zip(stored, item.vector)):
-                        raise ChunkPersistenceConflict('Existing embedding differs from input')
-                for item in pending:
-                    vector_literal = '[' + ','.join(repr(value) for value in item.vector) + ']'
-                    cursor.execute(update, (vector_literal, item.embedding_model,
-                                            item.embedding_version, UUID(item.chunk_id)))
+                _write_embeddings(cursor, select, update, version, profile, rows, by_id, schema)
     except DatabaseError:
         raise ChunkPersistenceError('PostgreSQL embedding persistence failed') from None
+
+
+def save_indexed_document(connection: Connection, document: SavedDocumentVersion, chunks, embeddings,
+                          *, schema: str = ML_SCHEMA, version=None) -> None:
+    """One commit for snapshot, complete chunk set and complete embeddings.
+
+    Inference happens before this call. Reuses the same locks, validation and
+    immutable retry/conflict semantics as the separate persistence entry points.
+    """
+    chunks, embeddings = tuple(chunks), tuple(embeddings)
+    doc = _prepare_document(document, chunks, schema)
+    emb = _prepare_embeddings(chunks, embeddings, schema)
+    _check_connection(connection, schema)
+    if version is not None and (version.document_id, version.document_version_id) != (
+            document.document_id, document.document_version_id):
+        raise ValueError('Version metadata differs from the indexed document')
+    try:
+        with connection.transaction():
+            with connection.cursor(row_factory=tuple_row) as cursor:
+                cursor.execute('SET TRANSACTION ISOLATION LEVEL READ COMMITTED')
+                _write_document(cursor, *doc, schema)
+                _write_embeddings(cursor, *emb, schema)
+                if version is not None:
+                    cursor.execute(sql.SQL(
+                        'UPDATE {} SET ready=true, indexed_at=coalesce(indexed_at, now()) '
+                        'WHERE document_version_id=%s AND document_id=%s AND version_no=%s'
+                    ).format(sql.Identifier(schema, 'document_version_catalog')),
+                        (UUID(version.document_version_id), UUID(version.document_id), version.version_no))
+                    if cursor.rowcount != 1:
+                        raise ChunkPersistenceConflict('Version catalog metadata is absent or conflicting')
+    except UniqueViolation:
+        raise ChunkPersistenceConflict('Snapshot or chunk identity already exists') from None
+    except DatabaseError:
+        raise ChunkPersistenceError('PostgreSQL indexing failed; transaction rolled back') from None

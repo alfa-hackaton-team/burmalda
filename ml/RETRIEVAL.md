@@ -37,4 +37,4 @@ ML1_TEST_POSTGRES_DSN='<disposable admin test DSN>' ML1_TEST_QWEN_MODEL=1 HF_HUB
 
 Тесты создают изолированные схемы существующей миграцией; pgvector — prerequisite тестовой БД. Проверяются семантический порядок реальной Qwen, SQL ranking/top_k, несовместимые/неполные embeddings, пустая база, фильтры, access и историческое чтение.
 
-Перед evaluation нужно подключить актуальный каталог версий/готовности и права из приложения. На этом этапе нет автоматического `ready/SUCCEEDED`, abstention threshold и проверки качества на gold dataset. Масштабирование через ANN требует отдельного решения.
+Воспроизводимый synthetic baseline — в [evaluation/README.md](evaluation/README.md): реальные Qwen + pgvector с fixture-каталогом и trusted allowlist. Production-каталог версий/готовности и права приложения подключаются отдельно и не блокируют evaluation. Автоматического `ready/SUCCEEDED` и abstention threshold нет. Масштабирование через ANN требует отдельного решения.

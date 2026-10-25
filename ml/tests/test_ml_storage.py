@@ -77,7 +77,7 @@ class MLStoragePostgresTests(unittest.TestCase):
         self.addCleanup(self.drop_schema)
         if not self.connection.execute("SELECT 1 FROM pg_extension WHERE extname='vector'").fetchone():
             self.connection.execute(sql.SQL('CREATE EXTENSION vector WITH SCHEMA {}').format(sql.Identifier(self.schema)))
-        self.assertEqual(apply_migrations(self.connection, schema=self.schema), ('000001_document_storage',))
+        self.assertEqual(apply_migrations(self.connection, schema=self.schema), ('000001_document_storage', '000002_pipeline_state_and_events'))
         self.document = document('Привет 🙂. Данные e\u0301.\r\n\r\n' * 10)
         self.chunks = chunk_document(self.document, CharacterCounter(), TEST_PROFILE)
 
@@ -114,7 +114,7 @@ class MLStoragePostgresTests(unittest.TestCase):
         self.assertTrue(vector_type.endswith('vector(1024)'))
         journal = self.connection.execute(sql.SQL('SELECT version, length(checksum) FROM {}').format(
             sql.Identifier(self.schema, 'schema_migrations'))).fetchall()
-        self.assertEqual(journal, [('000001_document_storage', 64)])
+        self.assertEqual(journal, [('000001_document_storage', 64), ('000002_pipeline_state_and_events', 64)])
 
     def test_snapshot_exact_payload_all_provenance_and_empty_title(self):
         saved = replace(self.document, title='', published_at=None)
@@ -178,9 +178,9 @@ class MLStoragePostgresTests(unittest.TestCase):
     def test_failed_pending_migration_rolls_back_ddl_and_journal(self):
         from ml.migrate import MIGRATIONS
         with tempfile.TemporaryDirectory() as directory:
-            original = MIGRATIONS / '000001_document_storage.sql'
-            Path(directory, original.name).write_bytes(original.read_bytes())
-            Path(directory, '000002_failure.sql').write_text('CREATE TABLE rollback_marker(id integer); SELECT 1/0;')
+            for original in MIGRATIONS.glob('*.sql'):
+                Path(directory, original.name).write_bytes(original.read_bytes())
+            Path(directory, '000003_failure.sql').write_text('CREATE TABLE rollback_marker(id integer); SELECT 1/0;')
             with patch('ml.migrate.MIGRATIONS', Path(directory)):
                 with self.assertRaises(MigrationError):
                     apply_migrations(self.connection, schema=self.schema)
@@ -239,7 +239,7 @@ class MLStoragePostgresTests(unittest.TestCase):
         from ml.embeddings.core import text_hash
         from ml.tests.test_embeddings import unit_vector
 
-        self.assertEqual(apply_migrations(self.connection), ('000001_document_storage',))
+        self.assertEqual(apply_migrations(self.connection), ('000001_document_storage', '000002_pipeline_state_and_events'))
         self.addCleanup(lambda: self.connection.execute('DROP SCHEMA ml CASCADE'))
         saved = document('Data')
         # Synthetic DTO fixture, not a replacement for the production chunker.
@@ -307,7 +307,7 @@ class MLStoragePostgresTests(unittest.TestCase):
         self.connection.execute(sql.SQL('GRANT USAGE ON SCHEMA {} TO {}').format(sql.Identifier(extension_schema), sql.Identifier(role)))
         with psycopg.connect(self.dsn, autocommit=True) as migration:
             migration.execute(sql.SQL('SET ROLE {}').format(sql.Identifier(role)))
-            self.assertEqual(apply_migrations(migration, schema=target), ('000001_document_storage',))
+            self.assertEqual(apply_migrations(migration, schema=target), ('000001_document_storage', '000002_pipeline_state_and_events'))
             self.assertEqual(apply_migrations(migration, schema=target), ())
         # DROP OWNED in role cleanup owns/removes only this new isolated schema.
         owner = self.connection.execute('SELECT pg_get_userbyid(nspowner) FROM pg_namespace WHERE nspname=%s', (target,)).fetchone()[0]

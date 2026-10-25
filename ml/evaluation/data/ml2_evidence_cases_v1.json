@@ -1,0 +1,101 @@
+{
+  "fixture_version": "ml2-evidence-handoff-v1",
+  "scope": "Gold handoff cases, NOT an implemented semantic verifier. Retrieval/reranker scores never establish support.",
+  "cases": [
+    {
+      "case_id": "supported-rate",
+      "claim_text": "25 октября 2024 года Банк России повысил ставку на 200 б.п. до 21%.",
+      "chunk_id": "532b1baf-0cec-559a-9ccd-75079b0edcfc",
+      "quote_text": "принял решение повысить ключевую ставку на 200 б.п., до 21,00% годовых.",
+      "source_url": "https://www.cbr.ru/press/pr/?file=25102024_133000Key.htm",
+      "expected_semantic_verdict": "SUPPORTED",
+      "expected_publishable": true,
+      "mechanically_exact_quote": true,
+      "reason": "Дата, субъект, направление и число совпадают."
+    },
+    {
+      "case_id": "wrong-direction",
+      "claim_text": "25 октября 2024 года Банк России снизил ставку на 200 б.п. до 21%.",
+      "chunk_id": "532b1baf-0cec-559a-9ccd-75079b0edcfc",
+      "quote_text": "принял решение повысить ключевую ставку на 200 б.п., до 21,00% годовых.",
+      "source_url": "https://www.cbr.ru/press/pr/?file=25102024_133000Key.htm",
+      "expected_semantic_verdict": "CONTRADICTED",
+      "expected_publishable": false,
+      "mechanically_exact_quote": true,
+      "reason": "Цитата точная, но направление противоположно."
+    },
+    {
+      "case_id": "wrong-number",
+      "claim_text": "25 октября 2024 года Банк России повысил ставку на 100 б.п. до 21%.",
+      "chunk_id": "532b1baf-0cec-559a-9ccd-75079b0edcfc",
+      "quote_text": "принял решение повысить ключевую ставку на 200 б.п., до 21,00% годовых.",
+      "source_url": "https://www.cbr.ru/press/pr/?file=25102024_133000Key.htm",
+      "expected_semantic_verdict": "CONTRADICTED",
+      "expected_publishable": false,
+      "mechanically_exact_quote": true,
+      "reason": "Цитата точная, но шаг 200, а не 100 б.п."
+    },
+    {
+      "case_id": "wrong-date",
+      "claim_text": "25 октября 2025 года Банк России повысил ставку на 200 б.п. до 21%.",
+      "chunk_id": "532b1baf-0cec-559a-9ccd-75079b0edcfc",
+      "quote_text": "принял решение повысить ключевую ставку на 200 б.п., до 21,00% годовых.",
+      "source_url": "https://www.cbr.ru/press/pr/?file=25102024_133000Key.htm",
+      "expected_semantic_verdict": "NOT_SUPPORTED",
+      "expected_publishable": false,
+      "mechanically_exact_quote": true,
+      "reason": "Источник относится к 2024 году; цитата не подтверждает 2025 год."
+    },
+    {
+      "case_id": "hold-not-increase",
+      "claim_text": "20 декабря 2024 года Банк России снова повысил ключевую ставку.",
+      "chunk_id": "ed3de721-2d85-529d-bb88-adc385264c3a",
+      "quote_text": "принял решение сохранить ключевую ставку на уровне 21,00% годовых.",
+      "source_url": "https://www.cbr.ru/press/pr/?file=20122024_133000Key.htm",
+      "expected_semantic_verdict": "CONTRADICTED",
+      "expected_publishable": false,
+      "mechanically_exact_quote": true,
+      "reason": "Сохранение уровня не является повышением."
+    },
+    {
+      "case_id": "negative-fact-supported",
+      "claim_text": "Согласно протоколу FOMC, валютные интервенции за межзаседательный период не проводились.",
+      "chunk_id": "ad0b66a5-a344-5e46-86ff-4365785e1a62",
+      "quote_text": "There were no intervention operations in foreign currencies for the System's account during the intermeeting period.",
+      "source_url": "https://www.federalreserve.gov/monetarypolicy/fomcminutes20240918.htm",
+      "expected_semantic_verdict": "SUPPORTED",
+      "expected_publishable": true,
+      "mechanically_exact_quote": true,
+      "reason": "Отрицание в цитате сохранено."
+    },
+    {
+      "case_id": "negative-fact-inverted",
+      "claim_text": "Согласно протоколу FOMC, валютные интервенции за межзаседательный период проводились.",
+      "chunk_id": "ad0b66a5-a344-5e46-86ff-4365785e1a62",
+      "quote_text": "There were no intervention operations in foreign currencies for the System's account during the intermeeting period.",
+      "source_url": "https://www.federalreserve.gov/monetarypolicy/fomcminutes20240918.htm",
+      "expected_semantic_verdict": "CONTRADICTED",
+      "expected_publishable": false,
+      "mechanically_exact_quote": true,
+      "reason": "Точная цитата с no не поддерживает утвердительный claim."
+    },
+    {
+      "case_id": "missing-product-terms",
+      "claim_text": "Альфа-Банк предложил конкретную ставку по шестимесячным депозитам юрлиц 25 июля 2025 года.",
+      "chunk_id": null,
+      "quote_text": null,
+      "source_url": null,
+      "expected_semantic_verdict": "NOT_IN_CORPUS",
+      "expected_publishable": false,
+      "mechanically_exact_quote": false,
+      "reason": "Ключевая ставка и общие депозитные тенденции не задают условия конкретного банковского продукта."
+    }
+  ],
+  "requirements": [
+    "Resolve the exact authorized historical chunk; preserve provenance and source date.",
+    "Match a nonempty exact quote to chunk_text; existence alone is not entailment.",
+    "Check subject, event time, numbers/units, negation and direction against the claim.",
+    "For absent evidence, do not publish verified claims; use the existing insufficient_evidence outcome.",
+    "Scores are diagnostics, not confidence or a substitute for ML2 verification."
+  ]
+}

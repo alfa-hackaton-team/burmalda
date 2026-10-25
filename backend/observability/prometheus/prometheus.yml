@@ -1,0 +1,29 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: api
+    dns_sd_configs:
+      - names: ["api"]
+        type: A
+        port: 19095
+        refresh_interval: 30s
+  - job_name: worker
+    dns_sd_configs:
+      - names: ["worker"]
+        type: A
+        port: 19090
+        refresh_interval: 30s
+  - job_name: observer
+    static_configs:
+      - targets: ["observer:19091"]
+  - job_name: retention
+    static_configs:
+      - targets: ["retention:19093"]
+  - job_name: rawstorage
+    dns_sd_configs:
+      - names: ["rawstorage"]
+        type: A
+        port: 19094
+        refresh_interval: 30s

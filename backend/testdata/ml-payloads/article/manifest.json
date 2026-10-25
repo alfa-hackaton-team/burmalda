@@ -1,0 +1,22 @@
+[
+  {
+    "article_id": "e219b631-1135-4eaf-b083-c55f998072fd",
+    "article_version_id": "890e062e-96ec-49dc-9aff-5187dcbfc446",
+    "extraction_issues": [],
+    "extraction_method": "article-html-config-v1-c3444d5764b90d15",
+    "file": "890e062e-96ec-49dc-9aff-5187dcbfc446.json",
+    "fixture_only": true,
+    "idempotency_key": "890e062e-96ec-49dc-9aff-5187dcbfc446:UNCONFIRMED-FIXTURE-ONLY",
+    "method": "POST",
+    "outcome": "EXPORTED",
+    "path": "/internal/v0.1/article-processings",
+    "raw_artifact_id": "70753a80-b4cc-4dad-9e32-d23b101132dd",
+    "raw_content_type": "text/html",
+    "raw_sha256": "84eea7f7a736224125b3620cd807610e245276c1d458eaad1bc894653707e7b7",
+    "raw_size_bytes": 85178,
+    "source_id": "cd1ae66a-7436-5092-a0d6-91f9ade7eb5b",
+    "source_snapshot_origin": "CAPTURED_AT_INGEST",
+    "text_bytes": 802,
+    "text_origin": "full_article"
+  }
+]

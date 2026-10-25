@@ -437,7 +437,7 @@ Insight нельзя переводить в `verified`, пока каждый �
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `user_id` | TEXT | NOT NULL; идентификатор пользователя из проверенной сессии Go |
+| `user_id` | UUID | NOT NULL, FK → `users.id`; идентификатор пользователя из проверенной сессии Go |
 | `business_context_id` | UUID | NOT NULL, FK → `business_contexts.id` |
 | `initial_insight_id` | UUID | NOT NULL, FK → `insights.id` |
 | `created_at` | TIMESTAMPTZ | NOT NULL |
@@ -483,7 +483,7 @@ Insight нельзя переводить в `verified`, пока каждый �
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK |
-| `user_id` | TEXT | NOT NULL; автор оценки из проверенной сессии Go |
+| `user_id` | UUID | NOT NULL, FK → `users.id`; автор оценки из проверенной сессии Go |
 | `insight_id` | UUID | FK → `insights.id`, nullable |
 | `message_id` | UUID | FK → `messages.id`, nullable |
 | `rating` | SMALLINT | `-1`, `0`, `1` |
@@ -502,10 +502,10 @@ Go определяет автора по сессии и проверяет д�
 | Поле | Тип | Ограничения |
 |---|---|---|
 | `id` | UUID | PK; стабильный идентификатор операции Go |
-| `user_id` | TEXT | NOT NULL; из проверенной сессии Go |
+| `user_id` | UUID | NOT NULL, FK → `users.id`; из проверенной сессии Go |
 | `operation_type` | TEXT | NOT NULL; `insight`, `follow_up` |
 | `idempotency_key` | TEXT | NOT NULL; непустой обязательный `Idempotency-Key` запроса |
-| `request_fingerprint` | TEXT | NOT NULL; отпечаток клиентских параметров |
+| `request_fingerprint` | BYTEA | NOT NULL; SHA-256 нормализованных клиентских параметров, ровно 32 байта |
 | `business_context_id` | UUID | NOT NULL, FK → `business_contexts.id` |
 | `event_id` | UUID | FK → `events.id`, обязателен для разбора, nullable для уточнения |
 | `conversation_id` | UUID | FK → `conversations.id`, nullable для разбора |
@@ -520,7 +520,7 @@ Go определяет автора по сессии и проверяет д�
 
 Уникальность: `(user_id, operation_type, idempotency_key)`. Go сохраняет операцию транзакционно до обращения к ML. Для разбора обязателен `event_id`. Для уточнения в той же транзакции один раз сохраняется пользовательское сообщение; `conversation_id` и `request_message_id` обязательны и относятся к диалогу владельца операции с тем же бизнес-контекстом.
 
-`request_snapshot` фиксирует параметры события или вопроса, роль, идентификатор и версию профиля, версию конфигурации обработки; для уточнения также фиксируется граница истории диалога. Эти значения сохраняются при первом запросе и повторно не вычисляются. Отпечаток считается по клиентским параметрам, включая выбранный контекст, событие либо диалог и текст вопроса; технический `trace_id` в него не входит.
+`request_snapshot` фиксирует параметры события или вопроса, роль, идентификатор и версию профиля, версию конфигурации обработки; для уточнения также фиксируется граница истории диалога. Эти значения сохраняются при первом запросе и повторно не вычисляются. `request_fingerprint` считается по правилам `fingerprint_v1` из [RFC пользовательского API](0004-user-api-storage.md#3-идемпотентность-и-диалоги); технический `trace_id` в него не входит.
 
 Повтор с тем же ключом и параметрами возвращает прежнюю операцию или результат после повторной проверки прав. Другие параметры с тем же ключом дают `409 Conflict`; отсутствие ключа — `400`. Go передает `request_operations.id` как внутренний `Idempotency-Key`; ML сохраняет его в `analysis_runs.request_operation_id` до платного вызова и устраняет одновременные повторы. При неизвестном исходе вызова модели новый платный вызов не запускается вслепую: проверяется сохраненный результат либо возвращается контролируемая ошибка.
 
@@ -991,3 +991,9 @@ request_operations
 event_facts
 fact_evidence
 ```
+
+## Реализованное дополнение ML — 25 октября 2026
+
+[Миграция 000002](../../ml/migrations/000002_pipeline_state_and_events.sql) добавляет `ml.document_version_catalog`, `ml.article_processings`, `ml.events`, `ml.event_documents`, `ml.event_facts`, `ml.fact_evidence`; [точные поля и права](../../ml/PERSISTENCE.md#каталог-и-события-ml2). Это ML-owned таблицы без FK на Go, миграционный журнал — `ml.schema_migrations`.
+
+В отличие от целевого раздела 1.15, фактическая `ml.event_documents` включает также `evidence_quotes`, `candidate_fingerprint`, `pipeline_version` и отдельный `event_pipeline_config_version`. PK: `(event_id, document_version_id, event_pipeline_config_version)`; candidate fingerprint уникален в пределах версии документа/event-конфигурации. Поля `evidence_role` и `is_primary` сохранены. Версию event-конфигурации задаёт ML2; общая `pipeline_version` её не подменяет. Схема не реализует семантическую дедупликацию или проверку claim.

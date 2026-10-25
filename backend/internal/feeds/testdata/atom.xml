@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <title>Example Atom</title>
+  <entry>
+    <id>tag:example.com,2026:article-2</id>
+    <title type="html">Company &amp; markets</title>
+    <link rel="alternate" href="/news/2" />
+    <updated>2026-10-21T11:00:00Z</updated>
+    <content type="xhtml"><div xmlns="http://www.w3.org/1999/xhtml"><p>Second <b>story</b>.</p></div></content>
+  </entry>
+</feed>

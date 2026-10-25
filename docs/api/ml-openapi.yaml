@@ -313,10 +313,11 @@ paths:
       - Agent
       summary: Подготовить персональный разбор с подтверждёнными основаниями
       x-ml-contract-version: v1
-      description: Принимает AnalysisRequest v1 со снимком контекста и события.
-        Idempotency-Key равен request_operation_id. Агент использует search/get_chunks;
-        AnalysisResponse — подготовленный результат, публичный успех наступает после
-        транзакции Go. Повтор возвращает исходные ID и результат без новой генерации.
+      description: Принимает AnalysisRequest v1 с request_type initial или reanalyze.
+        Go формирует доверенный снимок контекста и события; Idempotency-Key равен
+        request_operation_id. ML возвращает AnalysisResponse v1, а Go сохраняет
+        результат и формирует публичный AgentResponse. Повтор не создаёт новое
+        выполнение или платный вызов.
       responses:
         '200':
           description: Готовый результат при синхронном выполнении
@@ -377,9 +378,7 @@ paths:
               - "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisRequest"
               - properties:
                   request_type:
-                    enum:
-                    - initial
-                    - reanalyze
+                    enum: [initial, reanalyze]
       parameters:
       - name: Idempotency-Key
         in: header
@@ -400,8 +399,8 @@ paths:
       tags:
       - Agent
       summary: Получить состояние выполнения и структурированный результат
-      description: При асинхронном выполнении Конечное состояние содержит AnalysisResponse v1 в response;
-        сервер сохраняет разбор или сообщение и связывает с ним внешнюю операцию.
+      description: При завершении response содержит AnalysisResponse v1; Go сохраняет
+        разбор или сообщение и связывает с ним внешнюю операцию.
         Внутренний analysis_id не равен публичному generation_id автоматически.
       responses:
         '200':
@@ -450,11 +449,11 @@ paths:
       - Agent
       summary: Ответить в контексте существующего разбора Insight
       x-ml-contract-version: v1
-      description: Принимает AnalysisRequest v1 с request_type=follow_up.
-        Go передает initial_insight с claims/evidence/чанками и структурированную историю
-        до request_message_id. Профиль и событие зафиксированы исходным разбором.
-        Idempotency-Key равен request_operation_id. Новый запуск имеет отдельный trace_id
-        и parent_trace_id исходного анализа. Повтор не создает новое выполнение.
+      description: Принимает AnalysisRequest v1 с request_type follow_up. Go передаёт
+        сохранённый исходный разбор, снимок контекста и разрешённую историю.
+        Idempotency-Key равен request_operation_id. ML возвращает AnalysisResponse v1;
+        Go сохраняет результат и формирует публичный AgentResponse. Повтор не создаёт
+        новое выполнение или платный вызов.
       responses:
         '200':
           description: Синхронный вариант
@@ -515,8 +514,7 @@ paths:
               - "$ref": "../ml/contracts/v1/contracts.schema.json#/$defs/AnalysisRequest"
               - properties:
                   request_type:
-                    enum:
-                    - follow_up
+                    const: follow_up
       parameters:
       - name: Idempotency-Key
         in: header
@@ -641,27 +639,79 @@ paths:
       summary: Принять сохранённый материал от Go на ML-обработку
       description: Go-воркер передаёт NormalizedArticle и безопасные метаданные источника.
         ML1 проверяет версию, создаёт чанки и embeddings для поиска; после готовности
-        версии ML2 извлекает события и связывает их с документом. В ML document_id
-        равен article_id, document_version_id равен article_version_id; новые ID
-        для того же материала не создаются. ML сохраняет версии конфигурации обоих этапов.
+        версии ML2 извлекает события и связывает их с документом. ML сохраняет связь
+        article_version_id с document_version_id и версии конфигурации обоих этапов.
         pipeline_version обозначает согласованный набор этих конфигураций; для ML2
         ключ обработки событий — (document_version_id, event_pipeline_config_version).
         Перед запуском сохраняет ключ и отпечаток параметров; повтор не создаёт вторую
         обработку. Для пары (article_version_id, pipeline_version) существует одна
         логическая операция. trace_id — корреляция, а не основание для нового выполнения.
         Оригинал по raw_ref ML не загружает. Превышение согласованного лимита текста
-        возвращает 413 без обрезания. Лимит article.body — 131072 байта UTF-8
-        без заголовка; quality PASS не означает завершение операции. Отдельный
-        quality-only режим пока не определён.
+        возвращает 413 без обрезания.
       requestBody:
         required: true
         content:
           application/json:
             schema:
-              "$ref": "../ml/contracts/quality/v1/quality.schema.json#/$defs/BackendInput"
-              description: Целевой запрос сохранённой версии; source ID совпадают,
-                metadata содержит обязательные extraction_method/extraction_errors.
-                Старый payload без этих полей не принимается.
+              type: object
+              properties:
+                article:
+                  "$ref": "./schemas.yaml#/components/schemas/NormalizedArticle"
+                source:
+                  type: object
+                  properties:
+                    source_id:
+                      type: string
+                      minLength: 1
+                    name:
+                      type: string
+                      minLength: 1
+                    source_role:
+                      type: string
+                      enum:
+                      - external
+                      - bank
+                      - expert
+                    source_type:
+                      type: string
+                      enum: [news, bank_analytics, expert, regulator, financial_press]
+                    trust_level:
+                      type: string
+                      enum: [primary, trusted, standard, unknown, reviewed]
+                    config_version:
+                      type: string
+                      pattern: '^[1-9][0-9]*$'
+                      description: Версия конфигурации источника, сохранённая вместе
+                        с заданием Go. Повторы используют тот же снимок.
+                  additionalProperties: false
+                  required:
+                  - source_id
+                  - name
+                  - source_role
+                  - source_type
+                  - trust_level
+                  - config_version
+                  description: Безопасная версия метаданных реестра Go для классификации
+                    материала; без endpoint, credential_ref и конфигурации доступа
+                    к издателю.
+                pipeline_version:
+                  type: string
+                  minLength: 1
+                  description: Версия правил ML, согласованная через конфигурацию
+                    окружения и сохранённая Go в задании до POST. ML отклоняет
+                    неподдерживаемую версию до запуска обработки.
+                trace_id:
+                  type: string
+                  minLength: 1
+              additionalProperties: false
+              required:
+              - article
+              - source
+              - pipeline_version
+              - trace_id
+              description: article.source_id должен совпадать с source.source_id.
+                Go передаёт сохранённую версию материала; ML проверяет ссылки и метаданные,
+                не загружает произвольные URL из запроса.
       parameters:
       - name: Idempotency-Key
         in: header

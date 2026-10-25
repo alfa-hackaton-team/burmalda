@@ -26,6 +26,10 @@ def _validator(definition: str) -> Draft202012Validator:
 
 
 def validate(value: object, definition: str) -> None:
+    article = value.get('article', {}) if definition == 'BackendInput' and isinstance(value, dict) else value
+    if definition in ('BackendInput', 'BackendArticle') and isinstance(article, dict) and 'version_no' in article:
+        if type(article['version_no']) is not int or article['version_no'] < 1:
+            raise DocumentInputError('version_no must be a positive integer')
     if next(_validator(definition).iter_errors(value), None) is not None:
         # Do not expose input strings or the original jsonschema error instance.
         raise DocumentInputError(f'{definition}: quality contract validation failed')

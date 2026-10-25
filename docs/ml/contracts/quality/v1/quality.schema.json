@@ -97,6 +97,10 @@
           "type": "string",
           "format": "uuid"
         },
+        "version_no": {
+          "type": "integer",
+          "minimum": 1
+        },
         "article_version_id": {
           "type": "string",
           "format": "uuid"

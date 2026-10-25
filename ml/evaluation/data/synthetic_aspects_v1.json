@@ -1,0 +1,91 @@
+{
+  "version": "manual-query-aspects-v1",
+  "policy": "Human query decomposition fixture, no document text/IDs passed to model. Not an automatic query decomposer and not independent holdout.",
+  "queries": [
+    {
+      "query_id": "q12",
+      "aspects": [
+        {
+          "text": "Какие повышения цен на газ увеличивают расходы промышленных предприятий?",
+          "relevant_chunk_ids": [
+            "71afe6b8-6a0f-5716-ad9d-160d152397bc"
+          ]
+        },
+        {
+          "text": "Какие повышения цен на электроэнергию увеличивают расходы заводов?",
+          "relevant_chunk_ids": [
+            "65f8b23c-62b9-53b8-a9c4-ff4c32b6a4dd"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "q13",
+      "aspects": [
+        {
+          "text": "Как собственная генерация электроэнергии снизила расходы производителя?",
+          "relevant_chunk_ids": [
+            "264dfab3-5de5-5a3a-bc1f-939e7c950278"
+          ]
+        },
+        {
+          "text": "Какая мера снизила расходы производителей на импорт комплектующих?",
+          "relevant_chunk_ids": [
+            "ae6dcf3e-6965-5c6e-ad67-29a36e0d4a47"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "q18",
+      "aspects": [
+        {
+          "text": "Как ослабление рубля увеличило затраты импортёра?",
+          "relevant_chunk_ids": [
+            "b52be0b5-97fc-5cde-8272-3c9097bf90dc"
+          ]
+        },
+        {
+          "text": "Как ослабление рубля увеличило рублёвую выручку экспортёра?",
+          "relevant_chunk_ids": [
+            "189cdfd5-cfa2-5d6c-864e-bf4636a64421"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "q23",
+      "aspects": [
+        {
+          "text": "Какая новость описывает повышение ключевой ставки?",
+          "relevant_chunk_ids": [
+            "c443961f-51e3-50ef-bf0c-24c66939721c"
+          ]
+        },
+        {
+          "text": "Какая новость описывает сохранение ключевой ставки?",
+          "relevant_chunk_ids": [
+            "cf74d79a-305b-57f7-b7d6-ebe49fdd1db0"
+          ]
+        }
+      ]
+    },
+    {
+      "query_id": "q24",
+      "aspects": [
+        {
+          "text": "Кто сократил производство и сотрудников из-за падения спроса?",
+          "relevant_chunk_ids": [
+            "bf6a3d45-3dff-58ef-b4c2-2df332518b6c"
+          ]
+        },
+        {
+          "text": "Кто отказался от расширения производства из-за падения заказов?",
+          "relevant_chunk_ids": [
+            "f84d5068-bc67-590c-a9b8-79b1d0252697"
+          ]
+        }
+      ]
+    }
+  ]
+}

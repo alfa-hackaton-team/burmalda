@@ -39,6 +39,7 @@ class BackendSource(TypedDict):
 
 
 class _OptionalArticleFields(TypedDict, total=False):
+    version_no: int
     published_at: str | None
     external_id: str
     canonical_url: str
