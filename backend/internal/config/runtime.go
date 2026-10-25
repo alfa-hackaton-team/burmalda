@@ -102,6 +102,10 @@ type Runtime struct {
 	RawStorage struct {
 		RequestTimeout Duration `yaml:"request_timeout"`
 	} `yaml:"raw_storage"`
+	StorageMetrics struct {
+		Interval Duration `yaml:"interval"`
+		Timeout  Duration `yaml:"timeout"`
+	} `yaml:"storage_metrics"`
 }
 
 func DefaultRuntime() Runtime {
@@ -135,6 +139,7 @@ func DefaultRuntime() Runtime {
 	r.ML.MaxProcessingDuration = Duration(30 * time.Minute)
 	r.Retention.SourcePollDays, r.Retention.BatchSize, r.Retention.Interval = 30, 1000, Duration(24*time.Hour)
 	r.RawStorage.RequestTimeout = Duration(30 * time.Second)
+	r.StorageMetrics.Interval, r.StorageMetrics.Timeout = Duration(time.Minute), Duration(30*time.Second)
 	return r
 }
 
@@ -166,6 +171,8 @@ func (r Runtime) validate() error {
 		"ml.max_processing_duration":  r.ML.MaxProcessingDuration,
 		"retention.interval":          r.Retention.Interval,
 		"raw_storage.request_timeout": r.RawStorage.RequestTimeout,
+		"storage_metrics.interval":    r.StorageMetrics.Interval,
+		"storage_metrics.timeout":     r.StorageMetrics.Timeout,
 	} {
 		if d <= 0 {
 			return fmt.Errorf("%s must be positive", name)

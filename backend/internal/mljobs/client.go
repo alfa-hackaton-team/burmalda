@@ -181,7 +181,9 @@ func RequestPayload(job Job) ([]byte, error) {
 	})
 }
 
-func (c Client) do(req *http.Request) (int, []byte, time.Duration, error) {
+func (c Client) do(req *http.Request) (responseStatus int, responseBody []byte, responseRetry time.Duration, responseErr error) {
+	started := time.Now()
+	defer func() { observability.UpstreamTiming("ml", started, responseStatus, responseErr) }()
 	ctx, span := otel.Tracer("ingestion/mljobs").Start(req.Context(), "http.ml")
 	defer span.End()
 	req = req.WithContext(ctx)

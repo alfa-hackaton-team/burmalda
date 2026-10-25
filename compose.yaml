@@ -80,6 +80,7 @@ services:
     environment:
       <<: *db-env
       HTTP_ADDR: :8080
+      METRICS_ADDR: :19095
       DATASET_REQUIRED: "true"
       DATASET_API_TOKEN: ${DATASET_API_TOKEN:-}
       # Local-only default keeps the documented one-command startup working.
@@ -123,11 +124,18 @@ services:
     build: ./backend
     command: ["/app/observer"]
     environment:
-      <<: *db-env
+      <<: [*db-env, *s3-env]
       METRICS_ADDR: :19091
+      POSTGRES_VOLUME_PATH: /storage-volumes/postgres
+      S3_VOLUME_PATH: /storage-volumes/s3
       OTEL_EXPORTER_OTLP_ENDPOINT: http://alloy:4318
+    volumes:
+      - postgres_data:/storage-volumes/postgres:ro
+      - s3local_data:/storage-volumes/s3:ro
     depends_on:
       migrate:
+        condition: service_completed_successfully
+      s3-init:
         condition: service_completed_successfully
     restart: unless-stopped
 
