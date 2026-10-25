@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import os
 from dataclasses import dataclass
 from typing import Any
@@ -29,6 +30,22 @@ class ArticleProcessingRuntime:
     app: FastAPI
     coordinator: ArticleProcessingCoordinator
     worker: ArticleProcessingWorker
+
+
+def load_indexer_from_env() -> CanonicalDocumentIndexer:
+    """Load ML1's deployment-owned indexer factory from ``module:factory``."""
+    target = os.environ.get("ML_INDEXER_FACTORY", "").strip()
+    module_name, separator, factory_name = target.partition(":")
+    if not separator or not module_name or not factory_name or ":" in factory_name:
+        raise ValueError("ML_INDEXER_FACTORY must use the module.path:factory_name form")
+    module = importlib.import_module(module_name)
+    factory = getattr(module, factory_name, None)
+    if not callable(factory):
+        raise ValueError("ML_INDEXER_FACTORY must identify a callable factory")
+    indexer = factory()
+    if not callable(getattr(indexer, "index", None)):
+        raise ValueError("ML indexer factory must return an object with index(document)")
+    return indexer
 
 
 def create_article_processing_runtime(

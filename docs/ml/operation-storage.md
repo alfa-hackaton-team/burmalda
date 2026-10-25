@@ -17,6 +17,15 @@ Run migrations from the repository root after configuring the migration role loc
 
 `ml_runtime.article_processing_runtime.create_article_processing_runtime(indexer)` is the composition root. It wires the ML1 R02 quality gate and indexer adapter, the ML2 extractor/verifier, PostgreSQL operation/event stores, authenticated FastAPI app, and worker. `ML_SERVICE_TOKEN`, `ML_MAX_TEXT_BYTES`, and comma-separated `ML_PIPELINE_VERSIONS` configure the API; model access uses `ML_LLM_API_KEY`, optional `ML_LLM_BASE_URL`, `ML_LLM_EVENT_MODEL`, `ML_LLM_EVENT_VERIFIER_MODEL`, and `ML_EVENT_PIPELINE_CONFIG_VERSION`. PostgreSQL stores use `ML_DATABASE_URL`. The app accepts HTTP requests while a separate worker process calls `runtime.worker.run_once()` to claim and execute one durable queued operation. `POST /internal/v0.1/article-processings` validates and persists the request, then returns `202` with `QUEUED`; it does not run model work in the request process. `GET /internal/v0.1/article-processings/{processing_id}` returns the same stored operation.
 
+Deployment code exports a no-argument indexer factory and sets `ML_INDEXER_FACTORY=python.module:factory_name`. The factory returns an object with `index(canonical_document)`, producing `{"document_version_id": "...", "chunks": [{"chunk_id": "...", "text": "..."}]}`. Start the API and worker as separate processes:
+
+```bash
+.venv/bin/python -m ml_runtime.serve_article_processing
+.venv/bin/python -m ml_runtime.run_article_processing_worker
+```
+
+Apply migrations before either process starts with `.venv/bin/python -m ml_runtime.migrate` using `ML_MIGRATIONS_DATABASE_URL`.
+
 Migration `000002_event_candidates.sql` adds ML-owned candidate events and document links. Migration `000003_unify_event_processing_state.sql` puts the event configuration version and saved event IDs on `ml.article_processing_operations`, adds uniqueness for `(article_version_id, pipeline_version)`, and removes the redundant extraction-run table. The operation row therefore also records a successful empty event result, so replay does not call the model again. ML1's `Indexer` returns `IndexedArticleVersion` with its chunks; the coordinator validates the document version and passes this value to ML2. `ML2EventProcessor` uses the typed result in [event-extraction-contract.md](event-extraction-contract.md). Cross-document event merging is deferred.
 
 The composition root is ready, but the current ML1 R02 adapter only validates the Go payload and quality; its R01 retriever serves configured search/chunk requests, but does not index a newly submitted article or return its chunks. ML1 still needs to provide the production indexing implementation accepted by `ML1IndexerAdapter` (`document_version_id`, `chunks[{chunk_id, text}]`). Until then, the runtime can be composed with test adapters but is not a standalone production service.

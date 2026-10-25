@@ -2,18 +2,49 @@
 
 from __future__ import annotations
 
+import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from fastapi import FastAPI
 
-from ml_runtime.article_processing_runtime import create_article_processing_runtime
+from ml_runtime.article_processing_runtime import (
+    create_article_processing_runtime,
+    load_indexer_from_env,
+)
 from ml_runtime.event_store import ML2EventProcessor
 from ml_runtime.ml1_indexer import ML1IndexerAdapter
 from ml_runtime.worker import ArticleProcessingWorker
 
 
 class RuntimeFactoryTests(unittest.TestCase):
+    def test_loads_an_indexer_factory_from_the_configured_module_path(self):
+        indexer = type("Indexer", (), {"index": lambda self, document: None})()
+        module = SimpleNamespace(indexer_factory=lambda: indexer)
+        with (
+            patch.dict(os.environ, {"ML_INDEXER_FACTORY": "ml_plugin:indexer_factory"}),
+            patch("ml_runtime.article_processing_runtime.importlib.import_module", return_value=module) as load,
+        ):
+            loaded = load_indexer_from_env()
+        self.assertIs(loaded, indexer)
+        load.assert_called_once_with("ml_plugin")
+
+    def test_rejects_missing_or_malformed_indexer_plugin_setting(self):
+        for value in ("", "missing-separator", ":factory", "module:", "module:a:b"):
+            with self.subTest(value=value), patch.dict(os.environ, {"ML_INDEXER_FACTORY": value}):
+                with self.assertRaisesRegex(ValueError, "ML_INDEXER_FACTORY"):
+                    load_indexer_from_env()
+
+    def test_rejects_factory_without_an_index_method(self):
+        module = SimpleNamespace(indexer_factory=lambda: object())
+        with (
+            patch.dict(os.environ, {"ML_INDEXER_FACTORY": "ml_plugin:indexer_factory"}),
+            patch("ml_runtime.article_processing_runtime.importlib.import_module", return_value=module),
+        ):
+            with self.assertRaisesRegex(ValueError, r"index\(document\)"):
+                load_indexer_from_env()
+
     def test_wires_injected_ml1_indexer_and_event_model_into_api_and_worker(self):
         class FakeIndexer:
             def index(self, document):
