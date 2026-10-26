@@ -140,6 +140,21 @@ func TestProductLifecyclePostgres(t *testing.T) {
 		out["trace_id"] = in["trace_id"]
 		out["request_operation_id"] = in["request_operation_id"]
 		if in["request_type"] == "follow_up" {
+			if r.URL.Path != "/internal/v0.1/follow-ups" {
+				t.Error("follow-up sent to initial analysis endpoint")
+			}
+			follow := obj(in["follow_up"])
+			var saved []byte
+			if err := pool.QueryRow(ctx, `SELECT ml_snapshot FROM insights WHERE id=$1::uuid`, follow["initial_insight_id"]).Scan(&saved); err != nil {
+				t.Error(err)
+			} else {
+				persisted := decode(saved)
+				for _, field := range []string{"context", "event", "insight", "chunks"} {
+					if string(raw(obj(follow["initial_insight"])[field])) != string(raw(persisted[field])) {
+						t.Errorf("follow-up changed saved insight %s", field)
+					}
+				}
+			}
 			if e := apicontract.Validate("ml", "AnalysisRequest", in); e != nil {
 				t.Error(e)
 			}
@@ -147,7 +162,6 @@ func TestProductLifecyclePostgres(t *testing.T) {
 			out["trace_id"] = in["trace_id"]
 			out["request_operation_id"] = in["request_operation_id"]
 			msg := obj(out["message"])
-			follow := obj(in["follow_up"])
 			msg["conversation_id"] = follow["conversation_id"]
 			msg["parent_message_id"] = follow["request_message_id"]
 		}
@@ -241,6 +255,8 @@ func TestProductLifecyclePostgres(t *testing.T) {
 		t.Fatal(e)
 	}
 	call("GET", "/v0.1/traces/"+str(g["trace_id"]), nil, "", 200)
+	// The saved card must remain the grounding source after the live corpus changes.
+	exec(`UPDATE ml.document_chunks SET chunk_text='Changed corpus: not the saved evidence'`)
 	conv := call("POST", "/v0.1/insights/"+iid+"/conversations", object{}, "conversation", 201)
 	cid := str(conv["conversation_id"])
 	call("GET", "/v0.1/insights/"+iid+"/conversations", nil, "", 200)

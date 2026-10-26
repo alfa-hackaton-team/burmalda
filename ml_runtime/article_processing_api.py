@@ -120,6 +120,8 @@ def create_article_processing_app(
     def healthcheck() -> dict[str, str]:
         return {"status": "ok"}
 
+    from .follow_up_api import register_follow_up
+    register_follow_up(app, authenticate)
     return app
 
 
