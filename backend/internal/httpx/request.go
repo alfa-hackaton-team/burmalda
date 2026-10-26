@@ -14,35 +14,50 @@ import (
 // DecodeJSONObject accepts exactly one JSON object. Endpoint-specific
 // validators remain responsible for required strings, nullability, enums and
 // numeric ranges after decoding.
+type JSONRequestError struct {
+	Status        int
+	Code, Message string
+}
+
+func (e *JSONRequestError) Error() string { return e.Message }
+
 func DecodeJSONObject(w http.ResponseWriter, r *http.Request, destination any) bool {
-	if !validJSONContentType(r.Header.Values("Content-Type")) {
-		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "Content-Type must be application/json", false)
-		return false
-	}
-
-	decoder := json.NewDecoder(r.Body)
-	var raw json.RawMessage
-	if err := decoder.Decode(&raw); err != nil {
-		writeJSONDecodeError(w, err)
-		return false
-	}
-	if err := decoder.Decode(&struct{}{}); err != io.EOF {
-		writeJSONDecodeError(w, err)
-		return false
-	}
-	trimmed := bytes.TrimSpace(raw)
-	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || !validJSONFields(trimmed, reflect.TypeOf(destination)) {
-		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "request body must be one JSON object", false)
-		return false
-	}
-
-	objectDecoder := json.NewDecoder(bytes.NewReader(trimmed))
-	objectDecoder.DisallowUnknownFields()
-	if err := objectDecoder.Decode(destination); err != nil {
-		WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid JSON object", false)
+	if err := ReadJSONObject(r, destination); err != nil {
+		WriteError(w, err.Status, err.Code, err.Message, false)
 		return false
 	}
 	return true
+}
+func ReadJSONObject(r *http.Request, destination any) *JSONRequestError {
+	invalid := func(message string) *JSONRequestError { return &JSONRequestError{400, "VALIDATION_ERROR", message} }
+	decodeError := func(err error) *JSONRequestError {
+		var maxBytesError *http.MaxBytesError
+		if errors.As(err, &maxBytesError) {
+			return &JSONRequestError{413, "PAYLOAD_TOO_LARGE", "request body is too large"}
+		}
+		return invalid("invalid JSON body")
+	}
+	if !validJSONContentType(r.Header.Values("Content-Type")) {
+		return invalid("Content-Type must be application/json")
+	}
+	decoder := json.NewDecoder(r.Body)
+	var raw json.RawMessage
+	if err := decoder.Decode(&raw); err != nil {
+		return decodeError(err)
+	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		return decodeError(err)
+	}
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' || !validJSONFields(trimmed, reflect.TypeOf(destination)) {
+		return invalid("request body must be one JSON object")
+	}
+	objectDecoder := json.NewDecoder(bytes.NewReader(trimmed))
+	objectDecoder.DisallowUnknownFields()
+	if err := objectDecoder.Decode(destination); err != nil {
+		return invalid("invalid JSON object")
+	}
+	return nil
 }
 
 func validJSONContentType(values []string) bool {
@@ -59,15 +74,6 @@ func validJSONContentType(values []string) bool {
 		}
 	}
 	return true
-}
-
-func writeJSONDecodeError(w http.ResponseWriter, err error) {
-	var maxBytesError *http.MaxBytesError
-	if errors.As(err, &maxBytesError) {
-		WriteError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "request body is too large", false)
-		return
-	}
-	WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "invalid JSON body", false)
 }
 
 func validJSONFields(data []byte, destination reflect.Type) bool {

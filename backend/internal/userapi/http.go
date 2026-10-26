@@ -72,6 +72,7 @@ func ParseCursorSigningKey(value string) ([sha256.Size]byte, error) {
 
 func Handler(store Store, cursorSigningKey [sha256.Size]byte) http.Handler {
 	mux := http.NewServeMux()
+	registerProduct(mux, store, cursorSigningKey)
 	mux.HandleFunc("GET /v0.1/me", getMe)
 	mux.HandleFunc("/v0.1/me", methodNotAllowed(http.MethodGet+", "+http.MethodHead))
 	mux.HandleFunc("GET /v0.1/contexts", func(w http.ResponseWriter, r *http.Request) {
@@ -157,12 +158,15 @@ func listContexts(w http.ResponseWriter, r *http.Request, store Store, cursorSig
 }
 
 func validEmptyGET(w http.ResponseWriter, r *http.Request, allowedQuery map[string]bool) bool {
-	for key := range r.URL.Query() {
-		if !allowedQuery[key] {
-			httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "unknown query parameter", false)
-			return false
-		}
+	names := []string{}
+	for name := range allowedQuery {
+		names = append(names, name)
 	}
+	if err := query(r, names...); err != nil {
+		productError(w, r, err)
+		return false
+	}
+
 	if r.ContentLength != 0 || len(r.TransferEncoding) != 0 {
 		httpx.WriteError(w, http.StatusBadRequest, "VALIDATION_ERROR", "GET request body must be empty", false)
 		return false

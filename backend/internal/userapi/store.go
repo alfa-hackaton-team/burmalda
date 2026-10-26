@@ -5,11 +5,16 @@ import (
 	"fmt"
 	"strconv"
 
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type PostgresStore struct {
-	pool *pgxpool.Pool
+	pool            *pgxpool.Pool
+	corpus          *pgxpool.Pool
+	ml              MLClient
+	analysisVersion string
+	Settings        func() config.Runtime
 }
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {
@@ -45,6 +50,7 @@ func (s *PostgresStore) ListContexts(ctx context.Context, userID, afterID string
 		LEFT JOIN companies AS company ON company.id = context.company_id
 		LEFT JOIN company_groups AS company_group ON company_group.id = context.group_id
 		WHERE grant_record.user_id = $1::uuid
+ AND profile.status IN ('active','draft')
 		  AND grant_record.revoked_at IS NULL
 		  AND (grant_record.expires_at IS NULL OR grant_record.expires_at > now())
 		  AND context.id > COALESCE(NULLIF($2, '')::uuid, '00000000-0000-0000-0000-000000000000'::uuid)
@@ -87,4 +93,19 @@ func (s *PostgresStore) ListContexts(ctx context.Context, userID, afterID string
 		return nil, fmt.Errorf("iterate contexts: %w", err)
 	}
 	return items, nil
+}
+
+func (s *PostgresStore) settings() config.Runtime {
+	if s.Settings != nil {
+		return s.Settings()
+	}
+	return config.DefaultRuntime()
+}
+
+func (s *PostgresStore) SetCorpusPool(pool *pgxpool.Pool) { s.corpus = pool }
+func (s *PostgresStore) corpusPool() *pgxpool.Pool {
+	if s.corpus != nil {
+		return s.corpus
+	}
+	return s.pool
 }
