@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from time import monotonic
 from typing import Any, Protocol
-from uuid import uuid4
+from uuid import NAMESPACE_URL, uuid4, uuid5
 from .analysis_validation import AnalysisRequestError, validate_analysis_request, validate_contract_message
 from .drafting import build_evidence_draft
 from .model_policy import DEFAULT_AGENT_MODEL, require_allowed_model
@@ -78,10 +78,12 @@ class AnalysisAgent:
         client: StructuredModelClient,
         model_name: str = DEFAULT_AGENT_MODEL,
         semantic_verifier: SemanticVerifier | None = None,
+        *, context_document_version_ids: tuple[str, ...] = (),
     ) -> None:
         self.client = client
         self.model_name = require_allowed_model(model_name)
         self.semantic_verifier = semantic_verifier
+        self.context_document_version_ids = frozenset(context_document_version_ids)
 
     def run(
         self,
@@ -92,7 +94,7 @@ class AnalysisAgent:
     ) -> dict[str, Any]:
         started = monotonic()
         validate_analysis_request(request)
-        _validate_chunk_set(request, chunks)
+        _validate_chunk_set(request, chunks, self.context_document_version_ids)
         if timeout_seconds <= 0:
             raise AgentExecutionError("analysis deadline expired before model generation", "TIMEOUT", True)
         draft = build_evidence_draft(request, chunks) if request["request_type"] != "follow_up" else None
@@ -105,6 +107,7 @@ class AnalysisAgent:
                 input_payload=payload,
                 timeout_seconds=timeout_seconds,
             )
+            _assign_result_ids(request, response)
             validate_contract_message(response, "AnalysisResponse")
         except ModelCallError as exc:
             raise AgentExecutionError(str(exc), exc.code, exc.retryable) from exc
@@ -138,7 +141,43 @@ class AnalysisAgent:
         return response
 
 
-def _validate_chunk_set(request: dict[str, Any], chunks: list[dict[str, Any]]) -> None:
+def _assign_result_ids(request: dict[str, Any], response: dict[str, Any]) -> None:
+    """Own result identities without changing model facts or evidence references.
+
+    Claim labels are local to the generated result. Ambiguous labels must fail,
+    since choosing a citation target would silently change its meaning.
+    """
+    if not isinstance(response, dict) or response.get("status") != "succeeded":
+        return
+    kind = "message" if request["request_type"] == "follow_up" else "insight"
+    result = response.get(kind)
+    if not isinstance(result, dict):
+        return  # The existing schema validator reports the missing/wrong shape.
+    claims = result.get("claims")
+    if not isinstance(claims, list):
+        return
+    labels = [claim.get("id") for claim in claims if isinstance(claim, dict)]
+    if len(labels) != len(claims) or any(not isinstance(label, str) for label in labels):
+        raise ValueError("claim identities must be string labels")
+    if len(set(labels)) != len(labels):
+        raise ValueError("ambiguous duplicate claim identities")
+    scope = f"burmalda:operation:{request['request_operation_id']}:{kind}"
+    assigned = {label: str(uuid5(NAMESPACE_URL, f"{scope}:claim:{index}"))
+                for index, label in enumerate(labels)}
+    if kind == "message":
+        initial_ids = {claim["id"] for claim in request["follow_up"]["initial_insight"]["insight"]["claims"]}
+        if initial_ids.intersection(labels):
+            raise ValueError("new claim label overlaps an initial claim identity")
+        for citation in result.get("citations", []):
+            if isinstance(citation, dict) and citation.get("claim_id") in assigned:
+                citation["claim_id"] = assigned[citation["claim_id"]]
+    result["id"] = str(uuid5(NAMESPACE_URL, scope))
+    for claim in claims:
+        claim["id"] = assigned[claim["id"]]
+
+
+def _validate_chunk_set(request: dict[str, Any], chunks: list[dict[str, Any]],
+                        context_versions: frozenset[str] = frozenset()) -> None:
     if request["request_type"] == "follow_up":
         expected = request["follow_up"]["initial_insight"]["chunks"]
         if chunks != expected:
@@ -147,7 +186,9 @@ def _validate_chunk_set(request: dict[str, Any], chunks: list[dict[str, Any]]) -
     # authorized corpus; a nonempty list is an exact historical scope.
     allowed_versions = set(request["event"]["document_version_ids"])
     if request["request_type"] != "follow_up" and allowed_versions and any(
-        chunk["document_version_id"] not in allowed_versions for chunk in chunks
+        chunk["document_version_id"] not in allowed_versions
+        and not (chunk["document_version_id"] in context_versions and chunk["source_role"] == "bank")
+        for chunk in chunks
     ):
         raise AgentExecutionError("retrieval returned a chunk outside the event document versions")
     ids = [chunk["chunk_id"] for chunk in chunks]

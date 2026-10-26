@@ -104,6 +104,15 @@ const date = (value?: string | null) => {
 const isAbort = (error: unknown) => error instanceof Error && error.name === 'AbortError';
 const messageOf = (error: unknown) => {
   if (error instanceof ApiError) {
+    const analysisMessages: Record<string, string> = {
+      VERIFICATION_FAILED: 'Не удалось подтвердить выводы по источникам. Разбор не опубликован.',
+      INVALID_ML_RESPONSE: 'Сервис анализа вернул некорректный результат. Разбор не опубликован.',
+      ML_PROCESSING_ERROR: 'Не удалось завершить анализ. Разбор не опубликован.',
+      MODEL_UNAVAILABLE: 'Сервис анализа временно недоступен.',
+      INSUFFICIENT_EVIDENCE:
+        'В доступных источниках и профиле недостаточно подтверждений для ответа.',
+    };
+    if (analysisMessages[error.data.code]) return analysisMessages[error.data.code];
     if (error.status === 401) return 'Сессия завершилась. Войдите в сервис снова.';
     if (error.status === 429) return 'Слишком много запросов. Подождите немного и повторите.';
     if (error.status >= 500) return 'Сервис временно недоступен. Повторите попытку позже.';
@@ -141,6 +150,7 @@ function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) {
       <CircleHelp size={28} />
       <h3>{title}</h3>
       <p>{detail}</p>
+      {data?.trace_id && <p>Код обращения: {data.trace_id}</p>}
       {retry && data?.retryable !== false && (
         <Button size={40} view="secondary" onClick={retry} leftAddons={<RefreshCw size={16} />}>
           Повторить
@@ -710,6 +720,8 @@ function InsightPanel({
   const [error, setError] = useState<unknown>();
   const [attempt, setAttempt] = useState(0);
   const [phase, setPhase] = useState('Проверяем контекст и подбираем подтверждения…');
+  const [newAnalysis, setNewAnalysis] = useState<{ scope: string; key: string }>();
+  const scope = `${userId}:${context.context.context_id}:${context.profile?.version ?? 'unknown'}:${item.event.event_id}`;
   const [tab, setTab] = useState<'analysis' | 'sources' | 'questions'>('analysis');
   const [focusedEvidence, setFocusedEvidence] = useState<string>();
   const panelRef = useRef<HTMLElement>(null);
@@ -717,14 +729,14 @@ function InsightPanel({
     const controller = new AbortController();
     setError(undefined);
     setInsight(undefined);
-    const scope = `${userId}:${context.context.context_id}:${context.profile?.version ?? 'unknown'}:${item.event.event_id}`;
     if (!operationKeys.has(scope)) operationKeys.set(scope, crypto.randomUUID());
     async function load() {
       let result = await api.analyse(
         context.context.context_id,
         item.event.event_id,
-        operationKeys.get(scope)!,
+        newAnalysis?.scope === scope ? newAnalysis.key : operationKeys.get(scope)!,
         controller.signal,
+        newAnalysis?.scope === scope,
       );
       if ('generation_id' in result) {
         const done = await waitForGeneration(api, result, controller.signal, (state) =>
@@ -735,13 +747,14 @@ function InsightPanel({
           ),
         );
         if (!done.insight_id)
-          throw new ApiError(
-            done.error ?? {
+          throw new ApiError({
+            ...(done.error ?? {
               code: 'INSUFFICIENT_EVIDENCE',
               message: 'Недостаточно подтверждений для подготовки разбора.',
               retryable: false,
-            },
-          );
+            }),
+            trace_id: done.trace_id,
+          });
         result = await api.insight(done.insight_id, controller.signal);
       }
       if (
@@ -759,7 +772,7 @@ function InsightPanel({
       if (!isAbort(err)) setError(err);
     });
     return () => controller.abort();
-  }, [api, context, item, userId, operationKeys, attempt]);
+  }, [api, context, item, userId, operationKeys, attempt, newAnalysis, scope]);
   function showEvidence(id: string) {
     setFocusedEvidence(id);
     setTab('sources');
@@ -841,7 +854,27 @@ function InsightPanel({
         aria-labelledby={`tab-${tab}`}
       >
         {error ? (
-          <ErrorState error={error} retry={() => setAttempt((value) => value + 1)} />
+          <>
+            <ErrorState error={error} retry={() => setAttempt((value) => value + 1)} />
+            {error instanceof ApiError &&
+              error.data.retryable === false &&
+              [
+                'VERIFICATION_FAILED',
+                'INVALID_ML_RESPONSE',
+                'INSUFFICIENT_EVIDENCE',
+                'ML_PROCESSING_ERROR',
+                'MODEL_UNAVAILABLE',
+                'TIMEOUT',
+              ].includes(error.data.code) && (
+                <Button
+                  size={40}
+                  view="secondary"
+                  onClick={() => setNewAnalysis({ scope, key: crypto.randomUUID() })}
+                >
+                  Подготовить новый разбор
+                </Button>
+              )}
+          </>
         ) : !insight ? (
           <div className="analysis-loading">
             <Busy>{phase}</Busy>
@@ -870,6 +903,7 @@ function InsightPanel({
             }
             <div hidden={tab !== 'sources'}>
               <EvidenceView
+                insightId={insight.insight_id}
                 response={insight.response}
                 item={item}
                 focused={focusedEvidence}
@@ -991,11 +1025,13 @@ function ResponseView({
 }
 
 function EvidenceView({
+  insightId,
   response,
   item,
   focused,
   demo,
 }: {
+  insightId: string;
   response: AgentResponse;
   item: FeedItem;
   focused?: string;
@@ -1015,7 +1051,11 @@ function EvidenceView({
         const source = !company
           ? item.sources.find((entry) => entry.source_id === evidence.reference.source_id)
           : undefined;
-        const url = safeExternalUrl(source?.url);
+        const url = company
+          ? undefined
+          : demo
+            ? safeExternalUrl(source?.url)
+            : `/v0.1/insights/${encodeURIComponent(insightId)}/documents/${encodeURIComponent(evidence.reference.document_version_id)}/original`;
         return (
           <section
             key={evidence.evidence_id}

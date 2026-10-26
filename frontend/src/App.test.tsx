@@ -1,6 +1,6 @@
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { App } from './App';
 import { createDemoApi } from './demo';
 import { ApiError } from './api';
@@ -113,5 +113,52 @@ describe('client scenario', () => {
     await waitFor(() => expect(screen.queryByRole('article')).not.toBeInTheDocument());
     await screen.findByRole('button', { name: /^Потенциальный риск/ });
     expect(screen.queryByText('Влияние на ваш бизнес')).not.toBeInTheDocument();
+  });
+});
+
+describe('safe analysis failures', () => {
+  it('shows a safe verification error and trace, and starts a new analysis only on explicit click', async () => {
+    const api = createDemoApi();
+    const original = api.analyse;
+    let attempts = 0;
+    const analyse = vi.fn(async (...args: Parameters<typeof original>) => {
+      attempts++;
+      if (attempts === 1)
+        return {
+          generation_id: 'generation',
+          state: 'FAILED' as const,
+          trace_id: 'trace-for-support',
+          created_at: '2026-10-26T00:00:00Z',
+          error: {
+            code: 'VERIFICATION_FAILED',
+            message: 'analysis failed: private provider response',
+            retryable: false,
+          },
+        };
+      return original(...args);
+    });
+    api.analyse = analyse;
+    const user = userEvent.setup();
+    render(<App api={api} demo={false} />);
+    await user.click(await screen.findByRole('button', { name: /^Требует внимания/ }));
+    expect(
+      await screen.findByText(
+        'Не удалось подтвердить выводы по источникам. Разбор не опубликован.',
+      ),
+    ).toBeVisible();
+    expect(screen.getByText('Код обращения: trace-for-support')).toBeVisible();
+    expect(screen.queryByText(/private provider response/)).not.toBeInTheDocument();
+    expect(analyse).toHaveBeenCalledTimes(1);
+    expect(analyse.mock.calls[0][4]).toBe(false);
+    await user.click(screen.getByRole('button', { name: 'Подготовить новый разбор' }));
+    await waitFor(() => expect(analyse).toHaveBeenCalledTimes(2));
+    expect(analyse.mock.calls[1][4]).toBe(true);
+    expect(analyse.mock.calls[1][2]).not.toBe(analyse.mock.calls[0][2]);
+    await screen.findByRole('heading', { name: 'Влияние на ваш бизнес' });
+    await user.click(screen.getByRole('tab', { name: /^Основания/ }));
+    const links = screen.getAllByRole('link', { name: /Открыть источник/ });
+    expect(links[0].getAttribute('href')).toMatch(
+      /^\/v0.1\/insights\/.+\/documents\/.+\/original$/,
+    );
   });
 });

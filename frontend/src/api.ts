@@ -47,6 +47,7 @@ export interface Api {
     eventId: string,
     key: string,
     signal?: AbortSignal,
+    forceNew?: boolean,
   ): Promise<Insight | Generation>;
   generation(id: string, signal?: AbortSignal): Promise<Generation>;
   insight(id: string, signal?: AbortSignal): Promise<Insight>;
@@ -162,8 +163,13 @@ export function createHttpApi(baseUrl = ''): Api {
         `/feed?${new URLSearchParams({ context_id: id, limit: '20', ...(topic ? { topic } : {}), ...(cursor ? { cursor } : {}) })}`,
         { signal },
       ),
-    analyse: (context_id, event_id, key, signal) =>
-      post('/insights', { context_id, event_id }, key, signal),
+    analyse: (context_id, event_id, key, signal, forceNew) =>
+      post(
+        '/insights',
+        { context_id, event_id, ...(forceNew ? { force_new: true } : {}) },
+        key,
+        signal,
+      ),
     generation: (id, signal) => request(`/generations/${enc(id)}`, { signal }),
     insight: (id, signal) => request(`/insights/${enc(id)}`, { signal }),
     conversations: (id, signal) => request(`/insights/${enc(id)}/conversations`, { signal }),
@@ -220,13 +226,14 @@ export async function waitForGeneration(
     result = await api.generation(result.generation_id, signal);
   }
   if (result.state === 'FAILED')
-    throw new ApiError(
-      result.error ?? {
+    throw new ApiError({
+      ...(result.error ?? {
         code: 'ML_PROCESSING_ERROR',
         message: 'Не удалось подготовить анализ.',
-        retryable: true,
-      },
-    );
+        retryable: false,
+      }),
+      trace_id: result.trace_id,
+    });
   return result;
 }
 

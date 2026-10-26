@@ -53,10 +53,39 @@ class EventEvidenceRetriever:
         return result
 
 
+class ProductSearchPlanner:
+    """Keep event evidence and independently authorized bank context separate."""
+    def __init__(self, bank_versions):
+        self.bank_versions = list(bank_versions)
+
+    def plan(self, request):
+        from .retrieval import build_search_request
+        event = build_search_request(request, top_k=5)
+        if not self.bank_versions:
+            return [event]
+        bank = build_search_request(request, top_k=5)
+        bank['filters']['document_version_ids'] = self.bank_versions
+        bank['filters']['source_roles'] = ['bank']
+        return [event, bank]
+
+
+class ProductContextRetriever:
+    def __init__(self, event, bank, reader):
+        self.event, self.bank, self.reader = event, bank, reader
+
+    def search(self, request):
+        if request['filters']['source_roles'] == ['bank']:
+            return self.bank.search(request)
+        return self.event.search(request)
+
+    def get_chunks(self, request):
+        return self.reader.get_chunks(request)
+
+
 def event_topic(event_type):
     text = event_type.casefold()
     for topic, words in (
-        ('financing', ('rate', 'credit', 'loan', 'ставк', 'кредит', 'финанс')),
+        ('financing', ('rate', 'credit', 'loan', 'monetary policy', 'fomc', 'денежно-кредит', 'ставк', 'кредит', 'финанс')),
         ('logistics', ('supply', 'transport', 'logistic', 'постав', 'перевоз', 'логист')),
         ('liquidity', ('deposit', 'liquid', 'депозит', 'ликвид')),
         ('regulation', ('regulat', 'tax', 'report', 'налог', 'регул', 'отчет', 'отчёт')),
@@ -74,10 +103,11 @@ class ProductCorpus:
         with self.store.connect() as connection:
             rows = connection.execute('''SELECT e.id, e.event_type, e.title, e.summary,
                 min((d.snapshot->>'published_at')::timestamptz) AS published_at,
-                jsonb_agg(DISTINCT jsonb_build_object(
+                jsonb_agg(DISTINCT jsonb_strip_nulls(jsonb_build_object(
                     'source_id', d.snapshot#>>'{source,source_id}',
                     'name', d.snapshot#>>'{source,name}',
-                    'source_role', d.snapshot#>>'{source,source_role}')) AS sources
+                    'source_role', d.snapshot#>>'{source,source_role}',
+                    'url', d.snapshot->>'canonical_url'))) AS sources
                 FROM ml.events e JOIN ml.event_documents ed ON ed.event_id=e.id
                 JOIN ml.document_version_catalog c ON c.document_version_id=ed.document_version_id AND c.ready
                 JOIN ml.document_versions d ON d.id=c.document_version_id
@@ -133,6 +163,26 @@ class ProductCorpus:
                               WHERE q->>'chunk_id'=ch.id::text)
                 ORDER BY ch.id''',
                 (request['event']['id'], versions)).fetchall()
+            # The only additional corpus is the shared, primary bank-report
+            # source registered by dataset import. Never trust IDs from HTTP.
+            from uuid import NAMESPACE_URL, uuid5
+            bank_source = str(uuid5(NAMESPACE_URL, 'alfa-hackathon-reference-pdfs'))
+            bank_rows = connection.execute('''SELECT ch.id, c.document_version_id
+                FROM ml.document_chunks ch
+                JOIN ml.document_version_catalog c ON c.document_version_id=ch.document_version_id AND c.ready
+                JOIN ml.document_versions d ON d.id=c.document_version_id
+                WHERE EXISTS (SELECT 1 FROM ml.event_documents event_doc
+                      JOIN ml.document_versions event_version ON event_version.id=event_doc.document_version_id
+                      WHERE event_doc.event_id=%s AND event_version.snapshot#>>'{source,source_role}'='external')
+                  AND d.snapshot#>>'{source,source_id}'=%s
+                  AND d.snapshot#>>'{source,source_role}'='bank'
+                  AND d.snapshot#>>'{source,trust_level}'='primary'
+                  AND NOT EXISTS (SELECT 1 FROM ml.document_version_catalog newer
+                      WHERE newer.document_id=c.document_id AND newer.version_no>c.version_no)
+                  AND (%s::timestamptz IS NULL OR d.snapshot->>'published_at' IS NULL
+                      OR (d.snapshot->>'published_at')::timestamptz<=%s::timestamptz)
+                ORDER BY c.document_version_id,ch.id''',
+                (request['event']['id'], bank_source, request['event']['occurred_at'], request['event']['occurred_at'])).fetchall()
         with connect_runtime() as connection:
             catalog = load_versions(connection)
             ids = [str(row['id']) for row in rows]
@@ -147,4 +197,19 @@ class ProductCorpus:
                     context_chunks=access, reranker=RemoteQwenReranker(timeout=25))
             else:
                 raise ValueError('Unsupported ML_ANALYSIS_RETRIEVAL_MODE')
-            yield AnalysisService(retriever, agent)
+            bank_ids = [str(row['id']) for row in bank_rows]
+            bank_versions = tuple(sorted({str(row['document_version_id']) for row in bank_rows}
+                                         - set(versions)))
+            if not ids:
+                bank_versions = ()  # Bank context cannot replace missing event evidence.
+            if bank_versions:
+                reader = PostgresRetriever(connection, embedder, versions=catalog,
+                    context_chunks={request['context']['business_context_id']: ids + bank_ids})
+                bank = ML1Pipeline(connection, embedder, None, versions=catalog,
+                    context_chunks={request['context']['business_context_id']: bank_ids},
+                    reranker=RemoteQwenReranker(timeout=25))
+                retriever = ProductContextRetriever(retriever, bank, reader)
+                # This scope is constructed from trusted catalog/source records,
+                # never from caller-supplied document IDs.
+                agent.context_document_version_ids = frozenset(bank_versions)
+            yield AnalysisService(retriever, agent, planner=ProductSearchPlanner(bank_versions))

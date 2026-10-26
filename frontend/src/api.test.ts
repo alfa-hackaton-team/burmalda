@@ -14,6 +14,19 @@ afterEach(() => {
 });
 
 describe('public API boundaries', () => {
+  it('requests a new paid analysis only with the explicit force flag', async () => {
+    document.cookie = 'csrf_token=session-proof; path=/';
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ insight_id: 'result' })));
+    vi.stubGlobal('fetch', fetch);
+    await createHttpApi().analyse('context-a', 'event-a', 'new-key', undefined, true);
+    const options = (fetch.mock.calls[0] as unknown as [string, RequestInit])[1];
+    expect(JSON.parse(options.body as string)).toEqual({
+      context_id: 'context-a',
+      event_id: 'event-a',
+      force_new: true,
+    });
+  });
+
   it('uses the session, CSRF and stable operation key without sending a client-assigned role', async () => {
     document.cookie = 'csrf_token=session-proof; path=/';
     const fetch = vi

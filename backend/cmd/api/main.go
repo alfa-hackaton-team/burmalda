@@ -18,6 +18,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/health"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpsecurity"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/userapi"
 	"github.com/prometheus/client_golang/prometheus"
@@ -64,6 +65,15 @@ func run() error {
 	sessionStore := authn.NewPostgresStore(pool)
 	userStore := userapi.NewPostgresStore(pool)
 	userStore.Settings = manager.Current
+	if cfg.RawStorageBackend == "s3" {
+		storage, err := rawartifacts.NewS3(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		userStore.ReadOriginal = func(ctx context.Context, artifact rawartifacts.Artifact) ([]byte, error) {
+			return storage.Read(ctx, artifact, 32<<20)
+		}
+	}
 	if readURL := os.Getenv("ML_READ_DATABASE_URL"); readURL != "" {
 		readCfg := cfg
 		readCfg.DatabaseURL = readURL
