@@ -98,8 +98,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	mux.Handle("/login", userapi.LoginPage(os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true"))
-	mux.Handle("/v0.1/auth/login", httpsecurity.Protect(userStore.LoginHandler(allowedOrigins, os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true", os.Getenv("AUTH_COOKIE_SECURE") != "false"), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 16 << 10, AllowedOrigins: allowedOrigins}))
+	passwordLoginEnabled := os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true"
+	selfRegistrationEnabled := passwordLoginEnabled && os.Getenv("AUTH_SELF_REGISTRATION_ENABLED") == "true"
+	mux.Handle("/login", userapi.LoginPage(passwordLoginEnabled))
+	mux.Handle("/v0.1/auth/login", httpsecurity.Protect(userStore.LoginHandler(allowedOrigins, passwordLoginEnabled, os.Getenv("AUTH_COOKIE_SECURE") != "false"), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 16 << 10, AllowedOrigins: allowedOrigins}))
+	mux.Handle("/v0.1/auth/register", httpsecurity.Protect(userStore.RegisterHandler(allowedOrigins, selfRegistrationEnabled), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 16 << 10, AllowedOrigins: allowedOrigins}))
+	mux.Handle("/v0.1/auth/registration-company", httpsecurity.Protect(userStore.RegistrationCompanyHandler(selfRegistrationEnabled), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 0, AllowedOrigins: allowedOrigins}))
 	mux.Handle("/v0.1/", apiHandler)
 
 	server := &http.Server{

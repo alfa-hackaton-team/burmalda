@@ -89,7 +89,7 @@ func registerProduct(mux *http.ServeMux, store Store, key [32]byte) {
 		method, path string
 		handler      func(context.Context, string, *http.Request) (any, int, error)
 	}{
-		{"POST", "/v0.1/auth/logout", h.logout}, {"GET", "/v0.1/feed", h.feed}, {"GET", "/v0.1/alerts", h.alerts},
+		{"POST", "/v0.1/auth/logout", h.logout}, {"GET", "/v0.1/news", h.news}, {"GET", "/v0.1/feed", h.feed}, {"GET", "/v0.1/alerts", h.alerts},
 		{"POST", "/v0.1/insights", h.createInsight}, {"GET", "/v0.1/insights/{insight_id}", h.insight},
 		{"GET", "/v0.1/generations/{generation_id}", h.generation},
 		{"GET", "/v0.1/insights/{insight_id}/conversations", h.conversations},

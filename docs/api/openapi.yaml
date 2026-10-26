@@ -112,6 +112,27 @@ paths:
           maximum: 100
           description: Ограничение числа элементов страницы; применяется вместе с
             курсором для устойчивой постраничной выдачи.
+  "/v0.1/news":
+    get:
+      operationId: getRecentNews
+      tags:
+      - News
+      summary: Последние сохранённые новости для колеса фортуны
+      description: Возвращает до 64 последних статей из активных внешних источников без учётных данных. Использует сохранённые Go версии и не вызывает ML. text_origin отличает полный текст от RSS-анонса. Список общий, без персонального ранжирования; нужен действующий вход. Клиент держит ответ только в памяти и обновляет его по времени.
+      responses:
+        '200':
+          description: Список новостей; items может быть пустым.
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/RecentNews"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия; ответ no-store'
   "/v0.1/feed":
     get:
       operationId: getFeed
@@ -1280,7 +1301,7 @@ paths:
       - Authentication
       summary: Вход локальной учётной записью
       description: Доступен только при AUTH_PASSWORD_LOGIN_ENABLED=true. Требуется разрешённый
-        Origin. Выдаёт session_id и csrf_token в cookie; публичной регистрации нет.
+        Origin. Выдаёт session_id и csrf_token в cookie.
       security: []
       parameters:
       - name: Origin
@@ -1330,6 +1351,78 @@ paths:
             application/json:
               schema:
                 $ref: ./schemas.yaml#/components/schemas/Error
+  /v0.1/auth/registration-company:
+    get:
+      operationId: getRegistrationCompany
+      tags:
+      - Authentication
+      summary: Проверить синтетическую компанию локального стенда по точному ID
+      description: Доступно только при AUTH_SELF_REGISTRATION_ENABLED=true. Не подтверждает владение компанией.
+      security: []
+      parameters:
+      - name: uid
+        in: query
+        required: true
+        schema:
+          type: string
+          pattern: ^U_[A-Z0-9_-]+$
+      responses:
+        '200':
+          description: Компания найдена в активном нормализованном наборе
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [company_uid, display_name, industry, city, region]
+                properties:
+                  company_uid: {type: string}
+                  display_name: {type: string}
+                  industry: {type: string}
+                  city: {type: string}
+                  region: {type: string}
+        default: *id001
+  /v0.1/auth/register:
+    post:
+      operationId: registerSyntheticAccount
+      tags:
+      - Authentication
+      summary: Создать локальную учётную запись для синтетической компании
+      description: Только для локального стенда при AUTH_SELF_REGISTRATION_ENABLED=true. Требует разрешённый Origin; права на настоящую компанию так не выдаются. Создаёт черновик профиля, вход выполняется отдельным POST /auth/login.
+      security: []
+      parameters:
+      - name: Origin
+        in: header
+        required: true
+        schema: {type: string}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              required: [login, password, display_name, company_uid, role_code]
+              properties:
+                login: {type: string, minLength: 3, maxLength: 200}
+                password: {type: string, minLength: 12, maxLength: 1024}
+                display_name: {type: string, minLength: 2, maxLength: 200}
+                company_uid: {type: string, pattern: '^U_[A-Z0-9_-]+$'}
+                role_code:
+                  type: string
+                  enum: [owner, ceo, cfo, chief_accountant, treasury, other]
+      responses:
+        '201':
+          description: Учётная запись и доступ к синтетической компании созданы
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: false
+                required: [user_id]
+                properties:
+                  user_id: {type: string, format: uuid}
+        default: *id001
   /v0.1/auth/logout:
     post:
       operationId: logout

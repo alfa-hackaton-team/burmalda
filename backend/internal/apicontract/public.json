@@ -5,7 +5,8 @@
     "version": "0.1.0",
     "description": "Общие форматы обмена между интерфейсом, сервером и ML. Схемы задают структуру контекста, доказательств и ответов, но не физические таблицы PostgreSQL. Семантические правила применяются вместе с JSON Schema."
   },
-  "paths": {},
+  "paths": {
+  },
   "components": {
     "schemas": {
       "CompanyContext": {
@@ -90,6 +91,82 @@
           "profile_id",
           "version"
         ]
+      },
+      "NewsItem": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "article_id",
+          "article_version_id",
+          "title",
+          "summary",
+          "source_name",
+          "text_origin",
+          "url",
+          "published_at",
+          "fetched_at"
+        ],
+        "properties": {
+          "article_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "article_version_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "title": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "text_origin": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "full_article",
+              "rss_summary",
+              "pdf_extracted"
+            ]
+          },
+          "url": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "published_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "fetched_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "RecentNews": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 64,
+            "items": {
+              "$ref": "#/components/schemas/NewsItem"
+            }
+          }
+        }
       },
       "MaterialRef": {
         "type": "object",
@@ -445,7 +522,8 @@
           "name": {
             "type": "string"
           },
-          "value": {},
+          "value": {
+          },
           "availability": {
             "type": "string",
             "enum": [
