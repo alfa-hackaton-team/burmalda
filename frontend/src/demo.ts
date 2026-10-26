@@ -340,6 +340,7 @@ export function createDemoApi(scenario = ''): Api {
       await pause(signal);
       return scenario === 'no-contexts' ? [] : demoContexts;
     },
+    news: async () => [],
     async feed(id, topic, _cursor, signal) {
       await pause(signal);
       if (scenario === 'error')

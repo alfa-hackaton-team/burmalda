@@ -135,6 +135,7 @@ describe('entry and authorization', () => {
     await user.type(within(dialog).getByRole('textbox', { name: 'Ваше имя' }), 'Мария Тестовая');
     await user.type(within(dialog).getByRole('textbox', { name: 'Логин' }), 'maria.test');
     await user.type(within(dialog).getByLabelText('Пароль'), 'long-secure-password');
+    await user.type(within(dialog).getByLabelText('Повторите пароль'), 'long-secure-password');
     await user.type(
       within(dialog).getByRole('textbox', { name: 'ID компании из набора данных' }),
       'U_80',

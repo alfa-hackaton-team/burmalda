@@ -399,6 +399,64 @@ p {
   display: grid;
   gap: 12px;
 }
+.stored-news {
+  margin: 18px 0 24px;
+  padding: 18px;
+  border: 1px solid #e9e9ed;
+  border-radius: 12px;
+  background: #fff;
+}
+.stored-news-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  margin-bottom: 15px;
+}
+.stored-news-heading h3 {
+  margin: 6px 0 0;
+  font-size: 17px;
+}
+.stored-news-heading button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #e5e5e9;
+  border-radius: 8px;
+  background: #fff;
+}
+.stored-news > p {
+  color: #777780;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.stored-news-item {
+  padding: 15px 0;
+  border-top: 1px solid #efeff1;
+}
+.stored-news-item > span {
+  color: #8b8b94;
+  font-size: 11px;
+}
+.stored-news-item h4 {
+  margin: 7px 0;
+  font-size: 14px;
+  line-height: 1.35;
+}
+.stored-news-item p {
+  margin: 0;
+  color: #696971;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.stored-news-item a {
+  display: inline-block;
+  margin-top: 9px;
+  color: #d8261c;
+  font-size: 12px;
+  font-weight: 700;
+}
 .event-card {
   position: relative;
   text-align: left;
@@ -992,6 +1050,28 @@ p {
   background: #fff;
   border-radius: 11px;
   margin-bottom: 15px;
+}
+.fatal-state {
+  max-width: 440px;
+  margin: min(20vh, 160px) auto;
+  padding: 32px;
+  border: 1px solid #e9e9ed;
+  border-radius: 16px;
+  background: #fff;
+  color: #202024;
+}
+.fatal-state p {
+  color: #66666e;
+  line-height: 1.5;
+}
+.fatal-state button {
+  margin-top: 12px;
+  padding: 12px 18px;
+  border: 0;
+  border-radius: 8px;
+  background: #ef3124;
+  color: #fff;
+  font-weight: 700;
 }
 .state-card > svg {
   color: #a3a3af;

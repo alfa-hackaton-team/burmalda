@@ -3,10 +3,25 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 import { App } from './App';
 import { createDemoApi } from './demo';
+import { ApiError } from './api';
 
 describe('client scenario', () => {
   it.each([true, false])('opens Burmalda without a company context in demo=%s', async (demo) => {
-    render(<App api={createDemoApi('no-contexts')} demo={demo} />);
+    const api = createDemoApi('no-contexts');
+    api.news = async () => [
+      {
+        article_id: '11111111-1111-4111-8111-111111111111',
+        article_version_id: '22222222-2222-4222-8222-222222222222',
+        title: 'Новость из источника',
+        summary: 'Сохранённый текст',
+        source_name: 'Издание',
+        text_origin: 'full_article',
+        url: null,
+        published_at: null,
+        fetched_at: '2026-10-25T10:00:00Z',
+      },
+    ];
+    render(<App api={api} demo={demo} />);
     expect(
       within(screen.getByLabelText('Навигация')).queryByRole('button', { name: 'Бурмалда' }),
     ).not.toBeInTheDocument();
@@ -14,7 +29,7 @@ describe('client scenario', () => {
       .setup()
       .click(screen.getByRole('button', { name: 'Бурмалда — открыть колесо случайных новостей' }));
     expect(screen.getByRole('dialog')).toBeVisible();
-    expect(screen.getByRole('heading', { name: 'Какая новость выпадет?' })).toBeVisible();
+    expect(await screen.findByRole('heading', { name: 'Какая новость выпадет?' })).toBeVisible();
     expect(
       screen.queryByRole('combobox', { name: 'Компания и ракурс анализа' }),
     ).not.toBeInTheDocument();
@@ -61,6 +76,32 @@ describe('client scenario', () => {
       await screen.findByRole('heading', { name: 'Пока нет релевантных событий' }),
     ).toBeVisible();
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows stored publications when the personal feed is not ready', async () => {
+    const api = createDemoApi();
+    api.feed = async () => {
+      throw new ApiError({ code: 'PROFILE_NOT_READY', message: 'draft', retryable: false }, 409);
+    };
+    api.news = async () => [
+      {
+        article_id: '11111111-1111-4111-8111-111111111111',
+        article_version_id: '22222222-2222-4222-8222-222222222222',
+        title: 'Новости из PostgreSQL',
+        summary: 'Извлечённый текст',
+        source_name: 'Издание',
+        text_origin: 'rss_summary',
+        url: 'https://publisher.example/news',
+        published_at: null,
+        fetched_at: '2026-10-25T10:00:00Z',
+      },
+    ];
+    render(<App api={api} demo={false} />);
+    expect(await screen.findByRole('heading', { name: 'Новости из PostgreSQL' })).toBeVisible();
+    expect(screen.getByRole('link', { name: 'Оригинал ↗' })).toHaveAttribute(
+      'href',
+      'https://publisher.example/news',
+    );
   });
 
   it('discards a slow response after switching companies', async () => {

@@ -72,6 +72,8 @@ describe('public API boundaries', () => {
   });
 
   it('keeps authorization errors instead of replacing them with demo results', async () => {
+    const expired = vi.fn();
+    window.addEventListener('burmalda:session-expired', expired, { once: true });
     vi.stubGlobal(
       'fetch',
       vi
@@ -87,6 +89,15 @@ describe('public API boundaries', () => {
       status: 401,
       data: { code: 'UNAUTHENTICATED' },
     });
+    expect(expired).toHaveBeenCalledTimes(1);
+  });
+
+  it('loads stored news with the session and without browser HTTP caching', async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ items: [] })));
+    vi.stubGlobal('fetch', fetch);
+    expect(await createHttpApi().news()).toEqual([]);
+    expect(fetch.mock.calls[0][0]).toBe('/v0.1/news');
+    expect(fetch.mock.calls[0][1]).toMatchObject({ credentials: 'include', cache: 'no-store' });
   });
 
   it('loads all pages of authorized contexts', async () => {
@@ -133,6 +144,7 @@ describe('evidence and demo behavior', () => {
   it('only permits HTTP(S) source links', () => {
     expect(safeExternalUrl('javascript:alert(1)')).toBeUndefined();
     expect(safeExternalUrl('data:text/html,test')).toBeUndefined();
+    expect(safeExternalUrl('https://user:secret@example.test/report')).toBeUndefined();
     expect(safeExternalUrl('https://example.test/report')).toBe('https://example.test/report');
   });
 

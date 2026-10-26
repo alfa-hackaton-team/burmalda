@@ -11,6 +11,7 @@ import {
   FileText,
   LayoutDashboard,
   LockKeyhole,
+  Newspaper,
   ShieldCheck,
   Sparkles,
   TrendingUp,
@@ -86,6 +87,18 @@ export function Entry({
   }, [demo]);
 
   useEffect(() => {
+    if (demo || !inService) return;
+    const onSessionExpired = () => {
+      setInService(false);
+      setLoginOpen(true);
+      setAuthState('unauthenticated');
+      window.history.replaceState(null, '', '/pulse');
+    };
+    window.addEventListener('burmalda:session-expired', onSessionExpired);
+    return () => window.removeEventListener('burmalda:session-expired', onSessionExpired);
+  }, [demo, inService]);
+
+  useEffect(() => {
     if (!loginOpen || demo) return;
     const controller = new AbortController();
     setAuthState('checking');
@@ -95,6 +108,7 @@ export function Entry({
         if (controller.signal.aborted) return;
         setAuthState('ready');
         if (window.location.pathname === '/pulse') {
+          if (window.location.search) window.history.replaceState(null, '', '/pulse');
           setLoginOpen(false);
           setInService(true);
         }
@@ -110,7 +124,7 @@ export function Entry({
 
   function enterService() {
     if (window.location.pathname !== '/pulse') {
-      window.history.pushState(null, '', `/pulse${window.location.search}`);
+      window.history.pushState(null, '', demo ? `/pulse${window.location.search}` : '/pulse');
     }
     setLoginOpen(false);
     setInService(true);
@@ -120,7 +134,7 @@ export function Entry({
   function closeLogin() {
     setLoginOpen(false);
     if (window.location.pathname === '/pulse') {
-      window.history.replaceState(null, '', `/${window.location.search}`);
+      window.history.replaceState(null, '', demo ? `/${window.location.search}` : '/');
     }
   }
 
@@ -142,7 +156,7 @@ export function Entry({
     await api.logout();
     setInService(false);
     setAuthState('unauthenticated');
-    window.history.replaceState(null, '', `/${window.location.search}`);
+    window.history.replaceState(null, '', '/');
     window.scrollTo(0, 0);
   }
 
@@ -209,11 +223,13 @@ function Landing({ onOpen, demo }: { onOpen: () => void; demo: boolean }) {
             <a href="#overview" aria-current="page">
               Главная
             </a>
-            <a href="#accounts">Счета</a>
+            <a href="#accounts">{demo ? 'Счета' : 'Новости'}</a>
             <a href="#for-you">Сервисы</a>
           </nav>
           <div className="bank-header-actions">
-            <span className="bank-demo-label">Учебный экран</span>
+            <span className="bank-demo-label">
+              {demo ? 'Учебный экран' : 'Новостная аналитика'}
+            </span>
             <Button size={40} view="secondary" onClick={onOpen}>
               {demo ? 'Попробовать' : 'Войти'}
             </Button>
@@ -224,7 +240,9 @@ function Landing({ onOpen, demo }: { onOpen: () => void; demo: boolean }) {
       <main id="overview" className="bank-main">
         <div className="bank-page-heading">
           <div>
-            <div className="bank-eyebrow">АЛЬФА-БИЗНЕС · ДЕМО</div>
+            <div className="bank-eyebrow">
+              {demo ? 'АЛЬФА-БИЗНЕС · ДЕМО' : 'БУРМАЛДА · НОВОСТИ'}
+            </div>
             <h1>{demo ? 'Добрый день!' : 'Добро пожаловать'}</h1>
             <p>Всё важное для бизнеса — в одном месте.</p>
           </div>
@@ -286,60 +304,84 @@ function Landing({ onOpen, demo }: { onOpen: () => void; demo: boolean }) {
           >
             <div className="bank-panel-heading">
               <div>
-                <span className="bank-panel-eyebrow">ФИНАНСЫ</span>
-                <h2 id="accounts-title">Ваши счета</h2>
+                <span className="bank-panel-eyebrow">{demo ? 'ФИНАНСЫ' : 'ИСТОЧНИКИ'}</span>
+                <h2 id="accounts-title">{demo ? 'Ваши счета' : 'Новости для бизнеса'}</h2>
               </div>
-              <span className="bank-panel-meta">Демо-данные</span>
+              {demo && <span className="bank-panel-meta">Демо-данные</span>}
             </div>
-            <div className="bank-balance">
-              <div className="bank-balance-icon">
-                <Wallet size={22} />
+            {demo ? (
+              <>
+                <div className="bank-balance">
+                  <div className="bank-balance-icon">
+                    <Wallet size={22} />
+                  </div>
+                  <div>
+                    <span>Доступный остаток</span>
+                    <strong>12 840 500,00 ₽</strong>
+                  </div>
+                </div>
+                <div className="bank-account-row">
+                  <span className="bank-account-dot" />
+                  <span>
+                    Основной счёт <small>•• 4589</small>
+                  </span>
+                  <strong>9 640 500 ₽</strong>
+                </div>
+                <div className="bank-account-row">
+                  <span className="bank-account-dot bank-account-dot-dark" />
+                  <span>
+                    Резервный счёт <small>•• 0974</small>
+                  </span>
+                  <strong>3 200 000 ₽</strong>
+                </div>
+              </>
+            ) : (
+              <div className="bank-service-intro">
+                <Newspaper size={30} aria-hidden="true" />
+                <strong>Сохранённые публикации</strong>
+                <p>
+                  Новости поступают из подключённых источников. Откройте Бизнес-пульс, чтобы увидеть
+                  доступные материалы.
+                </p>
+                <button type="button" onClick={onOpen}>
+                  Перейти к новостям <ArrowRight size={18} />
+                </button>
               </div>
-              <div>
-                <span>Доступный остаток</span>
-                <strong>12 840 500,00 ₽</strong>
-              </div>
-            </div>
-            <div className="bank-account-row">
-              <span className="bank-account-dot" />
-              <span>
-                Основной счёт <small>•• 4589</small>
-              </span>
-              <strong>9 640 500 ₽</strong>
-            </div>
-            <div className="bank-account-row">
-              <span className="bank-account-dot bank-account-dot-dark" />
-              <span>
-                Резервный счёт <small>•• 0974</small>
-              </span>
-              <strong>3 200 000 ₽</strong>
-            </div>
+            )}
           </section>
 
           <section className="bank-panel bank-activity" aria-labelledby="activity-title">
             <div className="bank-panel-heading">
               <div>
-                <span className="bank-panel-eyebrow">СЕГОДНЯ</span>
-                <h2 id="activity-title">Бизнес в движении</h2>
+                <span className="bank-panel-eyebrow">{demo ? 'СЕГОДНЯ' : 'ВОЗМОЖНОСТИ'}</span>
+                <h2 id="activity-title">{demo ? 'Бизнес в движении' : 'Ваш рабочий контекст'}</h2>
               </div>
               <Clock3 size={20} className="bank-muted-arrow" />
             </div>
             <div className="bank-activity-row">
               <span className="bank-activity-icon">
-                <CreditCard size={19} />
+                {demo ? <CreditCard size={19} /> : <Newspaper size={19} />}
               </span>
               <div>
-                <strong>Платежи</strong>
-                <span>3 операции на согласовании</span>
+                <strong>{demo ? 'Платежи' : 'Публикации'}</strong>
+                <span>
+                  {demo
+                    ? '3 операции на согласовании'
+                    : 'Последние материалы из подключённых источников'}
+                </span>
               </div>
             </div>
             <div className="bank-activity-row">
               <span className="bank-activity-icon">
-                <FileText size={19} />
+                {demo ? <FileText size={19} /> : <ShieldCheck size={19} />}
               </span>
               <div>
-                <strong>Документы</strong>
-                <span>Новые документы для бизнеса</span>
+                <strong>{demo ? 'Документы' : 'Основания'}</strong>
+                <span>
+                  {demo
+                    ? 'Новые документы для бизнеса'
+                    : 'Ссылки на первоисточники в сохранённых материалах'}
+                </span>
               </div>
             </div>
             <div className="bank-activity-row">
@@ -368,7 +410,11 @@ function Landing({ onOpen, demo }: { onOpen: () => void; demo: boolean }) {
               </span>
               <div>
                 <strong>Всё под контролем</strong>
-                <p>Обзор финансов в удобном формате.</p>
+                <p>
+                  {demo
+                    ? 'Обзор финансов в удобном формате.'
+                    : 'Новости и контекст вашей компании в одном месте.'}
+                </p>
               </div>
             </div>
             <div className="bank-service-card">
@@ -395,8 +441,9 @@ function Landing({ onOpen, demo }: { onOpen: () => void; demo: boolean }) {
           </div>
         </section>
         <p className="bank-disclaimer">
-          Демонстрационный интерфейс команды Burmalda. Это не действующий интернет-банк; все
-          финансовые данные на экране вымышлены.
+          {demo
+            ? 'Демонстрационный интерфейс команды Burmalda. Это не действующий интернет-банк; все финансовые данные на экране вымышлены.'
+            : 'Интерфейс команды Burmalda стилизован под Альфа-Бизнес. Это не официальный интернет-банк; банковские счета и операции здесь не отображаются.'}
         </p>
       </main>
     </div>
@@ -431,6 +478,7 @@ function LoginDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [companyId, setCompanyId] = useState<string>(demoCompanies[0].id);
   const [positionId, setPositionId] = useState<string>(demoPositions[0].id);
   const [loginError, setLoginError] = useState(false);
@@ -498,7 +546,7 @@ function LoginDialog({
           </strong>
           <span>И у каждого вывода есть основание.</span>
         </div>
-        <span>Бизнес-пульс · прототип</span>
+        <span>Бизнес-пульс · {demo ? 'прототип' : 'новостная аналитика'}</span>
       </div>
       <div className="bank-login-content">
         <button
@@ -704,6 +752,10 @@ function LoginDialog({
                   onSubmit={async (event) => {
                     event.preventDefault();
                     if (working) return;
+                    if (mode === 'register' && password !== confirmPassword) {
+                      setRealError('Пароли не совпадают. Проверьте оба поля.');
+                      return;
+                    }
                     setWorking(true);
                     setRealError('');
                     try {
@@ -723,6 +775,10 @@ function LoginDialog({
                         setRealError('Неверный логин или пароль.');
                       } else if (error instanceof ApiError && error.status === 409) {
                         setRealError('Этот логин уже занят. Выберите другой или войдите.');
+                      } else if (error instanceof ApiError && error.status === 429) {
+                        setRealError('Слишком много попыток. Подождите немного и повторите.');
+                      } else if (error instanceof ApiError && error.status >= 500) {
+                        setRealError('Сервис временно недоступен. Повторите попытку позже.');
                       } else if (
                         error instanceof ApiError &&
                         error.status === 404 &&
@@ -736,6 +792,7 @@ function LoginDialog({
                       }
                     } finally {
                       setPassword('');
+                      setConfirmPassword('');
                       setWorking(false);
                     }
                   }}
@@ -775,6 +832,19 @@ function LoginDialog({
                       required
                     />
                   </label>
+                  {mode === 'register' && (
+                    <label>
+                      Повторите пароль
+                      <input
+                        autoComplete="new-password"
+                        type="password"
+                        value={confirmPassword}
+                        onChange={(event) => setConfirmPassword(event.target.value)}
+                        minLength={12}
+                        required
+                      />
+                    </label>
+                  )}
                   {mode === 'register' && (
                     <>
                       <label>

@@ -11,6 +11,7 @@ import type {
   Insight,
   LoginResult,
   Message,
+  NewsItem,
   Page,
   RegistrationCompany,
   RegistrationInput,
@@ -34,6 +35,7 @@ export interface Api {
   logout(signal?: AbortSignal): Promise<{ signed_out: boolean }>;
   me(signal?: AbortSignal): Promise<User>;
   contexts(signal?: AbortSignal): Promise<AvailableContext[]>;
+  news(signal?: AbortSignal): Promise<NewsItem[]>;
   feed(
     contextId: string,
     topic?: string,
@@ -98,6 +100,9 @@ export function createHttpApi(baseUrl = ''): Api {
     }
     const body: unknown = await response.json().catch(() => null);
     if (!response.ok) {
+      if (response.status === 401 && !path.startsWith('/auth/')) {
+        window.dispatchEvent(new Event('burmalda:session-expired'));
+      }
       const data = body as Partial<ApiErrorData> | null;
       throw new ApiError(
         {
@@ -151,6 +156,7 @@ export function createHttpApi(baseUrl = ''): Api {
       } while (cursor);
       return items;
     },
+    news: async (signal) => (await request<{ items: NewsItem[] }>('/news', { signal })).items,
     feed: (id, topic, cursor, signal) =>
       request(
         `/feed?${new URLSearchParams({ context_id: id, limit: '20', ...(topic ? { topic } : {}), ...(cursor ? { cursor } : {}) })}`,
@@ -247,7 +253,9 @@ export function safeExternalUrl(value?: string): string | undefined {
   if (!value) return undefined;
   try {
     const url = new URL(value);
-    return ['http:', 'https:'].includes(url.protocol) ? url.href : undefined;
+    return ['http:', 'https:'].includes(url.protocol) && !url.username && !url.password
+      ? url.href
+      : undefined;
   } catch {
     return undefined;
   }

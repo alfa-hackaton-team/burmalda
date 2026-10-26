@@ -46,18 +46,28 @@ import type {
   FeedItem,
   Insight,
   Message,
+  NewsItem,
   Page,
   SectionType,
   Trace,
   User,
 } from './types';
 import { Burmalda } from './Burmalda';
+import { newsOriginLabel, newsSummary } from './news';
 
 const topics: Record<string, string> = {
   financing: 'Финансирование',
   logistics: 'Логистика',
   liquidity: 'Ликвидность',
   regulation: 'Регулирование',
+};
+const roleLabels: Record<string, string> = {
+  owner: 'Владелец',
+  ceo: 'Генеральный директор',
+  cfo: 'Финансовый директор',
+  chief_accountant: 'Главный бухгалтер',
+  treasury: 'Казначейство',
+  other: 'Другая роль',
 };
 const sectionLabels: Record<SectionType, string> = {
   WHAT_HAPPENED: 'Что произошло',
@@ -81,15 +91,24 @@ const reasonLabels: Record<NonNullable<FeedbackInput['reason']>, string> = {
   TOO_GENERIC: 'Слишком общий ответ',
   OTHER: 'Другое',
 };
-const date = (value: string) =>
-  new Intl.DateTimeFormat('ru-RU', {
+const date = (value?: string | null) => {
+  if (!value || Number.isNaN(new Date(value).getTime())) return 'дата не указана';
+  return new Intl.DateTimeFormat('ru-RU', {
     day: 'numeric',
     month: 'long',
+    year: 'numeric',
     timeZone: 'Europe/Moscow',
   }).format(new Date(value));
+};
 const isAbort = (error: unknown) => error instanceof Error && error.name === 'AbortError';
-const messageOf = (error: unknown) =>
-  error instanceof Error ? error.message : 'Не удалось выполнить действие.';
+const messageOf = (error: unknown) => {
+  if (error instanceof ApiError) {
+    if (error.status === 401) return 'Сессия завершилась. Войдите в сервис снова.';
+    if (error.status === 429) return 'Слишком много запросов. Подождите немного и повторите.';
+    if (error.status >= 500) return 'Сервис временно недоступен. Повторите попытку позже.';
+  }
+  return error instanceof Error ? error.message : 'Не удалось выполнить действие.';
+};
 
 function Busy({ children }: { children: ReactNode }) {
   return (
@@ -127,6 +146,68 @@ function ErrorState({ error, retry }: { error: unknown; retry?: () => void }) {
         </Button>
       )}
     </div>
+  );
+}
+
+function StoredNewsFallback({ api }: { api: Api }) {
+  const [items, setItems] = useState<NewsItem[]>();
+  const [error, setError] = useState(false);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(false);
+    api
+      .news(controller.signal)
+      .then((news) => {
+        if (!controller.signal.aborted) setItems(news.slice(0, 8));
+      })
+      .catch((reason: unknown) => {
+        if (!isAbort(reason)) setError(true);
+      });
+    return () => controller.abort();
+  }, [api, attempt]);
+  return (
+    <section className="stored-news" aria-labelledby="stored-news-title">
+      <div className="stored-news-heading">
+        <div>
+          <span className="small-label">БЕЗ ПЕРСОНАЛЬНОГО РАНЖИРОВАНИЯ</span>
+          <h3 id="stored-news-title">Последние публикации</h3>
+        </div>
+        <button
+          type="button"
+          aria-label="Обновить публикации"
+          onClick={() => setAttempt((value) => value + 1)}
+        >
+          <RefreshCw size={17} />
+        </button>
+      </div>
+      {!items && !error && <Busy>Загружаем сохранённые новости…</Busy>}
+      {error && <p role="alert">Не удалось получить публикации. Попробуйте обновить список.</p>}
+      {items?.length === 0 && <p>Подключённые источники ещё не загрузили публикации.</p>}
+      {items?.map((item) => {
+        const url = safeExternalUrl(item.url ?? undefined);
+        return (
+          <article className="stored-news-item" key={item.article_id}>
+            <span>
+              {item.source_name} · {newsOriginLabel(item.text_origin)} ·{' '}
+              {item.published_at
+                ? `Опубликовано ${date(item.published_at)}`
+                : `Загружено ${date(item.fetched_at)}`}
+            </span>
+            <h4>{item.title}</h4>
+            <p>
+              {newsSummary(item) ||
+                'В RSS-ленте есть только заголовок. Подробности — в оригинале публикации.'}
+            </p>
+            {url && (
+              <a href={url} target="_blank" rel="noopener noreferrer">
+                Оригинал ↗
+              </a>
+            )}
+          </article>
+        );
+      })}
+    </section>
   );
 }
 
@@ -175,7 +256,7 @@ export function App({
             А<span />
           </span>
           <span>
-            Альфа-Бизнес<small>Прототип · Burmalda</small>
+            Альфа-Бизнес<small>{demo ? 'Прототип' : 'Новости'} · Burmalda</small>
           </span>
         </a>
         <div className="topbar-right">
@@ -273,7 +354,7 @@ export function App({
                   >
                     {contexts.map((item) => (
                       <option key={item.context.context_id} value={item.context.context_id}>
-                        {item.display_name}
+                        {item.display_name} · {roleLabels[item.role_id] ?? item.role_id}
                       </option>
                     ))}
                   </select>
@@ -302,12 +383,12 @@ export function App({
             </>
           )}
           <footer className="page-footer">
-            <span>Бизнес-пульс · прототип хакатона</span>
+            <span>{demo ? 'Бизнес-пульс · деморежим' : 'Бизнес-пульс · новости для бизнеса'}</span>
             <span>Факты, аналитика и выводы — с проверяемыми основаниями</span>
           </footer>
         </main>
       </div>
-      <Burmalda />
+      <Burmalda demo={demo} loadNews={api.news} />
       {about && <AboutDialog onClose={() => setAbout(false)} demo={demo} />}
     </div>
   );
@@ -384,6 +465,10 @@ function Workspace({
       .toLocaleLowerCase('ru')
       .includes(search.toLocaleLowerCase('ru')),
   );
+  const mlUnavailable =
+    !demo &&
+    error instanceof ApiError &&
+    ['PROFILE_NOT_READY', 'SOURCE_UNAVAILABLE'].includes(error.data.code);
   return (
     <section id="feed" className={`workspace ${selected ? 'has-selection' : ''}`}>
       <div className="feed-panel">
@@ -425,6 +510,7 @@ function Workspace({
           ))}
         </div>
         {!!error && <ErrorState error={error} retry={() => setAttempt((value) => value + 1)} />}
+        {mlUnavailable && <StoredNewsFallback api={api} />}
         {!feed && !error && <Busy>Подбираем события для компании…</Busy>}
         {visible?.length === 0 && (
           <div className="state-card">
@@ -465,7 +551,7 @@ function Workspace({
               </div>
               <h3>{item.event.title}</h3>
               <p className="event-summary">
-                {item.event.summary.replace('Учебный сценарий: ', '')}
+                {demo ? item.event.summary.replace('Учебный сценарий: ', '') : item.event.summary}
               </p>
               <div className="relevance">
                 <Sparkles size={15} />
@@ -514,7 +600,9 @@ function Workspace({
       ) : (
         <div className="welcome-panel">
           <div className="welcome-top">
-            <span className="small-label">ПЕРСОНАЛЬНАЯ АНАЛИТИКА</span>
+            <span className="small-label">
+              {mlUnavailable ? 'СОХРАНЁННЫЕ ПУБЛИКАЦИИ' : 'ПЕРСОНАЛЬНАЯ АНАЛИТИКА'}
+            </span>
             <span className="welcome-icon">
               <Sparkles size={23} />
             </span>
@@ -535,30 +623,62 @@ function Workspace({
             </span>
           </div>
           <h2>
-            За новостью —<br />
-            влияние на ваш бизнес
+            {mlUnavailable ? (
+              <>
+                Читайте новости
+                <br />
+                из источников
+              </>
+            ) : (
+              <>
+                За новостью —<br />
+                влияние на ваш бизнес
+              </>
+            )}
           </h2>
           <p>
-            Выберите событие слева. Мы свяжем его с контекстом компании и покажем, на чем основаны
-            выводы.
+            {mlUnavailable
+              ? 'Публикации доступны сразу после загрузки. Персональный разбор появится, когда профиль и аналитический сервис будут готовы.'
+              : 'Выберите событие слева. Мы свяжем его с контекстом компании и покажем, на чем основаны выводы.'}
           </p>
           <div className="welcome-features">
-            <span>
-              <Building2 size={17} />
-              Учитываем особенности компании
-            </span>
-            <span>
-              <FileText size={17} />
-              Используем аналитику банка
-            </span>
-            <span>
-              <ShieldCheck size={17} />
-              Показываем источники и ограничения
-            </span>
+            {mlUnavailable ? (
+              <>
+                <span>
+                  <Newspaper size={17} />
+                  Читайте загруженные новости
+                </span>
+                <span>
+                  <FileText size={17} />
+                  Видно, откуда получен текст
+                </span>
+                <span>
+                  <ShieldCheck size={17} />
+                  Открывайте оригинал публикации
+                </span>
+              </>
+            ) : (
+              <>
+                <span>
+                  <Building2 size={17} />
+                  Учитываем особенности компании
+                </span>
+                <span>
+                  <FileText size={17} />
+                  Используем аналитику банка
+                </span>
+                <span>
+                  <ShieldCheck size={17} />
+                  Показываем источники и ограничения
+                </span>
+              </>
+            )}
           </div>
           <div className="welcome-note">
             <span className="status-dot" />
-            Подробный разбор готовится при открытии события
+            {mlUnavailable
+              ? 'Персональный разбор пока недоступен'
+              : 'Подробный разбор готовится при открытии события'}
           </div>
         </div>
       )}
@@ -1286,12 +1406,13 @@ function AboutDialog({ onClose, demo }: { onClose: () => void; demo: boolean }) 
         </Button>
       </div>
       <p>
-        Прототип персональной новостной аналитики команды Burmalda. Сервис связывает события с
-        признаками компании и показывает основания выводов.
+        Бизнес-пульс команды Burmalda собирает новости из подключённых источников. Когда
+        персональная аналитика доступна, сервис связывает события с признаками компании и показывает
+        основания выводов.
       </p>
       <p>
-        Интерфейс использует библиотеку Альфа-Банка Core Components. Прототип не является
-        действующим интернет-банком.
+        Интерфейс использует библиотеку Альфа-Банка Core Components и не является официальным
+        интернет-банком.
       </p>
       {demo && (
         <div className="demo-source-note">

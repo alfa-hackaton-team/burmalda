@@ -112,6 +112,27 @@ paths:
           maximum: 100
           description: Ограничение числа элементов страницы; применяется вместе с
             курсором для устойчивой постраничной выдачи.
+  "/v0.1/news":
+    get:
+      operationId: getRecentNews
+      tags:
+      - News
+      summary: Последние сохранённые новости для колеса фортуны
+      description: Возвращает до 64 последних статей из активных внешних источников без учётных данных. Использует сохранённые Go версии и не вызывает ML. text_origin отличает полный текст от RSS-анонса. Список общий, без персонального ранжирования; нужен действующий вход. Клиент держит ответ только в памяти и обновляет его по времени.
+      responses:
+        '200':
+          description: Список новостей; items может быть пустым.
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/RecentNews"
+        '401':
+          description: Нет действующей серверной сессии
+          content:
+            application/json:
+              schema:
+                "$ref": "./schemas.yaml#/components/schemas/Error"
+      x-auth-policy: 'Go: cookie-сессия; ответ no-store'
   "/v0.1/feed":
     get:
       operationId: getFeed

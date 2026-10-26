@@ -26,6 +26,17 @@ export type RegistrationCompany = {
   city: string;
   region: string;
 };
+export type NewsItem = {
+  article_id: string;
+  article_version_id: string;
+  title: string;
+  summary: string;
+  source_name: string;
+  text_origin: 'unknown' | 'full_article' | 'rss_summary' | 'pdf_extracted';
+  url: string | null;
+  published_at: string | null;
+  fetched_at: string;
+};
 export type EventRef = { event_id: string; title: string; summary: string };
 export type FeatureRef = {
   profile: ProfileRef;
@@ -42,7 +53,7 @@ export type SourceRef = {
 export type FeedItem = {
   preview_id: string;
   event: EventRef;
-  published_at: string;
+  published_at: string | null;
   topic: string;
   why_relevant: string;
   feature_refs: FeatureRef[];
