@@ -135,3 +135,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 /.local/
+/docker-volume/

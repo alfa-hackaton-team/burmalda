@@ -1,0 +1,5 @@
+-r requirements-chunking.txt
+-r requirements-persistence.txt
+# CPU reference profile. Weights are fetched only by an explicit setup call.
+transformers==4.57.1
+torch==2.9.0

@@ -2,6 +2,8 @@
 
 
 
+Уточнение от 24 октября 2026: этот RFC — целевой SQL-проект ML, а не описание уже выполненных Go-миграций. Фактические ingestion-таблицы Go — sources/articles/article_versions/raw_artifacts/processing_jobs. document_id/document_version_id логических DTO сохраняют ID article/article_version; второй комплект ingestion-таблиц не требуется. [Отображение и ограничения](../ml/article-processing.md) имеют приоритет для текущего входа R02. Оригиналы Go могут храниться в PostgreSQL, поэтому S3-поля и ключи ниже — целевой вариант, не обязательный вход R02. Здесь content_hash следует читать как отпечаток содержимого по правилам Go (заголовок, body, дата), не безусловный SHA-256 только normalized_text. При реализации реального хранения требуется отдельное согласование миграций и FK.
+
 Основная БД — PostgreSQL с расширением `pgvector`.
 
 - Реляционные таблицы используются для основных сущностей и связей.
@@ -182,6 +184,8 @@
 
 ### 1.12. `document_versions`
 
+Реализованный минимум ML отличается от целевой таблицы ниже: `ml.document_versions(id UUID PK, document_id UUID NOT NULL, snapshot JSONB NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())`. Snapshot сохраняет canonical R02 без execution-полей trace_id/pipeline_version; прямых FK на Go нет. [Миграция](../../ml/migrations/000001_document_storage.sql) и [запуск/права](../../ml/PERSISTENCE.md). Остальные поля раздела — целевой RFC, не текущий DDL.
+
 Версии содержимого документа. При изменении текста создается новая строка; предыдущая версия не перезаписывается.
 
 | Поле | Тип | Ограничения |
@@ -199,7 +203,7 @@
 | `mime_type` | TEXT | Например `text/html`, `application/pdf` |
 | `size_bytes` | BIGINT | Размер оригинала |
 | `checksum_sha256` | TEXT | Хеш оригинального файла |
-| `content_hash` | TEXT | Хеш нормализованного текста |
+| `content_hash` | TEXT | Отпечаток содержимого по правилам Go: title, body и published_at; не только normalized_text |
 | `normalized_text` | TEXT | NOT NULL |
 | `metadata` | JSONB | NOT NULL, DEFAULT `{}` |
 | `processing_status` | TEXT | `new`, `parsed`, `embedded`, `analyzed`, `failed` |
@@ -210,31 +214,59 @@
 Алгоритм обновления:
 
 1. Повторно получить материал из источника.
-2. Вычислить `content_hash` нормализованного текста.
-3. Сравнить хеш с последней сохраненной версией документа. Если хеш не изменился — обновление не создавать.
-4. Если хеш отличается от последней версии — загрузить новый оригинал в S3 и создать следующую `document_version`, даже если такой текст уже встречался раньше. Последовательность A → B → A сохраняется как три версии.
-5. Создать новые чанки и embeddings только для новой версии.
+2. Go вычисляет `content_hash` по согласованной сериализации title/body/published_at; при определении новой версии также учитывается parser_version. См. article-processing.md.
+3. Сравнить content_hash и parser_version с последней сохранённой article_version Go. Если оба не изменились — новую версию не создавать.
+4. Если content_hash или parser_version изменились — Go сохраняет следующую article_version со ссылкой на оригинал (в текущем прототипе raw_artifact, в целевом S3-варианте объект). document_version_id ML сохраняет этот ID; новый ML-документ не создаётся. Последовательность A → B → A сохраняется как три версии.
+5. Для новой версии после quality PASS создать чанки по выбранному chunking-профилю, затем embeddings. Повтор той же версии и профиля использует прежний набор; новое разбиение той же версии требует нового профиля, без перезаписи исторических чанков.
 
 Сравнение с последней версией и выделение следующего `version_no` выполняются с сериализацией записи по `document_id`, чтобы два одновременных опроса не создавали две версии одного изменения. Ссылки старых доказательств сохраняются.
 
 ### 1.13. `document_chunks`
 
-Фрагменты документов для поиска и RAG.
+Фрагменты документов для поиска и RAG хранятся в `ml.document_chunks`. [Первая ML-миграция](../../ml/migrations/000001_document_storage.sql) создаёт таблицу с локальным FK на snapshot, [persistence](../../ml/adapters/postgres_chunks.py) атомарно сохраняет снимок и чанки. [Запуск и роли](../../ml/PERSISTENCE.md). Chunker и профиль `v1` не менялись.
 
 | Поле | Тип | Ограничения |
 |---|---|---|
-| `id` | UUID | PK |
-| `document_version_id` | UUID | FK → `document_versions.id` |
-| `chunk_no` | INTEGER | NOT NULL |
-| `chunk_text` | TEXT | NOT NULL |
-| `char_start` | INTEGER | |
-| `char_end` | INTEGER | |
-| `search_vector` | TSVECTOR | GENERATED |
-| `embedding` | VECTOR(N) | NULL до построения вектора |
-| `embedding_model` | TEXT | |
-| `embedding_version` | TEXT | |
+| `id` | UUID | PK; детерминированный UUIDv5 от ML1, публичный `chunk_id` |
+| `document_version_id` | UUID | NOT NULL; FK → локальная `document_versions.id`, ON DELETE RESTRICT |
+| `chunking_profile_id` | TEXT | NOT NULL; например `v1`, неизменяемая конфигурация в ML1-коде под Git |
+| `chunk_no` | INTEGER | NOT NULL; порядок от 0 внутри версии и профиля |
+| `chunk_text` | TEXT | NOT NULL; точный непрерывный срез `normalized_text` |
+| `char_start` | INTEGER | NOT NULL; начало диапазона включительно, Unicode code points |
+| `char_end` | INTEGER | NOT NULL; конец диапазона исключительно, Unicode code points |
+| `token_count` | INTEGER | NOT NULL; число токенов `chunk_text` по tokenizer профиля, без специальных токенов |
+| `created_at` | TIMESTAMPTZ | NOT NULL DEFAULT now(); время первой записи, не участвует в ID |
+| `search_vector` | TSVECTOR | GENERATED ALWAYS AS (to_tsvector('simple'::regconfig, chunk_text)) STORED; без FTS-индекса/поиска |
+| `embedding` | VECTOR(1024) | NULL до построения; профиль ML1 Qwen v1 |
+| `embedding_model` | TEXT | NULL до построения; идентификатор модели сохранённого вектора |
+| `embedding_version` | TEXT | NULL до построения; неизменяемая версия конфигурации embeddings |
 
-Уникальность: `(document_version_id, chunk_no)`.
+Уникальность: `(document_version_id, chunking_profile_id, chunk_no)`. Отдельная таблица `chunking_profiles` и FK на неё пока не нужны. Опубликованный профиль нельзя менять: алгоритм, размеры, overlap, tokenizer/revision и настройки подсчёта закреплены в коде; их изменение требует нового ID профиля.
+
+Профиль `v1`: target **512**, мягкий minimum **128**, жёсткий maximum **768** токенов с учётом overlap; overlap — до **64** токенов по границам предложений, допустим 0. Tokenizer — `Qwen/Qwen3-Embedding-0.6B`, revision `97b0c614be4d77ee51c0cef4e5f07c00f9eb65b3`, `tokenizers==0.22.1`. Пустой title допустим, в `chunk_text` не добавляется. Модель и embeddings на этапе chunking не запускаются.
+
+Проверки строк:
+
+```sql
+CHECK (length(btrim(chunking_profile_id)) > 0)
+CHECK (chunk_no >= 0)
+CHECK (length(chunk_text) > 0)
+CHECK (char_start >= 0)
+CHECK (char_end > char_start)
+CHECK (char_end - char_start = char_length(chunk_text))
+CHECK (token_count > 0)
+CHECK (
+    (embedding IS NULL AND embedding_model IS NULL AND embedding_version IS NULL)
+    OR
+    (embedding IS NOT NULL AND embedding_model IS NOT NULL AND embedding_version IS NOT NULL)
+)
+```
+
+Offsets имеют семантику `[char_start, char_end)` в исходном `normalized_text`, не UTF-8 bytes и не позиции токенов. Приложение проверяет точное равенство срезу, полный охват текста без пропусков, последовательность номеров, непробельный текст и лимиты профиля. Обычный CHECK не проверяет родительский текст или весь набор. Если невозможно совместить покрытие, непробельные чанки и maximum, chunker возвращает ошибку без частичного результата.
+
+ID формируется UUIDv5 из `document_version_id`, `chunking_profile_id`, offsets и SHA-256 точного `chunk_text`; namespace и сериализация закреплены в ML1. `trace_id`, часы и embeddings на ID не влияют. Набор одной версии и профиля сохраняется атомарно; retry проверяет совпадение данных без перезаписи текста и `created_at`. Старые профили сохраняются для исторических evidence; retrieval должен выбирать активный готовый профиль. Наличие чанков само по себе не означает ready/SUCCEEDED.
+
+FK указывает на `ml.document_versions(id) ON DELETE RESTRICT`. Provenance/title/document_id хранятся в локальном immutable snapshot, без FK на Go; Go ↔ ML — только HTTP. Миграции имеют отдельный журнал `ml.schema_migrations`. Backfill существующего развёртывания и PDF page mapping остаются отдельными задачами. Для embeddings: Qwen3-Embedding-0.6B, 1024 измерения, `embedding_version=ml1-qwen3-embedding-1024-v1`; [профиль](../../ml/EMBEDDINGS.md).
 
 ### 1.14. `events`
 
@@ -713,7 +745,7 @@ WHERE raw_profile @> '{"negative_mark": true}'::jsonb;
 В MVP используется одна векторная колонка:
 
 ```text
-document_chunks.embedding VECTOR(N)
+document_chunks.embedding VECTOR(1024)
 ```
 
 Она хранит embedding — массив чисел, который embedding-модель строит из `chunk_text`.
@@ -747,7 +779,7 @@ embedding:
   → запись массива в document_chunks.embedding
 ```
 
-Один фрагмент соответствует одному embedding. Рекомендуемый размер фрагмента — 300–600 токенов с перекрытием 50–100 токенов. Перекрытие не дает потерять смысл на границе двух фрагментов.
+Один фрагмент соответствует одному сохранённому embedding. Параметры разбиения задаёт неизменяемый `chunking_profile_id`: для ML1 `v1` target=512, minimum=128, maximum=768, overlap до 64 токенов (см. раздел 1.13). Перекрытие сохраняет контекст на границе фрагментов; короткий документ или последний хвост могут быть меньше minimum.
 
 ### 4.3. Размерность
 
@@ -757,7 +789,7 @@ embedding:
 embedding vector(1024)
 ```
 
-Значение `1024` приведено как пример. До создания таблицы команда должна выбрать embedding-модель и установить ее фактическую размерность.
+Для ML1 выбрана `Qwen/Qwen3-Embedding-0.6B`, dimension=1024, версия профиля `ml1-qwen3-embedding-1024-v1`. Revision совпадает с chunking v1; pooling, нормализация и query instruction закреплены в [embedding profile](../../ml/embeddings/profile.py). Тип VECTOR(1024) включён в отдельную ML-миграцию; vector retrieval пока не реализован.
 
 Все строки одного HNSW-индекса должны использовать одну модель и одну размерность. Векторы разных моделей нельзя корректно сравнивать между собой.
 
@@ -903,7 +935,7 @@ raw/cbr/9a2f.../3/a84c....html
 | `document_versions` | B-tree: `(document_id, content_hash)` |
 | `document_versions` | B-tree: `content_hash` |
 | `document_versions` | B-tree: `published_at DESC` |
-| `document_chunks` | UNIQUE: `(document_version_id, chunk_no)` |
+| `document_chunks` | UNIQUE: `(document_version_id, chunking_profile_id, chunk_no)` |
 | `document_chunks` | GIN: `search_vector` |
 | `document_chunks` | HNSW: `embedding vector_cosine_ops` |
 | `events` | B-tree: `occurred_at DESC` |

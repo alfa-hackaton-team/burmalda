@@ -9,6 +9,12 @@ API связывает пользовательский интерфейс, се
 
 Актуальные границы, типы claims, снимок уточнения и отображение полей: [ML v1 ↔ API v0.1](../ml/api-compatibility.md). Версия пути HTTP и contract_version логического сообщения имеют разные назначения.
 
+## Приём корпуса Go → ML
+
+[article-processing.md](../ml/article-processing.md) фиксирует единый словарь и фактический вход NormalizedArticle. article_id/article_version_id — ID тех же документов/версий в ML; body/fetched_at отображаются в normalized_text/retrieved_at. POST содержит pipeline_version и снимок source с config_version. Лимит body — 131072 UTF-8 байта; неизвестная дата может отсутствовать, title допускает пустую строку. Целевой metadata содержит обязательные extraction_method/extraction_errors из quality schema; старый {} не принимается. Page поля в контракт не добавлены.
+
+Quality PASS — промежуточный результат, не общий SUCCEEDED; R02 не завершает полный article-processing без дальнейшей индексации. [Спецификация качества](../ml/document-quality.md) описывает реализованный immutable QualityResult и фиксированные FAIL/WARNING правила ml1-quality-v1. Синтетические примеры приёма: [request](examples/article-processing.request.json), [running](examples/article-processing.running.json), [succeeded](examples/article-processing.succeeded.json), [failed](examples/article-processing.failed.json), [too-large](examples/article-processing.too-large.json). example-pipeline-v1 в примерах не является объявленной версией развёртывания.
+
 ## Почему две спецификации
 
 Пользовательский API работает с доступными человеку ресурсами. Внутренний API получает доверенный контекст и выполняет аналитическую обработку. Интерфейс не назначает роль, пользователя или версию профиля: сервер определяет их, проверяет доступ и формирует `TrustedRequestContext`.

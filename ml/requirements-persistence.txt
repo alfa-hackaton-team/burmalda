@@ -1,0 +1,3 @@
+# Optional synchronous PostgreSQL persistence; no embeddings dependencies.
+-r requirements.txt
+psycopg[binary]>=3.2,<4

@@ -1,0 +1,164 @@
+services:
+  ml-migrate:
+    build: .
+    command: >-
+      sh -c "python -m ml.migrate --runtime-role ml_runtime
+      && python -m ml_runtime.migrate --runtime-role ml_runtime --reader-role burmalda"
+    environment:
+      ML_MIGRATION_DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-local_admin_password_change_me}@db:5432/burmalda
+      ML_RUNTIME_PASSWORD: ${ML_RUNTIME_PASSWORD:-local_runtime_password_change_me}
+    depends_on:
+      db:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    profiles: [ml]
+    restart: "no"
+
+  ml-api:
+    build: .
+    command: ["python", "-m", "ml_runtime.serve_article_processing"]
+    environment:
+      ML_DATABASE_URL: postgresql://ml_runtime:${ML_RUNTIME_PASSWORD:-local_runtime_password_change_me}@db:5432/burmalda
+      ML_SERVICE_TOKEN: ${ML_SERVICE_TOKEN:-local_service_token_change_me}
+      ML_MAX_TEXT_BYTES: ${ML_MAX_TEXT_BYTES:-131072}
+      ML_PIPELINE_VERSIONS: ${ML_PIPELINE_VERSIONS:-ml-pipeline-v1}
+      ML_ANALYSIS_CONFIG_VERSION: ${ML_ANALYSIS_CONFIG_VERSION:-ml-analysis-v1}
+      ML_HTTP_HOST: 0.0.0.0
+      ML_HTTP_PORT: "8000"
+    ports:
+      - "127.0.0.1:${ML_HTTP_PORT:-8000}:8000"
+    depends_on:
+      ml-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=2)"]
+      interval: 15s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+    profiles: [ml]
+    restart: unless-stopped
+
+  ml-analysis-worker:
+    build: .
+    stop_grace_period: 2m
+    command: ["python", "-m", "ml_runtime.run_analysis_worker"]
+    healthcheck:
+      disable: true
+    environment:
+      ML_ANALYSIS_RETRIEVAL_MODE: ${ML_ANALYSIS_RETRIEVAL_MODE:-event-evidence}
+      ML_DATABASE_URL: postgresql://ml_runtime:${ML_RUNTIME_PASSWORD:-local_runtime_password_change_me}@db:5432/burmalda
+      ML1_EMBEDDING_URL: http://embedding-model:8101
+      ML1_RERANKER_URL: http://reranker-model:8102
+      ML_EMBEDDING_BATCH_SIZE: ${ML_EMBEDDING_BATCH_SIZE:-1}
+      ML_LLM_API_KEY: ${ML_LLM_API_KEY:-}
+      ML_LLM_BASE_URL: ${ML_LLM_BASE_URL:-https://changellenge.up.railway.app/v1}
+      ML_LLM_MODEL: ${ML_LLM_MODEL:-z-ai/glm-5.3-flash}
+      ML_LLM_VERIFIER_MODEL: ${ML_LLM_VERIFIER_MODEL:-qwen/qwen3.6-35b-a3b}
+    depends_on:
+      ml-migrate:
+        condition: service_completed_successfully
+      embedding-model:
+        condition: service_healthy
+      reranker-model:
+        condition: service_healthy
+    profiles: [ml]
+    restart: unless-stopped
+
+  ml-worker:
+    build: .
+    command: ["python", "-m", "ml_runtime.run_article_processing_worker"]
+    healthcheck:
+      disable: true
+    environment:
+      ML_DATABASE_URL: postgresql://ml_runtime:${ML_RUNTIME_PASSWORD:-local_runtime_password_change_me}@db:5432/burmalda
+      ML_INDEXER_FACTORY: ml_runtime.docker_indexer:create_ml1_pipeline
+      ML_MODEL_CACHE: /models/hf
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+      ML1_EMBEDDING_URL: http://embedding-model:8101
+      ML1_RERANKER_URL: http://reranker-model:8102
+      ML_EMBEDDING_BATCH_SIZE: ${ML_EMBEDDING_BATCH_SIZE:-1}
+      ML_LLM_API_KEY: ${ML_LLM_API_KEY:-}
+      ML_LLM_BASE_URL: ${ML_LLM_BASE_URL:-https://changellenge.up.railway.app/v1}
+      ML_LLM_EVENT_MODEL: ${ML_LLM_EVENT_MODEL:-z-ai/glm-5.3-flash}
+      ML_LLM_EVENT_VERIFIER_MODEL: ${ML_LLM_EVENT_VERIFIER_MODEL:-qwen/qwen3.6-35b-a3b}
+      ML_EVENT_PIPELINE_CONFIG_VERSION: ${ML_EVENT_PIPELINE_CONFIG_VERSION:-event-extraction-v1}
+      ML_WORKER_POLL_SECONDS: "1"
+    volumes:
+      - ./docker-volume/models:/models/hf:ro
+    depends_on:
+      ml-migrate:
+        condition: service_completed_successfully
+      embedding-model:
+        condition: service_healthy
+      reranker-model:
+        condition: service_healthy
+    profiles: [ml]
+    restart: unless-stopped
+
+  embedding-model:
+    build: .
+    command: ["python", "-m", "ml_runtime.serve_ml1_model", "--role", "embedding"]
+    environment:
+      ML_MODEL_CACHE: /models/hf
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+    expose:
+      - "8101"
+    volumes:
+      - ./docker-volume/models:/models/hf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8101/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      start_period: 20m
+      retries: 3
+    profiles: [ml]
+    restart: unless-stopped
+
+  reranker-model:
+    build: .
+    command: ["python", "-m", "ml_runtime.serve_ml1_model", "--role", "reranker"]
+    environment:
+      ML_MODEL_CACHE: /models/hf
+      HF_HOME: /models/hf
+      HF_HUB_OFFLINE: "1"
+    expose:
+      - "8102"
+    volumes:
+      - ./docker-volume/models:/models/hf:ro
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8102/healthz', timeout=2)\""]
+      interval: 15s
+      timeout: 5s
+      start_period: 20m
+      retries: 3
+    profiles: [ml]
+    restart: unless-stopped
+
+  worker:
+    environment:
+      ML_PIPELINE_VERSION: ${ML_PIPELINE_VERSION:-ml-pipeline-v1}
+      ML_MAX_TEXT_BYTES: ${ML_MAX_TEXT_BYTES:-131072}
+      ML_BASE_URL: ${ML_BASE_URL:-http://ml-api:8000}
+      ML_SERVICE_TOKEN: ${ML_SERVICE_TOKEN:-local_service_token_change_me}
+    depends_on:
+      ml-api:
+        condition: service_healthy
+    profiles: [ml]
+
+  api:
+    environment:
+      ML_PIPELINE_VERSION: ${ML_PIPELINE_VERSION:-ml-pipeline-v1}
+      ML_BASE_URL: ${ML_BASE_URL:-http://ml-api:8000}
+      ML_SERVICE_TOKEN: ${ML_SERVICE_TOKEN:-local_service_token_change_me}
+      ML_ANALYSIS_CONFIG_VERSION: ${ML_ANALYSIS_CONFIG_VERSION:-ml-analysis-v1}
+    depends_on:
+      ml-api:
+        condition: service_healthy
+
+  data-import:
+    environment:
+      ML_PIPELINE_VERSION: ${ML_PIPELINE_VERSION:-ml-pipeline-v1}
