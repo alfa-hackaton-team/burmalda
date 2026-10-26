@@ -27,14 +27,21 @@ class AnalysisService:
         self.planner = planner or EventSearchPlanner()
         self.limits = limits or SearchLimits()
 
-    def analyze(self, request: dict[str, Any]) -> dict[str, Any]:
+    def analyze(self, request: dict[str, Any], *, analysis_run_id: str | None = None) -> dict[str, Any]:
+        response = self._analyze(request, analysis_run_id=analysis_run_id)
+        # Terminal failures/insufficient evidence must retain the queued identity too.
+        if analysis_run_id is not None:
+            response['analysis_run_id'] = analysis_run_id
+        return response
+
+    def _analyze(self, request: dict[str, Any], *, analysis_run_id: str | None) -> dict[str, Any]:
         started = monotonic()
         validate_analysis_request(request)
         if request["request_type"] == "follow_up":
             chunks = request["follow_up"]["initial_insight"]["chunks"]
             try:
                 remaining = self.limits.max_seconds_per_analysis - (monotonic() - started)
-                return self.agent.run(request, chunks, remaining)
+                return self.agent.run(request, chunks, remaining, analysis_run_id=analysis_run_id)
             except AgentExecutionError as exc:
                 return _failed(request, exc.code, str(exc), exc.retryable)
 
@@ -59,7 +66,7 @@ class AnalysisService:
 
         try:
             remaining = self.limits.max_seconds_per_analysis - (monotonic() - started)
-            response = self.agent.run(request, chunks, remaining)
+            response = self.agent.run(request, chunks, remaining, analysis_run_id=analysis_run_id)
         except AgentExecutionError as exc:
             return _failed(request, exc.code, str(exc), exc.retryable, list(search_run.warnings))
         response["warnings"] = list(dict.fromkeys(

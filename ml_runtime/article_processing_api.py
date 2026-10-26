@@ -49,6 +49,9 @@ def create_article_processing_app(
             401: "UNAUTHENTICATED",
             403: "FORBIDDEN",
             404: "NOT_FOUND",
+            400: "VALIDATION_ERROR",
+            409: "CONFLICT",
+            422: "UNSUPPORTED_VERSION",
         }.get(exc.status_code, "INTERNAL_ERROR")
         return JSONResponse(
             status_code=exc.status_code,

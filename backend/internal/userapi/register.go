@@ -161,6 +161,18 @@ func (s *PostgresStore) RegisterHandler(origins map[string]struct{}, enabled boo
 			}
 		}
 		if err == nil {
+			var imported []byte
+			err = tx.QueryRow(r.Context(), `SELECT raw_profile FROM companies WHERE id=$1`, companyID).Scan(&imported)
+			if err == nil {
+				var data object
+				data, err = importedProfile(companyID, decode(imported))
+				if err == nil {
+					_, err = tx.Exec(r.Context(), `UPDATE business_profiles SET status='active',profile_data=$2
+ WHERE id=$1 AND status='draft'`, profileID, raw(data))
+				}
+			}
+		}
+		if err == nil {
 			err = tx.QueryRow(r.Context(), `INSERT INTO users(identity_issuer,identity_subject,display_name) VALUES('local-password',$1,$2) RETURNING id::text`, input.Login, input.DisplayName).Scan(&userID)
 		}
 		if err == nil {

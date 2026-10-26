@@ -88,6 +88,7 @@ class AnalysisAgent:
         request: dict[str, Any],
         chunks: list[dict[str, Any]],
         timeout_seconds: float = 90.0,
+        *, analysis_run_id: str | None = None,
     ) -> dict[str, Any]:
         started = monotonic()
         validate_analysis_request(request)
@@ -95,7 +96,7 @@ class AnalysisAgent:
         if timeout_seconds <= 0:
             raise AgentExecutionError("analysis deadline expired before model generation", "TIMEOUT", True)
         draft = build_evidence_draft(request, chunks) if request["request_type"] != "follow_up" else None
-        run_id = str(uuid4())
+        run_id = analysis_run_id or str(uuid4())
         payload = _build_payload(request, chunks, draft, run_id)
         try:
             response = self.client.generate_json(

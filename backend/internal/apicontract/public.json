@@ -5,8 +5,7 @@
     "version": "0.1.0",
     "description": "Общие форматы обмена между интерфейсом, сервером и ML. Схемы задают структуру контекста, доказательств и ответов, но не физические таблицы PostgreSQL. Семантические правила применяются вместе с JSON Schema."
   },
-  "paths": {
-  },
+  "paths": {},
   "components": {
     "schemas": {
       "CompanyContext": {
@@ -522,8 +521,7 @@
           "name": {
             "type": "string"
           },
-          "value": {
-          },
+          "value": {},
           "availability": {
             "type": "string",
             "enum": [

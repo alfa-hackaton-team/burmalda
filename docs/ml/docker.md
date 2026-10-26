@@ -2,9 +2,11 @@
 
 ML запускается как профильный overlay поверх основного Go Compose: Go-сервисы сохраняют свои имена, ML API и worker называются `ml-api` и `ml-worker`. Все сервисы используют общий PostgreSQL 18 с pgvector. Веса хранятся в `docker-volume/models` и доступны model-контейнерам и worker через bind mount; данные PostgreSQL хранятся в `docker-volume/postgres`.
 
+Для локальной машины индексация использует `ML_EMBEDDING_BATCH_SIZE=1`: float32/eager embedding с пачкой из 8 чанков может исчерпать 8 ГБ RAM Docker вместе со второй моделью. Размерность, веса и контракт векторов сохраняются; меняется только размер пачки. Для повышения throughput увеличивайте пачку после выделения памяти и проверки на реальных длинах документов.
+
 ## Подготовка
 
-Нужны Docker Engine с Compose и Docker VM с 12 ГБ RAM для двух локальных моделей Qwen на CPU и inference. Подготовь кэш весов локально:
+Нужны Docker Engine с Compose. Для двух локальных моделей Qwen рекомендуется 12 ГБ RAM Docker; на 8 ГБ используйте пачку индексации 1 и не запускайте тяжёлые тесты одновременно с импортом. Подготовь кэш весов локально:
 
 ```bash
 python3.12 -m venv .venv
@@ -24,7 +26,23 @@ docker compose -f compose.yaml -f compose.ml.yaml --profile ml ps
 
 Команда скачивания кладёт закреплённые версии `Qwen/Qwen3-Embedding-0.6B` и `Qwen/Qwen3-Reranker-0.6B` в `docker-volume/models`. Compose монтирует эту папку read-only в отдельные контейнеры `embedding-model` и `reranker-model`; они загружают свои веса в память при старте и доступны только по внутренней Docker-сети. ML worker читает tokenizer из того же кэша и вызывает model-сервисы по HTTP. PostgreSQL хранит данные на диске в `docker-volume/postgres`. Для новой базы init-скрипты включают `vector`, затем Go и ML migration jobs применяют свои миграции.
 
-API доступен локально по адресу `http://localhost:8000`. `GET /healthz` проверяет доступность HTTP-процесса. Go должен отправлять запросы на `POST /internal/v0.1/article-processings` с `Authorization: Bearer <ML_SERVICE_TOKEN>` и стабильным `Idempotency-Key`.
+API доступен локально по адресу `http://localhost:8000`. `GET /healthz` проверяет доступность HTTP-процесса. Go отправляет запросы на `POST /internal/v0.1/article-processings` с `Authorization: Bearer <ML_SERVICE_TOKEN>` и стабильным `Idempotency-Key`.
+
+## Фронтенд → Go → ML
+
+В профиле `ml` API Go автоматически использует `http://ml-api:8000`, общий служебный токен и `ML_ANALYSIS_CONFIG_VERSION=ml-analysis-v1`. ML-миграции выдают роли бэкенда SELECT на события и доказательства в схеме `ml`; отдельный административный DSN в Go не нужен. Фронтенд открывается на `http://127.0.0.1:13001` и по умолчанию работает в режиме `api`. Локальный Vite запускайте с `VITE_DATA_MODE=api VITE_SELF_REGISTRATION_ENABLED=true npm run dev` из `frontend/`; прокси использует API на порту 18080.
+
+Для первого входа зарегистрируйте локальную учётную запись в интерфейсе, указав компанию из загруженного набора (например, `U_76`). Демо-логины из синтетического режима не создаются в реальной БД. Источник можно добавить командой:
+
+```bash
+docker compose -f compose.yaml -f compose.ml.yaml --profile ml exec api /app/sourcectl create /app/examples/sources/federal-reserve-press.json
+```
+
+`POST /internal/v0.1/feed-rankings` читает реальные события с готовыми документами из общего корпуса. Пока нет откалиброванной персональной модели ранжирования, карточки идут от новых к старым; они не приписывают компании неподтверждённые риски, признаки профиля или позицию банка. Темы определяются по типу события. Пустой корпус даёт пустую ленту без подстановки учебных данных. Курсор связан со снимком выдачи, пользователем, контекстом, профилем и фильтрами, действует 15 минут.
+
+`POST /internal/v0.1/analyses` и `/follow-ups` валидируют канонический AnalysisRequest и сохраняют операцию до обращения к модели. `Idempotency-Key` должен совпадать с `request_operation_id`; повтор возвращает ту же операцию, другой запрос под тем же ключом даёт 409. HTTP-процесс отвечает 202, `GET /internal/v0.1/analyses/{analysis_id}` возвращает состояние и результат. Отдельный `ml-analysis-worker` читает через ML1 get_chunks точные чанки, по которым ML2 уже проверил событие, затем вызывает агент и независимый semantic verifier. Режим по умолчанию `ML_ANALYSIS_RETRIEVAL_MODE=event-evidence` не переэмбеддит заголовок события и не создаёт искусственных similarity scores. Для экспериментов с полным embedding/reranker поиском есть режим `semantic`, требующий достаточного CPU и бюджета времени. Уточнения используют сохранённый исходный снимок доказательств. Веса в analysis-worker не загружаются: embeddings и reranker вызываются через внутренние model-сервисы.
+
+Завершённые результаты сохраняются в PostgreSQL и переживают перезапуск. Операция RUNNING, не завершённая за 5 минут, переходит в FAILED без повторного платного вызова; автоматического переисполнения после потери процесса нет. Проверяйте `logs -f ml-analysis-worker ml-api api`. После готовности моделей дождитесь обработки хотя бы одной статьи: только тогда появятся реальные события и разборы.
 
 ```bash
 docker compose -f compose.yaml -f compose.ml.yaml logs -f api worker ml-api ml-worker embedding-model reranker-model

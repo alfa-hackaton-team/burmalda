@@ -60,6 +60,7 @@ const topics: Record<string, string> = {
   logistics: 'Логистика',
   liquidity: 'Ликвидность',
   regulation: 'Регулирование',
+  market: 'Рынок',
 };
 const roleLabels: Record<string, string> = {
   owner: 'Владелец',
@@ -582,7 +583,9 @@ function Workspace({
         {feed && (
           <p className="feed-caption">
             <Layers3 size={14} />
-            Сортировка по значимости для выбранного контекста
+            {feed.items.some((item) => item.impact.policy_version === 'shared-events-recency-v1')
+              ? 'Новые события сверху. Влияние на компанию оценивается в разборе.'
+              : 'Сортировка по значимости для выбранного контекста'}
           </p>
         )}
       </div>

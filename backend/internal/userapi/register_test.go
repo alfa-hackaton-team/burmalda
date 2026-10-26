@@ -90,4 +90,14 @@ func TestSyntheticRegistrationPostgres(t *testing.T) {
 	if err != nil || len(contexts) != 1 || contexts[0].RoleID != "cfo" {
 		t.Fatalf("contexts: %+v %v", contexts, err)
 	}
+	c, err := store.context(ctx, result.UserID, contexts[0].Context.ContextID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := requireProfile(c); err != nil {
+		t.Fatalf("registration must create a usable imported profile: %v", err)
+	}
+	if len(array(c["profile_features"])) == 0 {
+		t.Fatal("imported profile must retain field provenance")
+	}
 }
