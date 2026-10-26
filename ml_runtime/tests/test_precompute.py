@@ -36,11 +36,19 @@ class PrecomputeTests(unittest.TestCase):
         self.assertIsNone(result['insight'])
 
     def test_manifest_ignores_credentials(self):
-        before = runtime_manifest()
-        with patch.dict('os.environ', {'ML_LLM_API_KEY': 'do-not-persist', 'DATABASE_URL': 'private'}):
-            after = runtime_manifest()
+        # Credential isolation is independent of optional ML1 packages installed
+        # in the production image but intentionally absent from lightweight CI.
+        versions = {'torch': 'test-torch', 'transformers': 'test-transformers',
+                    'tokenizers': 'test-tokenizers', 'openai': 'test-openai',
+                    'psycopg': 'test-psycopg'}
+        with patch('ml_runtime.precompute.importlib.metadata.version', side_effect=versions.__getitem__):
+            before = runtime_manifest()
+            with patch.dict('os.environ', {'ML_LLM_API_KEY': 'do-not-persist', 'DATABASE_URL': 'private'}):
+                after = runtime_manifest()
         self.assertEqual(before, after)
+        self.assertEqual(before['dependencies'], versions)
         self.assertNotIn('do-not-persist', str(after))
+        self.assertNotIn('private', str(after))
 
     def test_rejected_candidate_and_verdict_survive_as_diagnostics_only(self):
         candidate = load_fixture('analysis.ok.json')
