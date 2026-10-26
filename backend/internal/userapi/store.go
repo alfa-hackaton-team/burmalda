@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/config"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -16,6 +17,7 @@ type PostgresStore struct {
 	analysisVersion string
 	demoVersion     string
 	Settings        func() config.Runtime
+	ReadOriginal    func(context.Context, rawartifacts.Artifact) ([]byte, error)
 }
 
 func NewPostgresStore(pool *pgxpool.Pool) *PostgresStore {

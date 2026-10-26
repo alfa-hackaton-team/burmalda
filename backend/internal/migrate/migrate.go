@@ -88,7 +88,7 @@ func Run(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 		if _, ok := applied[file.version]; ok {
 			continue
 		}
-		if file.version < latestApplied {
+		if file.version < latestApplied && !latePrecomputeMigration(file) {
 			return 0, fmt.Errorf("migration %s would run out of order", file.name)
 		}
 		if _, err := tx.Exec(ctx, file.sql); err != nil {
@@ -146,4 +146,18 @@ func readMigrations() ([]migration, error) {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].version < files[j].version })
 	return files, nil
+}
+
+// PR #35 adds these independent, additive migrations after main shipped 26/27.
+// Keep their original identities for existing demo databases. Only these exact
+// audited SQL contents may fill that gap; all other out-of-order migrations fail.
+func latePrecomputeMigration(file migration) bool {
+	switch file.version {
+	case 24:
+		return file.name == "000024_precomputed_insights.sql" && file.checksum == "15c43a74753985a5d02a76e7edf63e432a8a56395b4df0916be08174ca563143"
+	case 25:
+		return file.name == "000025_insight_grounding_diagnostics.sql" && file.checksum == "2cd1da6ceeebf7e3ff7f48203af4f6c66eca693af28927800fefd969b9195de6"
+	default:
+		return false
+	}
 }

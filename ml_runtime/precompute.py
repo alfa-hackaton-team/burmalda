@@ -51,9 +51,9 @@ class CapturingAgent:
         self.agent = agent
         self.chunks = []
 
-    def run(self, request, chunks, timeout_seconds):
+    def run(self, request, chunks, timeout_seconds, *, analysis_run_id=None):
         self.chunks = json.loads(json.dumps(chunks))
-        return self.agent.run(request, chunks, timeout_seconds)
+        return self.agent.run(request, chunks, timeout_seconds, analysis_run_id=analysis_run_id)
 
 
 class CapturingReranker:

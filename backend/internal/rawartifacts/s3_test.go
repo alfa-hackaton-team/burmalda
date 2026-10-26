@@ -200,3 +200,26 @@ func TestS3ClientWithHTTPObjectStore(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestReadOriginalIsBoundedAndBucketScoped(t *testing.T) {
+	data := []byte("%PDF-test")
+	client := &fakeS3Client{objects: map[string][]byte{"raw/a/test": data}}
+	store := &S3{client: client, bucket: "private"}
+	store.timeout.Store(int64(time.Second))
+	object := Artifact{ObjectURI: "s3://private/raw/a/test", Size: int64(len(data))}
+	got, err := store.Read(context.Background(), object, 1024)
+	if err != nil || !bytes.Equal(got, data) {
+		t.Fatalf("%s %v", got, err)
+	}
+	if _, err = store.Read(context.Background(), object, 1); err == nil {
+		t.Fatal("unbounded original")
+	}
+	object.Size--
+	if _, err = store.Read(context.Background(), object, 1024); err == nil {
+		t.Fatal("wrong size accepted")
+	}
+	object.ObjectURI = "s3://other/raw/a/test"
+	if _, err = store.Read(context.Background(), object, 1024); err == nil {
+		t.Fatal("outside bucket accepted")
+	}
+}

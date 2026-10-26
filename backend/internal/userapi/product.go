@@ -89,10 +89,11 @@ func registerProduct(mux *http.ServeMux, store Store, key [32]byte) {
 		method, path string
 		handler      func(context.Context, string, *http.Request) (any, int, error)
 	}{
-		{"POST", "/v0.1/auth/logout", h.logout}, {"GET", "/v0.1/feed", h.feed}, {"GET", "/v0.1/alerts", h.alerts},
+		{"POST", "/v0.1/auth/logout", h.logout}, {"GET", "/v0.1/news", h.news}, {"GET", "/v0.1/feed", h.feed}, {"GET", "/v0.1/alerts", h.alerts},
 		{"GET", "/v0.1/contexts/{context_id}/insights", h.readyInsights},
 		{"POST", "/v0.1/insights", h.createInsight}, {"GET", "/v0.1/insights/{insight_id}", h.insight},
 		{"GET", "/v0.1/generations/{generation_id}", h.generation},
+		{"GET", "/v0.1/insights/{insight_id}/documents/{document_version_id}/original", h.original},
 		{"GET", "/v0.1/insights/{insight_id}/conversations", h.conversations},
 		{"POST", "/v0.1/insights/{insight_id}/conversations", h.createConversation},
 		{"GET", "/v0.1/conversations/{conversation_id}/messages", h.messages},
@@ -147,6 +148,10 @@ func registerProduct(mux *http.ServeMux, store Store, key [32]byte) {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(status)
 				_, _ = w.Write(append(data, '\n'))
+				return
+			}
+			if original, ok := result.(originalDownload); ok {
+				writeOriginal(w, r, original)
 				return
 			}
 			httpx.WriteJSON(w, status, result)
@@ -269,9 +274,12 @@ func requireProfile(c object) error {
 	return nil
 }
 func (s *PostgresStore) limit(ctx context.Context, user, name string, max int) error {
+	return limitFrom(ctx, s.pool, user, name, max)
+}
+func limitFrom(ctx context.Context, db contextReader, user, name string, max int) error {
 	hash := sha256.Sum256([]byte(user))
 	var used int
-	err := s.pool.QueryRow(ctx, `INSERT INTO rate_limit_buckets(subject_hash,limit_name,window_started_at,used,expires_at) VALUES($1,$2,date_trunc('hour',now()),1,date_trunc('hour',now())+interval '2 hours')
+	err := db.QueryRow(ctx, `INSERT INTO rate_limit_buckets(subject_hash,limit_name,window_started_at,used,expires_at) VALUES($1,$2,date_trunc('hour',now()),1,date_trunc('hour',now())+interval '2 hours')
  ON CONFLICT(subject_hash,limit_name,window_started_at) DO UPDATE SET used=rate_limit_buckets.used+1 WHERE rate_limit_buckets.used<$3 RETURNING used`, hash[:], name, max).Scan(&used)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return fail(429, "BUDGET_EXHAUSTED", "request limit reached")

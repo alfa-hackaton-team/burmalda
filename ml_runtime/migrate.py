@@ -108,6 +108,10 @@ def grant_runtime_access(connection_factory: Callable[[], Any], role: str) -> No
                 cursor.execute(sql.SQL(
                     "GRANT SELECT, INSERT, UPDATE ON ml.follow_up_operations TO {}"
                 ).format(sql.Identifier(role)))
+                cursor.execute(sql.SQL('GRANT SELECT, INSERT, UPDATE ON ml.analysis_operations TO {}')
+                               .format(sql.Identifier(role)))
+                cursor.execute(sql.SQL('GRANT SELECT, INSERT, DELETE ON ml.ranking_snapshots TO {}')
+                               .format(sql.Identifier(role)))
     finally:
         connection.close()
 
@@ -117,11 +121,19 @@ def main() -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--runtime-role", help="Grant ML2 checkpoint updates to an existing runtime role")
+    parser.add_argument('--reader-role', help='Grant a backend role read-only event and evidence access')
     args = parser.parse_args()
     applied = apply_migrations()
     if args.runtime_role:
         database_url = _migration_database_url()
         grant_runtime_access(lambda: _connect(database_url), args.runtime_role)
+    if args.reader_role:
+        from psycopg import sql
+        with _connect(_migration_database_url()) as connection:
+            connection.execute(sql.SQL('GRANT USAGE ON SCHEMA ml TO {}').format(sql.Identifier(args.reader_role)))
+            connection.execute(sql.SQL('GRANT SELECT ON ml.events, ml.event_documents, '
+                'ml.document_versions, ml.document_chunks, ml.document_version_catalog TO {}')
+                .format(sql.Identifier(args.reader_role)))
     if applied:
         print("Applied ML migrations: " + ", ".join(applied))
     else:

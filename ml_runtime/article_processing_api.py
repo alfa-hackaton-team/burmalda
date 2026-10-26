@@ -24,6 +24,7 @@ def create_article_processing_app(
     service_token: str,
     max_text_bytes: int,
     supported_pipeline_versions: Collection[str],
+    synchronous_follow_up: bool = False,
 ) -> FastAPI:
     """Build the Go-facing API around injected processing stages and storage.
 
@@ -49,6 +50,9 @@ def create_article_processing_app(
             401: "UNAUTHENTICATED",
             403: "FORBIDDEN",
             404: "NOT_FOUND",
+            400: "VALIDATION_ERROR",
+            409: "CONFLICT",
+            422: "UNSUPPORTED_VERSION",
         }.get(exc.status_code, "INTERNAL_ERROR")
         return JSONResponse(
             status_code=exc.status_code,
@@ -120,8 +124,11 @@ def create_article_processing_app(
     def healthcheck() -> dict[str, str]:
         return {"status": "ok"}
 
-    from .follow_up_api import register_follow_up
-    register_follow_up(app, authenticate)
+    # Production registers the durable queued product endpoint in serve_article_processing.
+    # Keep the standalone adapter explicit so it cannot shadow that route.
+    if synchronous_follow_up:
+        from .follow_up_api import register_follow_up
+        register_follow_up(app, authenticate)
     return app
 
 

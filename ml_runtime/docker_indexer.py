@@ -19,7 +19,7 @@ def create_ml1_pipeline():
     try:
         return ML1Pipeline(
             connection,
-            Embedder(RemoteEmbeddingEncoder()),
+            Embedder(RemoteEmbeddingEncoder(), batch_size=int(os.environ.get('ML_EMBEDDING_BATCH_SIZE', '1'))),
             QwenTokenCounter(cache_dir=cache_dir, local_files_only=True),
             versions=load_versions(connection),
             reranker=RemoteQwenReranker(),

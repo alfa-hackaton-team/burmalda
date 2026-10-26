@@ -40,3 +40,20 @@ func TestEmbeddedContractsMatchDocumentation(t *testing.T) {
 		}
 	}
 }
+
+func TestExtractedEventMayHaveUnknownGeographyCode(t *testing.T) {
+	event := map[string]any{
+		"id": "00000000-0000-4000-8000-000000000001", "event_type": "conference",
+		"title": "Конференция по итогам квартала", "summary": "В источнике указан город, но нет его кода.",
+		"occurred_at": nil, "confidence": nil, "status": "candidate",
+		"geography":            []any{map[string]any{"type": "city", "name": "Москва", "code": nil}},
+		"document_version_ids": []string{"00000000-0000-4000-8000-000000000002"},
+	}
+	if err := Validate("ml", "Event", event); err != nil {
+		t.Fatalf("unknown code must remain null without losing valid geography: %v", err)
+	}
+	event["geography"].([]any)[0].(map[string]any)["code"] = ""
+	if err := Validate("ml", "Event", event); err == nil {
+		t.Fatal("empty code must not stand in for an unknown code")
+	}
+}

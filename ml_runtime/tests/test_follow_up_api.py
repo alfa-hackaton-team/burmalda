@@ -19,7 +19,7 @@ class FollowUpAPITests(unittest.TestCase):
         self.request = load_fixture('follow_up.request.json')
         coordinator = SimpleNamespace(quality_gate=SimpleNamespace(max_text_bytes=131072))
         self.app = create_article_processing_app(coordinator, service_token='internal-test',
-            max_text_bytes=131072, supported_pipeline_versions={'ml-pipeline-v1'})
+            max_text_bytes=131072, supported_pipeline_versions={'ml-pipeline-v1'}, synchronous_follow_up=True)
         self.store = Mock()
         self.store.execute.side_effect = lambda key, req, analyze: analyze(req)
         client = SnapshotClient()
@@ -37,7 +37,7 @@ class FollowUpAPITests(unittest.TestCase):
         return self.client.post('/internal/v0.1/follow-ups', json=self.request,
                                 headers=self.headers if headers is None else headers)
 
-    def test_registered_on_production_article_app_and_calls_snapshot_service(self):
+    def test_explicit_standalone_adapter_calls_snapshot_service(self):
         response = self.post()
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'succeeded')

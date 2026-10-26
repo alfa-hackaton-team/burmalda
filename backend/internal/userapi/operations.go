@@ -40,6 +40,7 @@ func (h productHandler) createInsight(ctx context.Context, user string, r *http.
 	var input struct {
 		ContextID string `json:"context_id"`
 		EventID   string `json:"event_id"`
+		ForceNew  bool   `json:"force_new"`
 	}
 	if e := readInput(r, &input); e != nil {
 		return nil, 0, e
@@ -60,7 +61,11 @@ func (h productHandler) createInsight(ctx context.Context, user string, r *http.
 	if e != nil {
 		return nil, 0, e
 	}
-	fingerprint := sha256.Sum256(raw(object{"fingerprint_version": "v1", "operation_type": "insight", "context_id": cid, "event_id": eid}))
+	scope := object{"fingerprint_version": "v1", "operation_type": "insight", "context_id": cid, "event_id": eid}
+	if input.ForceNew {
+		scope["force_new"] = true
+	}
+	fingerprint := sha256.Sum256(raw(scope))
 	previous, e := h.store.existing(ctx, user, "insight", k, fingerprint[:])
 	if e != nil {
 		return nil, 0, e
@@ -69,9 +74,6 @@ func (h productHandler) createInsight(ctx context.Context, user string, r *http.
 		g, e := h.store.generation(ctx, user, previous)
 		return g, 202, e
 	}
-	if h.store.analysisVersion == "" || h.store.ml.BaseURL == "" {
-		return nil, 0, unavailable()
-	}
 	if e = requireProfile(c); e != nil {
 		return nil, 0, e
 	}
@@ -79,7 +81,56 @@ func (h productHandler) createInsight(ctx context.Context, user string, r *http.
 	if e != nil {
 		return nil, 0, e
 	}
-	if e = h.store.limit(ctx, user, "analysis", 30); e != nil {
+	// Serialize discovery and creation for this user/context/event. The full
+	// trusted context and event snapshots below prevent reuse across versions.
+	tx, e := h.store.pool.Begin(ctx)
+	if e != nil {
+		return nil, 0, e
+	}
+	defer tx.Rollback(ctx)
+	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 20261027))`, user+":insight:"+k); e != nil {
+		return nil, 0, e
+	}
+	previous, e = existingFrom(ctx, tx, user, "insight", k, fingerprint[:])
+	if e != nil {
+		return nil, 0, e
+	}
+	if previous != "" {
+		if e = tx.Rollback(ctx); e != nil {
+			return nil, 0, e
+		}
+		g, e := h.store.generation(ctx, user, previous)
+		return g, 202, e
+	}
+	if _, e = tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtextextended($1, 20261026))`, user+":"+cid+":"+eid); e != nil {
+		return nil, 0, e
+	}
+	var restored string
+	e = pgx.ErrNoRows
+	if !input.ForceNew {
+		e = tx.QueryRow(ctx, `SELECT id::text FROM request_operations
+ WHERE user_id=$1::uuid AND business_context_id=$2::uuid AND event_id=$3::uuid
+ AND operation_type='insight' AND request_snapshot->'context'=$4::jsonb
+ AND request_snapshot->'event'=$5::jsonb AND request_snapshot->>'processing_config_version'=$6
+ ORDER BY CASE WHEN state IN ('QUEUED','RUNNING') THEN 0 WHEN state='SUCCEEDED' THEN 1 ELSE 2 END, created_at DESC,id DESC LIMIT 1`, user, cid, eid, raw(mlContext(c)), raw(event), h.store.analysisVersion).Scan(&restored)
+	}
+	if e == nil {
+		if _, e = tx.Exec(ctx, `INSERT INTO insight_operation_aliases(user_id,idempotency_key,request_fingerprint,request_operation_id) VALUES($1,$2,$3,$4)`, user, k, fingerprint[:], restored); e != nil {
+			return nil, 0, e
+		}
+		if e = tx.Commit(ctx); e != nil {
+			return nil, 0, e
+		}
+		g, e := h.store.generation(ctx, user, restored)
+		return g, 202, e
+	}
+	if !errors.Is(e, pgx.ErrNoRows) {
+		return nil, 0, e
+	}
+	if h.store.analysisVersion == "" || h.store.ml.BaseURL == "" {
+		return nil, 0, unavailable()
+	}
+	if e = limitFrom(ctx, tx, user, "analysis", 30); e != nil {
 		return nil, 0, e
 	}
 	gid, trace := uuid.NewString(), uuid.NewString()
@@ -90,9 +141,12 @@ func (h productHandler) createInsight(ctx context.Context, user string, r *http.
 	if e = checked("ml", "AnalysisRequest", request); e != nil {
 		return nil, 0, e
 	}
-	e = h.store.pool.QueryRow(ctx, `INSERT INTO request_operations(id,user_id,business_context_id,operation_type,idempotency_key,request_fingerprint,request_snapshot,trace_id,event_id) VALUES($1,$2,$3,'insight',$4,$5,$6,$7,$8)
+	e = tx.QueryRow(ctx, `INSERT INTO request_operations(id,user_id,business_context_id,operation_type,idempotency_key,request_fingerprint,request_snapshot,trace_id,event_id) VALUES($1,$2,$3,'insight',$4,$5,$6,$7,$8)
  ON CONFLICT(user_id,operation_type,idempotency_key) DO UPDATE SET idempotency_key=EXCLUDED.idempotency_key RETURNING id::text`, gid, user, cid, k, fingerprint[:], raw(request), trace, eid).Scan(&gid)
 	if e != nil {
+		return nil, 0, e
+	}
+	if e = tx.Commit(ctx); e != nil {
 		return nil, 0, e
 	}
 	confirmed, e := h.store.existing(ctx, user, "insight", k, fingerprint[:])
@@ -103,9 +157,14 @@ func (h productHandler) createInsight(ctx context.Context, user string, r *http.
 	return g, 202, e
 }
 func (s *PostgresStore) existing(ctx context.Context, user, kind, key string, fingerprint []byte) (string, error) {
+	return existingFrom(ctx, s.pool, user, kind, key, fingerprint)
+}
+func existingFrom(ctx context.Context, db contextReader, user, kind, key string, fingerprint []byte) (string, error) {
 	var gid string
 	var stored []byte
-	e := s.pool.QueryRow(ctx, `SELECT id::text,request_fingerprint FROM request_operations WHERE user_id=$1::uuid AND operation_type=$2 AND idempotency_key=$3`, user, kind, key).Scan(&gid, &stored)
+	e := db.QueryRow(ctx, `SELECT id::text,request_fingerprint FROM request_operations WHERE user_id=$1::uuid AND operation_type=$2 AND idempotency_key=$3
+ UNION ALL SELECT o.id::text,a.request_fingerprint FROM insight_operation_aliases a JOIN request_operations o ON o.id=a.request_operation_id AND o.user_id=a.user_id
+ WHERE a.user_id=$1::uuid AND o.operation_type=$2 AND a.idempotency_key=$3`, user, kind, key).Scan(&gid, &stored)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return "", nil
 	}
@@ -352,9 +411,10 @@ func (s *PostgresStore) runAnalysis(ctx context.Context) error {
 		return s.finishFailure(ctx, gid, token, "INVALID_ML_RESPONSE", "analysis identity does not match")
 	}
 	if response["status"] != "succeeded" {
-		state, code, message := "FAILED", "ML_PROCESSING_ERROR", "analysis failed"
+		state, code, message := "FAILED", "ML_PROCESSING_ERROR", "Не удалось завершить анализ. Обратитесь в поддержку с кодом обращения."
 		if response["status"] == "failed" && obj(response["error"]) != nil {
 			code = str(obj(response["error"])["code"])
+			message = analysisErrorMessage(code)
 		}
 		if response["status"] == "insufficient_evidence" {
 			state = "INSUFFICIENT_EVIDENCE"
@@ -380,11 +440,31 @@ func (s *PostgresStore) runAnalysis(ctx context.Context) error {
 		if errors.As(e, &f) {
 			return s.finishFailure(ctx, gid, token, f.code, f.message)
 		}
+		var pe *pgconn.PgError
+		if errors.As(e, &pe) && pe.Code == "23505" {
+			return s.finishFailure(ctx, gid, token, "INVALID_ML_RESPONSE", "analysis result identity conflicts with an existing result")
+		}
 		return e
 	}
 	return nil
 }
 func (s *PostgresStore) finishFailure(ctx context.Context, gid, token, code, message string) error {
-	_, e := s.pool.Exec(ctx, `UPDATE request_operations SET state='FAILED',error=$3,completed_at=now(),updated_at=now(),lease_token=NULL,lease_until=NULL WHERE id=$1::uuid AND lease_token=$2::uuid`, gid, token, raw(object{"code": code, "message": message, "retryable": false}))
+	_, e := s.pool.Exec(ctx, `UPDATE request_operations SET state='FAILED',error=$3::jsonb || jsonb_build_object('trace_id',trace_id),completed_at=now(),updated_at=now(),lease_token=NULL,lease_until=NULL WHERE id=$1::uuid AND lease_token=$2::uuid`, gid, token, raw(object{"code": code, "message": analysisErrorMessage(code), "retryable": false}))
 	return e
+}
+
+// Never expose provider output, validation payloads or internal credentials.
+func analysisErrorMessage(code string) string {
+	switch code {
+	case "VERIFICATION_FAILED", "INVALID_ML_RESPONSE":
+		return "Не удалось подтвердить выводы по источникам. Разбор не опубликован."
+	case "TIMEOUT":
+		return "Сервис анализа не успел подготовить ответ. Сохранённый статус можно проверить позже."
+	case "MODEL_UNAVAILABLE", "SOURCE_UNAVAILABLE":
+		return "Сервис анализа временно недоступен. Обратитесь в поддержку с кодом обращения."
+	case "BUDGET_EXHAUSTED":
+		return "Достигнут лимит запросов к сервису анализа."
+	default:
+		return "Не удалось завершить анализ. Обратитесь в поддержку с кодом обращения."
+	}
 }

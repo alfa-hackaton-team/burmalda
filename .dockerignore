@@ -16,3 +16,7 @@ htmlcov
 models
 hf-cache
 docker-volume
+.local
+frontend/node_modules
+frontend/dist
+frontend/*.tsbuildinfo

@@ -1,5 +1,13 @@
 # Backend follow-up E2E
 
+После интеграции #35 production endpoint регистрируется один раз в
+`serve_article_processing` через `product_api`: POST возвращает 202,
+`run_analysis_worker` обрабатывает сохранённый snapshot без retrieval/reranker.
+`test_production_follow_up_wiring` проверяет этот entrypoint, PostgreSQL, guard,
+verifier adapter и replay без второго вызова модели. Синхронный adapter сохранён
+для явного standalone использования (`synchronous_follow_up=True`); в production
+он не регистрируется и не перекрывает очередь.
+
 Запуск из checkout с работающим локальным PostgreSQL в Docker:
 
 ```sh

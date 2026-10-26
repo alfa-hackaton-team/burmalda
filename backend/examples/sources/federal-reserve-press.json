@@ -1,0 +1,11 @@
+{
+  "name": "Federal Reserve press releases",
+  "source_type": "regulator",
+  "source_role": "external",
+  "trust_level": "primary",
+  "adapter_type": "rss",
+  "endpoint": "https://www.federalreserve.gov/feeds/press_all.xml",
+  "enabled": true,
+  "polling_interval_seconds": 3600,
+  "adapter_config": {}
+}

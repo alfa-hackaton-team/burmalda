@@ -5,6 +5,7 @@ import (
 	"crypto/pbkdf2"
 	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -22,6 +23,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpx"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/migrate"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/polling"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -139,6 +141,7 @@ func TestProductLifecyclePostgres(t *testing.T) {
 		out := fixture(t, "analysis.ok")
 		out["trace_id"] = in["trace_id"]
 		out["request_operation_id"] = in["request_operation_id"]
+		obj(out["insight"])["event_id"] = obj(in["event"])["id"]
 		if in["request_type"] == "follow_up" {
 			if r.URL.Path != "/internal/v0.1/follow-ups" {
 				t.Error("follow-up sent to initial analysis endpoint")
@@ -240,8 +243,22 @@ func TestProductLifecyclePostgres(t *testing.T) {
 	if again["generation_id"] != gid {
 		t.Fatal("duplicate generation")
 	}
+	// A browser reload generates a new key, but must restore the same operation.
+	reloaded := call("POST", "/v0.1/insights", input, "reload-new-key", 202)
+	if reloaded["generation_id"] != gid {
+		t.Fatal("reload created another paid operation")
+	}
+	// Recreate API/store state: the recovered key is bound durably in PostgreSQL.
+	store = NewPostgresStore(pool)
+	store.ConfigureML(ml.URL, "secret", "processing-v1")
+	handler = handlerFor(testUserID)
+	restarted := call("POST", "/v0.1/insights", input, "reload-new-key", 202)
+	if restarted["generation_id"] != gid {
+		t.Fatal("recovery key did not survive store recreation")
+	}
 	bad := object{"context_id": c["business_context_id"], "event_id": uuid.NewString()}
 	call("POST", "/v0.1/insights", bad, "initial", 409)
+	call("POST", "/v0.1/insights", bad, "reload-new-key", 409)
 	if e := store.runAnalysis(ctx); e != nil {
 		t.Fatal(e)
 	}
@@ -254,6 +271,42 @@ func TestProductLifecyclePostgres(t *testing.T) {
 	if e := apicontract.Validate("public", "Insight", ins); e != nil {
 		t.Fatal(e)
 	}
+	reloaded = call("POST", "/v0.1/insights", input, "reload-after-success", 202)
+	if reloaded["generation_id"] != gid || reloaded["insight_id"] != iid {
+		t.Fatal("completed analysis was not restored")
+	}
+	// Public canonical URLs are resolved from the exact saved version.
+	originalPath := "/v0.1/insights/" + iid + "/documents/" + str(chunk["document_version_id"]) + "/original"
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, authenticatedRequest("GET", originalPath, ""))
+	if w.Code != 307 || w.Header().Get("Location") != chunk["canonical_url"] {
+		t.Fatalf("original redirect %d %s", w.Code, w.Header().Get("Location"))
+	}
+	call("GET", "/v0.1/insights/"+iid+"/documents/"+uuid.NewString()+"/original", nil, "", 404)
+	// Closed files are downloaded through Go; no private S3 URI reaches clients.
+	pdf := []byte("%PDF-test original")
+	digest := sha256.Sum256(pdf)
+	sid, aid, artifactID := uuid.NewString(), uuid.NewString(), uuid.NewString()
+	exec(`INSERT INTO sources(id,name,source_type,source_role,trust_level,adapter_type,endpoint,enabled,polling_interval_seconds) VALUES($1,'Bank','bank_analytics','bank','primary','dataset','dataset://test',false,900)`, sid)
+	exec(`INSERT INTO raw_artifacts(id,source_id,sha256,content_type,size_bytes,object_uri) VALUES($1,$2,$3,'application/pdf',$4,'s3://private/raw/test')`, artifactID, sid, hex.EncodeToString(digest[:]), len(pdf))
+	exec(`INSERT INTO articles(id,source_id,identity_kind,identity_key) VALUES($1,$2,'fingerprint','test')`, aid, sid)
+	exec(`INSERT INTO article_versions(id,source_id,article_id,version_no,content_hash,parser_version,title,body_text,fetched_at,raw_artifact_id) VALUES($1,$2,$3,1,$4,'test','Bank report','Report text',now(),$5)`, chunk["document_version_id"], sid, aid, hex.EncodeToString(digest[:]), artifactID)
+	exec(`UPDATE insights SET ml_snapshot=jsonb_set(ml_snapshot,'{chunks,0,canonical_url}','null') WHERE id=$1`, iid)
+	reads := 0
+	store.ReadOriginal = func(_ context.Context, artifact rawartifacts.Artifact) ([]byte, error) {
+		reads++
+		if artifact.ObjectURI != "s3://private/raw/test" {
+			t.Fatal("wrong artifact")
+		}
+		return pdf, nil
+	}
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, authenticatedRequest("GET", originalPath, ""))
+	if w.Code != 200 || w.Body.String() != string(pdf) || reads != 1 || !strings.HasPrefix(w.Header().Get("Content-Disposition"), "attachment") {
+		t.Fatalf("original download %d %s", w.Code, w.Body.String())
+	}
+	store.ReadOriginal = func(context.Context, rawartifacts.Artifact) ([]byte, error) { return []byte("corrupt"), nil }
+	call("GET", originalPath, nil, "", 503)
 	call("GET", "/v0.1/traces/"+str(g["trace_id"]), nil, "", 200)
 	// The saved card must remain the grounding source after the live corpus changes.
 	exec(`UPDATE ml.document_chunks SET chunk_text='Changed corpus: not the saved evidence'`)
@@ -283,13 +336,37 @@ func TestProductLifecyclePostgres(t *testing.T) {
 	if calls != 2 {
 		t.Fatalf("paid operation count %d", calls)
 	}
+	// A protocol-violating ML server reuses a result ID for another operation.
+	collision := call("POST", "/v0.1/insights", object{"context_id": c["business_context_id"], "event_id": event["id"], "force_new": true}, "explicit-new-analysis", 202)
+	if collision["generation_id"] == gid {
+		t.Fatal("explicit analysis was incorrectly deduplicated")
+	}
+	call("POST", "/v0.1/insights", input, "explicit-new-analysis", 409)
+	if e := store.runAnalysis(ctx); e != nil {
+		t.Fatal(e)
+	}
+	collision = call("GET", "/v0.1/generations/"+str(collision["generation_id"]), nil, "", 200)
+	if collision["state"] != "FAILED" || obj(collision["error"])["code"] != "INVALID_ML_RESPONSE" {
+		t.Fatalf("identity collision did not terminate: %+v", collision)
+	}
+	previousSuccess := call("POST", "/v0.1/insights", input, "open-after-failed-regeneration", 202)
+	if previousSuccess["generation_id"] != gid {
+		t.Fatal("failed regeneration hid an existing verified Insight")
+	}
+	exec(`UPDATE business_profiles SET version=2 WHERE id=$1`, c["profile_id"])
+	fresh := call("POST", "/v0.1/insights", input, "new-profile", 202)
+	if fresh["generation_id"] == gid || fresh["generation_id"] == collision["generation_id"] {
+		t.Fatal("old profile result was restored as current")
+	}
 	handler = handlerFor(uuid.NewString())
+	call("GET", originalPath, nil, "", 404)
 	call("GET", "/v0.1/insights/"+iid, nil, "", 404)
 	call("GET", "/v0.1/generations/"+gid, nil, "", 404)
 	call("GET", "/v0.1/conversations/"+cid+"/messages", nil, "", 404)
 	handler = handlerFor(testUserID)
 	exec(`UPDATE context_access_grants SET revoked_at=now() WHERE user_id=$1`, testUserID)
 	call("GET", "/v0.1/insights/"+iid, nil, "", 403)
+	call("GET", originalPath, nil, "", 403)
 	_ = response
 }
 

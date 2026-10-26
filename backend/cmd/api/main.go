@@ -18,6 +18,7 @@ import (
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/health"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/httpsecurity"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/observability"
+	"github.com/alfa-hackaton-team/burmalda/backend/internal/rawartifacts"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/sources"
 	"github.com/alfa-hackaton-team/burmalda/backend/internal/userapi"
 	"github.com/prometheus/client_golang/prometheus"
@@ -64,6 +65,15 @@ func run() error {
 	sessionStore := authn.NewPostgresStore(pool)
 	userStore := userapi.NewPostgresStore(pool)
 	userStore.Settings = manager.Current
+	if cfg.RawStorageBackend == "s3" {
+		storage, err := rawartifacts.NewS3(ctx, cfg)
+		if err != nil {
+			return err
+		}
+		userStore.ReadOriginal = func(ctx context.Context, artifact rawartifacts.Artifact) ([]byte, error) {
+			return storage.Read(ctx, artifact, 32<<20)
+		}
+	}
 	if readURL := os.Getenv("ML_READ_DATABASE_URL"); readURL != "" {
 		readCfg := cfg
 		readCfg.DatabaseURL = readURL
@@ -99,8 +109,12 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	mux.Handle("/login", userapi.LoginPage(os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true"))
-	mux.Handle("/v0.1/auth/login", httpsecurity.Protect(userStore.LoginHandler(allowedOrigins, os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true", os.Getenv("AUTH_COOKIE_SECURE") != "false"), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 16 << 10, AllowedOrigins: allowedOrigins}))
+	passwordLoginEnabled := os.Getenv("AUTH_PASSWORD_LOGIN_ENABLED") == "true"
+	selfRegistrationEnabled := passwordLoginEnabled && os.Getenv("AUTH_SELF_REGISTRATION_ENABLED") == "true"
+	mux.Handle("/login", userapi.LoginPage(passwordLoginEnabled))
+	mux.Handle("/v0.1/auth/login", httpsecurity.Protect(userStore.LoginHandler(allowedOrigins, passwordLoginEnabled, os.Getenv("AUTH_COOKIE_SECURE") != "false"), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 16 << 10, AllowedOrigins: allowedOrigins}))
+	mux.Handle("/v0.1/auth/register", httpsecurity.Protect(userStore.RegisterHandler(allowedOrigins, selfRegistrationEnabled), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 16 << 10, AllowedOrigins: allowedOrigins}))
+	mux.Handle("/v0.1/auth/registration-company", httpsecurity.Protect(userStore.RegistrationCompanyHandler(selfRegistrationEnabled), httpsecurity.Options{RequestTimeout: serverSettings.RequestTimeout.Std(), MaxBodyBytes: 0, AllowedOrigins: allowedOrigins}))
 	mux.Handle("/v0.1/", apiHandler)
 
 	server := &http.Server{

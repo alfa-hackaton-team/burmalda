@@ -124,14 +124,14 @@ class FollowUpStoreTests(unittest.TestCase):
         self.assertEqual(len(self.service.agent.client.inputs), 2)
         self.assertEqual(self.saved(), ('FAILED', failed, failed['error']))
 
-    def test_production_http_adapter_replays_and_conflicts_using_real_postgres(self):
+    def test_standalone_http_adapter_replays_and_conflicts_using_real_postgres(self):
         from types import SimpleNamespace
         from fastapi.testclient import TestClient
         from ml_runtime.article_processing_api import create_article_processing_app
         app = create_article_processing_app(
             SimpleNamespace(quality_gate=SimpleNamespace(max_text_bytes=131072)),
             service_token='test-only', max_text_bytes=131072,
-            supported_pipeline_versions={'ml-pipeline-v1'})
+            supported_pipeline_versions={'ml-pipeline-v1'}, synchronous_follow_up=True)
         def service():
             self.assertEqual(self.saved(), ('RUNNING', None, None))
             return self.service

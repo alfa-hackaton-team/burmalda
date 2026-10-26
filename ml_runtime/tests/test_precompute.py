@@ -23,7 +23,10 @@ class PrecomputeTests(unittest.TestCase):
             return True, None
         agent = CapturingAgent(AnalysisAgent(FixtureModelClient(), semantic_verifier=verify))
         service = AnalysisService(FixtureRetriever(), agent, FixtureSearchPlanner())
-        result = service.analyze(load_fixture('analysis.request.json'))
+        identity = 'a17e6d41-30af-4777-9cc5-bb0743d80141'
+        result = service.analyze(load_fixture('analysis.request.json'), analysis_run_id=identity)
+        self.assertEqual(result['analysis_run_id'], identity)
+        self.assertEqual(result['insight']['analysis_run_id'], identity)
         self.assertEqual(result['status'], 'succeeded')
         self.assertEqual(agent.chunks, calls[0])
         calls[0][0]['chunk_text'] = 'changed after run'
