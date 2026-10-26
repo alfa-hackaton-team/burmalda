@@ -11,16 +11,30 @@ import (
 )
 
 func (s *PostgresStore) insight(ctx context.Context, user, insightID string) (object, object, error) {
+	started := time.Now()
 	var payload, snapshot []byte
 	var contextID string
-	err := s.pool.QueryRow(ctx, `SELECT payload,ml_snapshot,business_context_id::text FROM insights WHERE id=$1::uuid AND user_id=$2::uuid`, insightID, user).Scan(&payload, &snapshot, &contextID)
+	var set *string
+	err := s.pool.QueryRow(ctx, `SELECT i.payload,i.ml_snapshot,i.business_context_id::text,o.demo_set_version FROM insights i JOIN request_operations o ON o.id=i.request_operation_id AND o.state='SUCCEEDED' WHERE i.id=$1::uuid AND i.user_id=$2::uuid`, insightID, user).Scan(&payload, &snapshot, &contextID, &set)
+	readDone := time.Now()
+	if timing, ok := ctx.Value(insightTimingKey{}).(*insightTiming); ok {
+		timing.DB = readDone.Sub(started)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, err = s.context(ctx, user, contextID); err != nil {
+	current, err := s.context(ctx, user, contextID)
+	if err != nil {
 		return nil, nil, err
 	}
-	return decode(payload), decode(snapshot), nil
+	if timing, ok := ctx.Value(insightTimingKey{}).(*insightTiming); ok {
+		timing.Access = time.Since(readDone)
+	}
+	saved := decode(snapshot)
+	if !sameContext(current, obj(saved["context"])) || set != nil && (*set != s.demoVersion || s.demoVersion == "") {
+		return nil, nil, fail(409, "CONFLICT", "saved insight is stale; prepare the current demo set")
+	}
+	return decode(payload), saved, nil
 }
 func (h productHandler) insight(ctx context.Context, user string, r *http.Request) (any, int, error) {
 	if e := query(r); e != nil {

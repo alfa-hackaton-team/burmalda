@@ -11,6 +11,7 @@ from time import monotonic
 from typing import Any, Protocol
 from uuid import NAMESPACE_URL, uuid4, uuid5
 from .analysis_validation import AnalysisRequestError, validate_analysis_request, validate_contract_message
+from .citation_support import ensure_attributed_support
 from .drafting import build_evidence_draft
 from .model_policy import DEFAULT_AGENT_MODEL, require_allowed_model
 from .verification import OutputVerificationError, SemanticVerifier, verify_analysis_response
@@ -63,6 +64,40 @@ bank_view, claim_type="bank_view" и knowledge_type="ALFA_ANALYTICS" допус�
 подтверждённые сведения внешних источников оформи обычными relevance/impact claims.
 Проверяй числа, даты, субъект, направление изменения и отрицания по точной цитате.
 Отделяй факты источника от прогнозов и собственных аналитических inference.
+Для document_chunk выбирай подтверждающую цитату из citation_candidates либо копируй
+непрерывный фрагмент chunk_text буквально. Не пересказывай цитату, не склеивай разные
+предложения через многоточие, не меняй пробелы, переносы строк, тире, знак минуса,
+десятичный разделитель или проценты. Текст claim может быть пересказом, quote_text — нет.
+Каждый claim должен выражать одну проверяемую мысль; его support должен подтверждать
+весь claim, включая субъект, период, числа, причинность и модальность.
+Формируй support до текста claim: сначала выбери минимальный достаточный непрерывный
+exact span из evidence, затем сформулируй только подтверждаемое им утверждение.
+Для прогноза/оценки span должен включать и значение, и явно названного автора/субъекта.
+Не обрезай цитату до числа или предложения с «это», «мы», «в базовом сценарии», если
+из-за этого теряется источник прогноза: сохрани необходимое предшествующее предложение
+в том же дословном span. Название источника в metadata не заменяет подтверждение
+добавленного в claim действия или атрибуции. Для частей составного claim из разных
+фрагментов приведи отдельный exact support каждой части с её chunk_id либо раздели
+claim. Например, цитата о снижении ставки не подтверждает добавленное утверждение
+об обновлении прогноза; для него нужна своя цитата. Если достаточного support нет,
+не включай неподтверждённую часть в claim. Не цитируй весь chunk ради покрытия:
+оставляй только необходимый непрерывный фрагмент, сохраняя субъект и оговорки.
+«Ожидаем», «прогноз», «не исключаем» не превращай в уже наступивший факт. Атрибутируй
+прогноз автору источника; source_role=bank сам по себе не делает статистику мнением банка.
+Summary, consequences, recommended_actions и bank_view не являются местом для новых
+утверждений: используй только смысл подтверждённых claims с теми же оговорками.
+Если нет подтверждённых последствий или действий, оставь соответствующие массивы пустыми.
+Профиль компании — контекст, а не доказательство влияния: отрасль, наличие продукта или
+выручка сами по себе не подтверждают изменение спроса, маржи, платежей или ставок компании.
+Не заполняй необязательные выводы ради полноты карточки. Недостаток данных об эффекте
+на компанию явно отрази в gaps/warnings; при наличии доказанного события допустим узкий
+разбор этого события без персональных последствий. Если не подтверждено само запрошенное
+событие/ответ на вопрос, верни insufficient_evidence, не подменяй его соседним фактом.
+Ограничение «влияние на компанию не подтверждено» помещай только в gaps/warnings,
+не создавай для него claim с одними context evidence. Summary пересказывает только
+подтверждённые claims о событии; ограничения не добавляй в summary или bank_view.
+Каждое evidence с ролью support должно действительно подтверждать claim: нельзя
+переименовать context в support только ради прохождения схемы.
 При initial/reanalyze успешный ответ обязан содержать insight, а message=null.
 Не создавай conversation_id/parent_message_id для initial/reanalyze.
 Если оснований недостаточно — выбери insufficient_evidence с gaps. При follow_up верни message,
@@ -109,6 +144,8 @@ class AnalysisAgent:
             )
             _assign_result_ids(request, response)
             validate_contract_message(response, "AnalysisResponse")
+            ensure_attributed_support(response, chunks)
+            ground_insight_summary(response)
         except ModelCallError as exc:
             raise AgentExecutionError(str(exc), exc.code, exc.retryable) from exc
         except (AnalysisRequestError, OutputVerificationError, ValueError, TypeError) as exc:
@@ -139,6 +176,18 @@ class AnalysisAgent:
             ) from exc
         response["warnings"].extend(report.warnings)
         return response
+
+
+def ground_insight_summary(response: dict[str, Any]) -> None:
+    """Generate summary from candidate claims before verification, never after it.
+
+    Claims, their knowledge types, evidence and limitations remain untouched.
+    Every copied statement must still pass the mandatory semantic verifier.
+    """
+    if response['status'] == 'succeeded' and response['insight'] is not None:
+        response['insight']['summary'] = ' '.join(
+            claim['claim_text'] for claim in response['insight']['claims']
+        )
 
 
 def _assign_result_ids(request: dict[str, Any], response: dict[str, Any]) -> None:
@@ -210,6 +259,7 @@ def _build_payload(
         "context": request["context"],
         "event": request["event"],
         "evidence_chunks": chunks,
+        "citation_candidates": _citation_candidates(chunks),
         "allowed_chunk_ids": [chunk["chunk_id"] for chunk in chunks],
         "allowed_profile_feature_ids": [
             feature["id"] for feature in request["context"]["profile_features"]
@@ -237,12 +287,36 @@ def _build_payload(
     return payload
 
 
+def _citation_candidates(chunks: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Copy source paragraphs as citation choices; never repair generated quotes.
+
+    Trimming only the boundaries preserves every interior character and therefore
+    substring identity, including OCR spacing, newlines and numeric punctuation.
+    These are quotation choices, not a claim that a paragraph proves the event.
+    """
+    return [
+        {"chunk_id": chunk["chunk_id"], "quote_text": paragraph.strip()}
+        for chunk in chunks
+        for paragraph in chunk["chunk_text"].split("\n\n")
+        if paragraph.strip()
+    ]
+
+
 def _analysis_response_schema(request_type: str) -> dict[str, Any]:
     import json
     from pathlib import Path
 
     schema_path = Path(__file__).resolve().parents[1] / "docs/ml/contracts/v1/contracts.schema.json"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    result_field = 'message' if request_type == 'follow_up' else 'insight'
+    # Express the existing verifier rule in generation's request-specific schema.
+    # This constrains drafting only; it never adds or relabels output evidence.
+    claim_support = {
+        'properties': {'claims': {'items': {'properties': {'evidence': {
+            'contains': {'type': 'object', 'required': ['evidence_role'],
+                         'properties': {'evidence_role': {'const': 'support'}}},
+        }}}}},
+    }
     return {
         "$schema": schema["$schema"],
         "$defs": schema["$defs"],
@@ -252,6 +326,6 @@ def _analysis_response_schema(request_type: str) -> dict[str, Any]:
             "then": {"properties": {
                 "insight": {"type": "null" if request_type == 'follow_up' else "object"},
                 "message": {"type": "object" if request_type == 'follow_up' else "null"},
-            }},
+            }, 'allOf': [{'properties': {result_field: claim_support}}]},
         }],
     }

@@ -84,6 +84,7 @@ func run() error {
 		defer readPool.Close()
 		userStore.SetCorpusPool(readPool)
 	}
+	userStore.ConfigureDemo(os.Getenv("DEMO_INSIGHT_SET_VERSION"))
 	userStore.ConfigureML(cfg.MLBaseURL, cfg.MLServiceToken, os.Getenv("ML_ANALYSIS_CONFIG_VERSION"))
 	analysisCtx, stopAnalyses := context.WithCancel(ctx)
 	analysisDone := make(chan struct{})

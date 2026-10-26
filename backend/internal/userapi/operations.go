@@ -358,7 +358,7 @@ func (s *PostgresStore) runAnalysis(ctx context.Context) error {
 	var created time.Time
 	var attempts int
 	e := s.pool.QueryRow(ctx, `UPDATE request_operations SET state='RUNNING',lease_token=gen_random_uuid(),lease_until=now()+($1::double precision*interval '1 second'),attempts=attempts+1,updated_at=now()
- WHERE id=(SELECT id FROM request_operations WHERE state IN ('QUEUED','RUNNING') AND next_attempt_at<=now() AND(lease_until IS NULL OR lease_until<now()) ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
+ WHERE id=(SELECT id FROM request_operations WHERE demo_set_version IS NULL AND state IN ('QUEUED','RUNNING') AND next_attempt_at<=now() AND(lease_until IS NULL OR lease_until<now()) ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1)
  RETURNING id::text,lease_token::text,request_snapshot,ml_analysis_id,created_at,attempts`, s.settings().ML.Lease.Std().Seconds()).Scan(&gid, &token, &requestData, &mlID, &created, &attempts)
 	if errors.Is(e, pgx.ErrNoRows) {
 		return errNoAnalysis

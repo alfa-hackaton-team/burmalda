@@ -1,5 +1,6 @@
 """The model sees the same request-specific response shape as the validator."""
 import unittest
+from copy import deepcopy
 
 from jsonschema import Draft202012Validator
 from ml_runtime.agent import _analysis_response_schema
@@ -22,6 +23,17 @@ class AgentResponseShapeTests(unittest.TestCase):
             validator = Draft202012Validator(_analysis_response_schema(request_type))
             for name in ('analysis.insufficient.json', 'analysis.failed.json'):
                 self.assertTrue(validator.is_valid(load_fixture(name)), (request_type, name))
+
+    def test_generation_schema_rejects_context_only_claims(self):
+        for request_type, fixture, field in (
+            ('initial', 'analysis.ok.json', 'insight'),
+            ('follow_up', 'follow_up.ok.json', 'message'),
+        ):
+            response = deepcopy(load_fixture(fixture))
+            for evidence in response[field]['claims'][0]['evidence']:
+                evidence['evidence_role'] = 'context'
+            validator = Draft202012Validator(_analysis_response_schema(request_type))
+            self.assertFalse(validator.is_valid(response), request_type)
 
 
 if __name__ == '__main__':

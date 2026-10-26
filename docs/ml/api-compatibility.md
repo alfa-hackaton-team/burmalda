@@ -80,3 +80,18 @@ Sections ссылаются только на существующие claim_ids
 ## Приёмка адаптера
 
 До I05 проверить: преобразование AI_INFERENCE/action и FORECAST/impact без потери смысла; отображение partial support и assumptions; реальные provenance и банковские источники; восстановление сохранённого разбора после рестарта; отсутствие второго запуска/набора evidence при повторе; совпадение публичного ответа с публичной схемой. Проверка fixtures ML не заменяет эти тесты будущего адаптера.
+
+## Explicit demo precompute
+
+`backend/cmd/precompute` runs the existing synchronous Python `AnalysisService`
+with the production `LLMSemanticVerifier`; it does not require or introduce an
+analysis HTTP service. The command persists the exact agent evidence alongside
+`AnalysisResponse`, then reuses Go's public DTO projection. The existing
+`GET /v0.1/insights/{insight_id}` reads only PostgreSQL. A bounded discovery route,
+`GET /v0.1/contexts/{context_id}/insights`, lists up to 100 compatible saved
+Insights from the server-selected `DEMO_INSIGHT_SET_VERSION`.
+
+Optional source metadata on public `MaterialEvidence` preserves the exact URL,
+title, source name, role, type and trust level from that analysis snapshot.
+The public Insight remains distinct from the internal AnalysisResponse.
+See [runbook](../operations/precomputed-insights.md) for freshness and failures.

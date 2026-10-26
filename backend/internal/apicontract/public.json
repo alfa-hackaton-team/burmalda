@@ -289,6 +289,30 @@
           "fetched_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "canonical_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "source_name": {
+            "type": "string"
+          },
+          "source_role": {
+            "type": "string",
+            "enum": [
+              "external",
+              "bank",
+              "expert"
+            ]
+          },
+          "source_type": {
+            "type": "string"
+          },
+          "trust_level": {
+            "type": "string"
           }
         },
         "additionalProperties": false,
@@ -775,6 +799,22 @@
           "limitations",
           "model_config_ref"
         ]
+      },
+      "PreparedInsightList": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "maxItems": 100,
+            "items": {
+              "$ref": "#/components/schemas/Insight"
+            }
+          }
+        }
       },
       "Insight": {
         "type": "object",

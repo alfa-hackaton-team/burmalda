@@ -2,6 +2,7 @@ package userapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"time"
@@ -25,6 +26,10 @@ func (s *PostgresStore) chunk(ctx context.Context, chunkID string) (object, erro
 	return out, nil
 }
 func (s *PostgresStore) project(ctx context.Context, gid string, request, response object) (object, []any, error) {
+	return s.projectEvidence(ctx, gid, request, response, nil)
+}
+
+func (s *PostgresStore) projectEvidence(ctx context.Context, gid string, request, response object, exact []any) (object, []any, error) {
 	result := obj(response["insight"])
 	if request["request_type"] == "follow_up" {
 		result = obj(response["message"])
@@ -39,6 +44,10 @@ func (s *PostgresStore) project(ctx context.Context, gid string, request, respon
 		features[str(f["id"])] = f
 	}
 	knownChunks := map[string]object{}
+	for _, v := range exact {
+		c := obj(v)
+		knownChunks[str(c["chunk_id"])] = c
+	}
 	if follow := obj(request["follow_up"]); follow != nil {
 		for _, v := range array(obj(follow["initial_insight"])["chunks"]) {
 			c := obj(v)
@@ -87,6 +96,9 @@ func (s *PostgresStore) project(ctx context.Context, gid string, request, respon
 				chunkID := str(ev["chunk_id"])
 				c := knownChunks[chunkID]
 				if c == nil {
+					if exact != nil {
+						return nil, nil, fail(502, "INVALID_ML_RESPONSE", "evidence is outside the analysis snapshot")
+					}
 					var e error
 					c, e = s.chunk(ctx, chunkID)
 					if e != nil {
@@ -104,7 +116,11 @@ func (s *PostgresStore) project(ctx context.Context, gid string, request, respon
 						bankSupport = true
 					}
 				}
-				evidence = append(evidence, object{"evidence_id": evid, "evidence_type": typ, "reference": object{"source_id": c["source_id"], "document_version_id": c["document_version_id"], "chunk_id": chunkID}, "excerpt": quote, "published_at": c["published_at"], "fetched_at": c["retrieved_at"]})
+				material := object{"evidence_id": evid, "evidence_type": typ, "reference": object{"source_id": c["source_id"], "document_version_id": c["document_version_id"], "chunk_id": chunkID}, "excerpt": quote, "published_at": c["published_at"], "fetched_at": c["retrieved_at"], "title": c["title"], "source_name": c["source_name"], "source_role": c["source_role"], "source_type": c["source_type"], "trust_level": c["trust_level"]}
+				if url := str(c["canonical_url"]); url != "" {
+					material["canonical_url"] = url
+				}
+				evidence = append(evidence, material)
 				if !usedChunks[chunkID] {
 					chunks = append(chunks, c)
 					usedChunks[chunkID] = true
@@ -199,7 +215,17 @@ func (s *PostgresStore) project(ctx context.Context, gid string, request, respon
 	return out, chunks, nil
 }
 func (s *PostgresStore) saveAnalysis(ctx context.Context, gid, token string, request, response object) error {
-	projected, chunks, e := s.project(ctx, gid, request, response)
+	return s.saveAnalysisEvidence(ctx, gid, token, request, response, nil)
+}
+
+func (s *PostgresStore) saveAnalysisEvidence(ctx context.Context, gid, token string, request, response object, exact []any) error {
+	if response["status"] != "succeeded" || obj(response["insight"]) == nil && request["request_type"] != "follow_up" {
+		return fail(502, "INVALID_ML_RESPONSE", "analysis is not successful")
+	}
+	if request["request_type"] != "follow_up" && obj(response["insight"])["status"] != "verified" {
+		return fail(502, "INVALID_ML_RESPONSE", "insight is not verified")
+	}
+	projected, chunks, e := s.projectEvidence(ctx, gid, request, response, exact)
 	if e != nil {
 		return e
 	}
@@ -215,8 +241,18 @@ func (s *PostgresStore) saveAnalysis(ctx context.Context, gid, token string, req
 	if e != nil {
 		return e
 	}
-	if _, e = contextFrom(ctx, tx, user, str(c["business_context_id"])); e != nil {
+	current, e := contextFrom(ctx, tx, user, str(c["business_context_id"]))
+	if e != nil {
 		return e
+	}
+	if string(raw(mlContext(current))) != string(raw(c)) || current["_status"] != "active" {
+		return fail(409, "CONFLICT", "analysis context changed")
+	}
+	if exact != nil {
+		fingerprint := sha256.Sum256(raw(exact))
+		if _, e = tx.Exec(ctx, `UPDATE request_operations SET evidence_snapshot=$3,evidence_fingerprint=$4 WHERE id=$1::uuid AND lease_token=$2::uuid`, gid, token, raw(exact), fingerprint[:]); e != nil {
+			return e
+		}
 	}
 	var iid, mid any
 	if request["request_type"] == "follow_up" {

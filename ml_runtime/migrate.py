@@ -105,6 +105,9 @@ def grant_runtime_access(connection_factory: Callable[[], Any], role: str) -> No
                             "ON ml.article_processings TO {}")
                     .format(sql.Identifier(role))
                 )
+                cursor.execute(sql.SQL(
+                    "GRANT SELECT, INSERT, UPDATE ON ml.follow_up_operations TO {}"
+                ).format(sql.Identifier(role)))
                 cursor.execute(sql.SQL('GRANT SELECT, INSERT, UPDATE ON ml.analysis_operations TO {}')
                                .format(sql.Identifier(role)))
                 cursor.execute(sql.SQL('GRANT SELECT, INSERT, DELETE ON ml.ranking_snapshots TO {}')
